@@ -1,0 +1,39 @@
+{
+ "truncated_conflict_body_horror_seed11": {
+  "file": "truncated_conflict_body_horror_seed11.png",
+  "thumb": "thumbs/truncated_conflict_body_horror_seed11.jpg",
+  "tag": "truncated_conflict_body_horror_seed11",
+  "gen": 0,
+  "category": "truncated",
+  "prompt_name": "conflict_body_horror",
+  "prompt_type": "conflict",
+  "prompt": "trentbuckle style, close-up face mid-transformation, skin splitting to reveal clawed fingers pushing through the cheek, dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, thick acrylic dry-brush texture, raw outsider-art painting",
+  "strength": 1,
+  "cfg": 7.5,
+  "seed": 11,
+  "steps": 8,
+  "sampler": "euler_ancestral",
+  "negative": "low quality, blurry, watermark",
+  "faith": 0.2846,
+  "novelty": 0.5362,
+  "sim": [
+   "truncated_conflict_human_face_seed11",
+   "gen15_explore_19_seed913124",
+   "gen18_explore_28_seed252694",
+   "gen13_explore_22_seed690538",
+   "grid_s0.6_c7.5_conflict_human_face_seed22",
+   "grid_s0.6_c12.0_conflict_human_face_seed22",
+   "gen2_explore_14_seed634578",
+   "gen1_explore_6_seed320483",
+   "gen10_explore_19_seed550440",
+   "gen2_explore_1_seed36419",
+   "gen23_explore_6_seed247180",
+   "gen44_explore_13_seed886285",
+   "grid_s1.0_c7.5_conflict_human_face_seed22",
+   "gen2_explore_2_seed173708",
+   "grid_s1.8_c12.0_conflict_human_face_seed22",
+   "gen27_explore_4_seed838650"
+  ],
+  "favorited_at": "2026-07-09T20:37:03.249474+00:00"
+ }
+}

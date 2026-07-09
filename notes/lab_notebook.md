@@ -117,19 +117,50 @@ step exists because of that review, it says so.
    near zero, so the probe never sees the part of training the cosine schedule is named for.
    260 steps lets the LR complete one full ramp-down, a much closer match to what happens by
    the end of any single cycle in the real 780-step run, at roughly 12-16 minutes per probe
-   instead of 6-10. Each direction gets **8 replicates** (different seeds) -- not the earlier
-   3-4 guess, see the derivation below -- since fewer can't reliably separate a real effect
+   instead of 6-10. Each direction gets **8 replicates** (different seeds, not the earlier
+   3-4 guess, see the derivation below), since fewer can't reliably separate a real effect
    from noise at the effect size actually worth acting on. Control probes (current-best
    config, seeds only) get pooled across rounds rather than re-measured each time, since the
    pooled estimate only improves as more accumulate.
 
    **Note:** the noise floor and n=8 derivation below were measured at the old 156-step probe
    length (`control_156`/`controlB_156`.../`controlH_156`, 8 replicates). That data stays as a
-   permanent record of the calibration finding, but it does not carry over to 260-step probes
-   -- noise floor is a property of probe length, since a longer probe gives the model more
+   permanent record of the calibration finding, but it does not carry over to 260-step probes:
+   noise floor is a property of probe length, since a longer probe gives the model more
    steps to converge and likely changes how much seed-to-seed variance remains. Round 1's real
    noise floor needs a fresh batch of 260-step control replicates before probing starts for
    real.
+
+   **Note added 2026-07-09: paired training seeds, not just pooled ones.** `train_probe.py`
+   never pinned a training seed (kohya's `set_seed` is skipped whenever `--seed` is omitted), so
+   every probe run so far, including the calibration checkpoints and all 8 `control_*_156`
+   noise-floor replicates, got an uncontrolled, different LoRA weight init and batch-shuffle
+   order every time (confirmed by reading kohya's source: `set_seed` covers `random`/`numpy`/
+   `torch.manual_seed`/`cuda.manual_seed_all`, and the DataLoader's `shuffle=True` draws from
+   that same global torch RNG with no separate generator, so a single seed value pins both init
+   and shuffle order together). Generation was already held fixed (`gen_samples.py` always uses
+   `--seed 42`), so all of the measured noise floor is training-seed variance, nothing else.
+
+   From round 1 onward, `train_probe.py` accepts `--seed`, and every direction (including
+   control) reuses the same fixed list of 8 seeds (`CANONICAL_SEEDS` in that script) so replicate
+   *i* of any direction shares its training seed with replicate *i* of control. This turns the
+   comparison into a genuinely paired design: the delta at each seed index cancels out the
+   shared init/shuffle-order variance, rather than just averaging over it, which should tighten
+   the paired-delta variance and could lower the n needed for a given effect size once measured.
+   Pinning a *single* global seed for every run instead was considered and rejected: it would
+   collapse replication to n=1 and risk mistaking one seed's lucky interaction with a
+   hyperparameter for a real effect. The `control260A`-`H` batch (launched before this decision)
+   used unpinned seeds, so it stays useful as a raw/unpaired 260-step noise-floor reference, but
+   round 1's real probe phase uses the paired-seed design above.
+
+   **Done, 2026-07-09: scored `control260A`-`H`.** Checkpoint-mean stdev across the 8 unpaired
+   260-step replicates is **0.0279**, not larger than the 0.035 measured at 156 steps. This
+   confirms the one open risk in carrying the n=8/0.05-cosine derivation forward unchanged
+   (that noise might grow with probe length) didn't happen; if anything the 260-step floor
+   looks slightly tighter. Caveat raised by an external reviewer (Fable, see the review-summary
+   log entry below): at n=8 a standard deviation estimate carries roughly 25% relative
+   uncertainty on its own, so 0.0279 and 0.035 are not statistically distinguishable from each
+   other. Read this as "not obviously worse," not "noise got smaller."
 
 3. **Selection rule: a real statistical test, not "beats the floor."** Score every probe on the
    same fixed prompt/seed slots so each direction's replicates and the pooled controls can be
@@ -160,12 +191,25 @@ step exists because of that review, it says so.
 
    **Done, 2026-07-09** (see the lab log entry below for the full numbers): the noise floor
    measured from 3 control_156 replicates turned out bigger than the original 0.02-cosine
-   effect floor could ever clear -- at n=8 replicates, a true 0.02 effect is only detected 24%
+   effect floor could ever clear: at n=8 replicates, a true 0.02 effect is only detected 24%
    of the time, no matter how many more replicates get added within a practical budget. The
    effect-size floor that step 3 actually enforces is revised to **0.05 cosine, not 0.02**,
-   and round 1's replicate count is set to **n=8** (84% power at 0.05, 98%+ at 0.08 -- the
+   and round 1's replicate count is set to **n=8** (84% power at 0.05, 98%+ at 0.08, the
    scale of gaps actually seen in the calibration table, e.g. dim64's ~0.06 gap from the other
    three directions, constlr's ~0.10 probe-to-full swing).
+
+   **Note added 2026-07-09: paired seeds make a separately-measured noise floor optional, not
+   required.** A sign-flip permutation test builds its null distribution from the very deltas
+   under test. Given a direction's 8 paired deltas (`direction_score[seed_i] -
+   control_score[seed_i]`, same seed on both sides via `CANONICAL_SEEDS`), the test asks how
+   often random sign-flips of those same 8 numbers would produce a mean this large. It never
+   needs an externally-measured floor constant to run. That constant was only ever a stand-in for
+   two side calculations: the practical effect-size floor (still worth a working number, 0.05
+   cosine, but it can come from round 1's own paired deltas rather than a dedicated batch) and
+   the replicate count n (n=8 was derived from unpaired noise; pairing can only shrink variance,
+   never grow it, so n=8 is if anything safer than that derivation implied). Practical
+   consequence: the `control260A`-`H` unpaired batch is a useful reference, not a gate. Round 1's
+   real probe phase does not need to wait on a fresh unpaired-floor measurement first.
 
 4. **Commit phase.** The single best-ranked direction from step 3 gets one full 780-step
    retrain.
@@ -230,6 +274,149 @@ serially. This is the direct, unavoidable cost of the effect-size floor moving f
 0.05 cosine: a smaller detectable effect needs proportionally more replicates to see reliably,
 and 0.02 was never achievable at any practical n given the measured noise (see step 3's note
 above and the 2026-07-09 log entry).
+
+**Candidate direction slate for round 1, proposed 2026-07-09, not yet approved.** Baseline
+config: `network_dim=32, network_alpha=16, unet_lr=1e-4, text_encoder_lr=5e-5, min_snr_gamma=5,
+clip_skip=2, cosine schedule x3 cycles`. Eight directions proposed, triaged by "genuinely
+uncertain, worth an 8-replicate probe" rather than re-testing settled defaults:
+
+| # | Direction | Change | Why it's uncertain |
+|---|---|---|---|
+| 1 | `alpha32` | `network_alpha=32` (alpha=dim) | Only `dim` has been probed (dim64, worst at both lengths); `alpha` alone, which controls how much the LoRA's learned change is scaled down before being added to the base model, is untested |
+| 2 | `dim16` | `network_dim=16, network_alpha=8` | dim64 was worse than dim32; checks whether smaller keeps helping or reverses |
+| 3 | `snr1` | `min_snr_gamma=1` | Stronger loss-reweighting; brackets whether gamma=5 is actually near-optimal |
+| 4 | `snr20` | `min_snr_gamma=20` | Much weaker reweighting (near-off); brackets from the other side |
+| 5 | `clipskip1` | `clip_skip=1` | clip_skip=2 is an SD1.5-era convention; unclear it means the same thing for SDXL's two text encoders |
+| 6 | `telr_match` | `text_encoder_lr=1e-4` (matches unet_lr) | Currently pinned at half of unet_lr, untested untied |
+| 7 | `telr_freeze` | `text_encoder_lr=0` | Tests whether the text encoder needs training at all for this style |
+| 8 | `cycles1` | `lr_scheduler_num_cycles=1` | Single decay to zero instead of 3 restarts over 780 steps |
+
+**Caveat on `cycles1`, flagged by an external reviewer (Fable) and not yet resolved:** the whole
+justification for a 260-step probe length is "one full cosine cycle" (780 steps / 3). A direction
+that changes `lr_scheduler_num_cycles` to 1 has a 780-step cycle, so a 260-step probe of *that
+specific direction* would cut it off mid-decay, exactly the failure mode step 1's calibration
+check was built to catch for `constlr`. Before probing `cycles1` at 260 steps, either give it its
+own full-780-step probe length, or drop it from probe-based screening and test it only at commit
+phase.
+
+**Not included:** `lr_scheduler_num_cycles` values above 3 (adds cost with no clear rationale for
+a 780-step run), and no further `min_snr_gamma`/`clip_skip` variants beyond the two brackets each
+above, since both hyperparameters already sit at common community defaults.
+
+---
+
+## 3b. Exploratory side branch: mapping the style's frontier (idea only, not started)
+
+Everything above optimizes one thing: make generations score as close as possible to the real
+style's centroid, i.e. pure imitation. A different, complementary question came up in review
+(external reviewer Fable, 2026-07-09): within the space of prompts and generation settings for
+the same fine-tuned style, where are the outputs that are recognizably *in the style* but
+surprising or unsettling rather than safe reproductions, and can that region be searched for on
+purpose instead of stumbled into by accident?
+
+**The idea, in plain terms:** the same DINOv2 centroid-similarity scorer already built for round
+1 can be read two ways at once. Score every candidate image on two axes: how close it is to the
+real-art centroid (stay in a band that still reads as the style, not off-style noise), and how
+far it is from the *single nearest* real training image (maximize this, as a novelty measure). A
+"liminal band," e.g. centroid similarity around 0.55-0.70 if faithful outputs score ~0.80 and
+off-style garbage scores ~0.40 (illustrative numbers only, not measured yet), is the region worth
+mapping: still CLAWMARKS, but far from any one specific training image.
+
+**Search method suggested: MAP-Elites**, a technique from the *quality-diversity* branch of
+evolutionary computation (a subfield of computer science under optimization/AI that searches by
+maintaining and varying a population of candidates, rather than following a single gradient).
+Ordinary optimization asks "what is the single best output." Quality-diversity search asks "what
+is the best output *for every distinct kind of output*," and returns a whole map rather than one
+winner. Concretely: divide the two-axis space above into a grid of bins, generate broadly (varied
+prompts and settings), and keep only the single best-scoring image per bin. The result is a
+contact sheet that doubles as an atlas of the style's frontier, faithful reproductions in one
+corner, increasingly strange-but-recognizable outputs fanning out toward the others, rather than
+a single "winner" that tells you nothing about the shape of the space around it.
+
+**Concrete knobs floated to drive generation for this search** (not yet tried), each tied to a
+mechanical reason it should push toward the band rather than the centroid:
+- **LoRA strength overdrive** (weight 1.4-1.8x instead of the normal 1.0, or negative) to
+  extrapolate past the learned style rather than reproduce it exactly; per-block weighting
+  (applying the LoRA only to some of the model's internal blocks) to separate "texture" from
+  "composition" effects.
+- **CFG extremes**: very low classifier-free-guidance scale (1-2.5) lets the generation drift
+  toward the base model's own distribution, now flavored by the LoRA, rather than tightly
+  following the prompt; very high (18+) over-sharpens and can break composition.
+- **Conflicted conditioning**: prompt for subjects the LoRA never saw during training (the real
+  set is animal portraits only), or interpolate between a style-typical prompt and an unrelated
+  one and render the midpoints.
+- **Truncated generation trajectories**: very few sampling steps, low-denoise image-to-image, or
+  generating from the half-trained 156/260-step probe checkpoints already sitting on disk from
+  round 1's calibration and noise-floor work, which learned the paper/mark-making texture before
+  they learned full compositions.
+
+**Standing hygiene rule if this ever gets picked up:** exploration outputs must never be folded
+into the real-image reference set the centroid is built from, and this stays its own separate
+thread from the 5-round hyperparameter sweep, not mixed into any round's probing.
+
+**Status, 2026-07-09: run and concluded.** The idea above went from proposal to a full overnight
+search in one session. What actually happened, and what it found, follows. This section keeps the
+original proposal above as-written for the record; results live here rather than rewriting the
+proposal after the fact.
+
+**What ran.** `notes/run_uncanny_sweep.py` first generated a fixed 452-image grid (5 style prompts
+x 8 conflicted prompts, 4 LoRA strengths x 4 CFG values, 2 seeds, plus a negative-trigger arm and a
+truncated-trajectory arm) against the existing serverless endpoint. This became "generation 0" of
+an adaptive follow-on, `notes/run_uncanny_allnight.py`: a checkpointed loop that scores every image
+with DINOv2 (centroid similarity = faithfulness, 1 minus nearest-real-image similarity = novelty),
+rebuilds a descriptor-grid gallery after every batch, and generates the next batch as a mix of
+"exploit" (small strength/CFG mutations near the current best liminal-band images) and "explore"
+(fresh subject/texture prompt recombinations). This is descriptor binning with every image kept per
+bin, not true MAP-Elites (no automated coherence scorer exists to pick one elite per bin, so a human
+still has to curate the gallery by eye), consistent with the honest framing already used for the
+original idea.
+
+The loop also implements a two-stage self-improvement ladder for when novelty plateaus (no
+improvement greater than 0.01 over 3 generations): stage 1 widens the built-in subject/texture
+vocabulary and strength/CFG ranges; stage 2, if that also plateaus, hands subject-idea generation to
+GPT-5.5 via a one-shot non-interactive `opencode run` call, so fresh creative variety doesn't depend
+on the script's own fixed lists. Budget guard: stop once cumulative spend crosses $8.50 (a $1.50
+safety margin under the $10 cap), checked against the real RunPod account balance before every
+generation, plus a 7.5-hour wall-clock cap as a backstop.
+
+**Infrastructure hiccup before the run started:** the RunPod serverless endpoint was found wedged
+before launch, test jobs sitting in `IN_QUEUE` forever despite idle workers available. Root cause:
+the account balance had gone negative (-$0.099) from the earlier work that session, and RunPod's
+dispatcher silently refuses to hand work to a negative-balance account rather than erroring, which
+made a billing problem look like a hung endpoint. Fixed by the user adding funds; confirmed healthy
+with a real test job before committing to an unattended overnight run.
+
+**Results.** The loop ran 49 generations over 2.28 hours, 3392 total images, and stopped exactly on
+its own budget guard at $8.58 spend (comfortably under the $10 cap, none of it wasted on the earlier
+wedged-endpoint jobs since those never completed and weren't billed). Liminal-band novelty (the
+score this search exists to push up) moved 0.8143 (generation 0 baseline) -> 0.8264 -> 0.8273 ->
+0.8352 -> 0.8356 -> 0.8396, then held flat at 0.8396 from generation 26 through generation 49, the
+last 23 generations straight, despite both rungs of the self-improvement ladder firing on schedule:
+a vocabulary/range widening after the first plateau (generation 6), then a GPT-5.5 handoff after the
+second (generation 7), which worked cleanly, returning 15 genuinely fresh uncanny-scene ideas (e.g.
+"public restroom mirror showing one extra sink reflection," "subway platform clock stopped, train
+lights approaching slowly"). Those ideas did move the needle, novelty ticked up through three real
+steps (0.827 -> 0.836 -> 0.840) right after they entered the pool, but the gain topped out there and
+no further escalation exists past stage 2, so the remaining ~1900 images generated after generation
+26 explored the same plateaued region without finding anything past it.
+
+**Honest read for the whitepaper:** the novelty gain from creative reinforcement was real, not
+noise, but small and short-lived. Two candidate explanations, neither confirmed: (1) this specific
+style, at these settings, may simply have a fairly low novelty ceiling under the current LoRA, the
+liminal band it can support without breaking faithfulness is narrower than the original proposal's
+illustrative numbers assumed; or (2) the exploit/explore split (half of every batch mutates near
+existing high scorers) may have been too exploit-heavy once the pool filled with similar winners,
+starving exploration of the room it needed to find a genuinely different region rather than a
+refinement of the same one. Distinguishing these needs a follow-up run with a more explore-heavy
+mix and no comparison to this run's already-explored region, not yet done, worth doing before
+citing a novelty ceiling as a real finding rather than an artifact of this run's search bias.
+
+**Deliverables:** `notes/uncanny_sweep/gallery.html` (3392 images across the faithfulness x novelty
+descriptor grid, served locally over the tailnet during the run), plus `notes/uncanny_sweep/
+scored_manifest.json` (full per-image metadata and scores) and `notes/uncanny_sweep/
+allnight_state.json` (full generation-by-generation novelty history and the GPT-5.5 subject list).
+Final curation of the liminal-band highlights is still a human task, per this section's standing
+rule that these scores filter, they don't verdict.
 
 ---
 
@@ -351,6 +538,14 @@ prompts × 3-4 seeds across epoch 2/4/final) that the real retrain later used.
   its teardown; terminate it only when no more generation is planned.
 - RunPod API key: not stored in any durable config file. It has lived only in session
   transcripts; grep prior `.jsonl` transcripts to recover it if lost.
+- **Pod idle policy: pause (`podStop`), don't terminate, once a batch finishes and the pod is
+  sitting idle.** Pausing keeps the pod and its disk intact and drops billing to storage-only
+  cost; terminating destroys the pod and its ephemeral disk permanently and changes the next
+  pod's SSH host/port, requiring `rpssh.py`/`rpssh2.py`-style helpers to be re-pointed. Reserve
+  terminate for a pod that's genuinely done and won't be reused. The `runpod-status` skill
+  (`~/.claude/skills/runpod-status/`) and this project's `CLAUDE.md` both encode this now; check
+  idle status proactively (GPU utilization + matching process, not just the dashboard label)
+  any time pod state is even tangentially relevant, not only when asked.
 
 ### Gotcha log
 
@@ -541,13 +736,13 @@ large relative to the score range in this table. Measuring the real noise floor 
 progress, needs pooled control-only replicates) would let the control/lr2e4 swap specifically be
 called noise or real, rather than shrugged at.
 
-### 2026-07-09: Noise floor measured, replicate count (n) derived -- effect-size floor revised from 0.02 to 0.05
+### 2026-07-09: Noise floor measured, replicate count (n) derived, effect-size floor revised from 0.02 to 0.05
 
 Trained two more `control_156` replicates (`controlB_156`, `controlC_156`), identical config to
 `control_156`, different random seed only (`train_probe.py` never pins a training seed, so
 re-running the same config naturally gives an independent replicate). Generated the same 4
-fixed-prompt samples for both (`notes/gen_samples.py`, a new reusable script -- reconstructs the
-exact `sdxl_gen_img.py` invocation used for every other checkpoint this round: seed 42, 28-step
+fixed-prompt samples for both (`notes/gen_samples.py`, a new reusable script that reconstructs
+the exact `sdxl_gen_img.py` invocation used for every other checkpoint this round: seed 42, 28-step
 DDIM, scale 7.5, 1024x1024, same 4 prompt lines from `/tmp/art_prompts_base_v2.txt`) and scored
 all three against the centroid.
 
@@ -564,11 +759,11 @@ Checkpoint-mean spread across the 3 replicates: 0.4634, 0.4030, 0.4012 (stdev 0.
 pairwise diff 0.0621).
 
 Two things stand out. First, the **horse prompt is dramatically noisier than the other three**
-(stdev 0.103, more than double cat's 0.060 and nearly 4x wolf-cat's 0.027) -- likely because
+(stdev 0.103, more than double cat's 0.060 and nearly 4x wolf-cat's 0.027), likely because
 "galloping horse" is further from the training distribution (all 31 real images are cats) than
 the other three prompts, so its generations land less predictably seed to seed. Second, and
 more consequential: **the checkpoint-mean noise floor (stdev ~0.035, max observed swing 0.062)
-is bigger than the 0.02-cosine effect-size floor the methodology had assumed** -- meaning that
+is bigger than the 0.02-cosine effect-size floor the methodology had assumed**, meaning that
 threshold was never something a real probe-phase comparison could reliably clear, at any
 practical replicate count.
 
@@ -582,10 +777,10 @@ trials x 2000 permutations each, per-prompt noise variance from the table above,
 | 0.05 | 44% | 54% | 74% | 84% |
 | 0.08 | 78% | 89% | 98% | 100% |
 
-0.02 is undetectable at any practical n (24% power even at n=8 -- adding more replicates helps
+0.02 is undetectable at any practical n (24% power even at n=8; adding more replicates helps
 only slowly). **Decision: raise the effect-size floor from 0.02 to 0.05 cosine, and set round
 1's replicate count to n=8** (84% power at 0.05, 98%+ at the scale of gaps actually seen in the
-calibration table -- dim64's ~0.06 gap, constlr's ~0.10 swing). Updated Section 3 steps 2-3 and
+calibration table: dim64's ~0.06 gap, constlr's ~0.10 swing). Updated Section 3 steps 2-3 and
 the budget estimate accordingly: n=8 x ~10 directions per round raises probing alone to 8-13
 GPU-hours per round, not the earlier 80-110 minutes, so total budget across 5 rounds plus
 calibration moves from an estimated 11-13 hours to **45-70 hours**, worth running on two pods in
@@ -594,8 +789,273 @@ parallel as calibration already did.
 Also worth flagging for later interpretation: this noise-floor estimate itself comes from only
 3 replicates (2 degrees of freedom), so it is a rough estimate with real uncertainty of its
 own, not a precise population parameter. Revisit it once round 1's pooled control probes (8 more
-replicates) accumulate -- the true floor could turn out somewhat higher or lower once more data
+replicates) accumulate: the true floor could turn out somewhat higher or lower once more data
 exists.
 
 Terminated pod 2 (`9e64aw56psou89`) once `constlr_780` finished downloading; only pod 1
 (`cn0zudkxb89or6`) is running now.
+
+### 2026-07-09: Both pods checked, found idle, terminated; pod-idle policy revised to pause-first
+
+Checked both training pods (`cn0zudkxb89or6` and `iv8iannf63g3cf`) after `control260A`-`H`
+finished: no training process running on either (`ps aux` clean), 0% GPU utilization on both,
+and both hosts' local downloads matched the full expected 8-file `control260*` set, confirming
+neither pod had unfinished work. Terminated both via the RunPod GraphQL `podTerminate` mutation
+and confirmed via `query { myself { pods { id } } }` returning an empty list. No harm done this
+time (all data was already downloaded), but the intended policy going forward is **pause, not
+terminate**, when a pod finishes a batch and isn't about to start another one soon. Updated the
+`runpod-status` skill and this project's `CLAUDE.md` to default to `podStop` (pause: keeps disk,
+drops to storage-only billing) over `podTerminate` (destroys the pod and disk, changes SSH
+host/port on the next one), and to check pod idle state proactively rather than waiting to be
+asked. See Section 5's infra note above for the mechanics.
+
+### 2026-07-09: Scored control260A-H; external methodology review (Opus and Fable) on round 1's plan
+
+Ran `notes/score_probe_samples.py` against the 8 finished `control260A`-`H` checkpoints (see
+Section 3, step 2's note above for the number: stdev 0.0279, not worse than the 156-step
+0.035). This was the one real open risk in carrying the n=8/0.05-cosine floor forward from the
+156-step derivation without re-measuring at 260 steps; it's now checked and held.
+
+Sent the in-progress round-1 plan (methodology through step 3, plus the still-open candidate-
+direction question) to two independent external reviewers for a second opinion before locking
+anything in: Opus (high reasoning effort) and Fable, each given the same background and asked to
+review independently, with Fable additionally shown Opus's reply and asked to react to it plus
+think creatively about a side research question (see Section 3b). Neither reviewer had access to
+this notebook or any project files; both worked from a self-contained prompt. Findings folded in
+rather than kept as a separate critique file, per this project's existing convention (see Section
+3's "External review" note above, from the original GPT-5.5/GLM-5.2 pass):
+
+- **The 0.05 effect-size floor was justified once as pure detectability under unpaired 156-step
+  noise ("0.02 is undetectable, so raise it to 0.05"), not as "this is what a visible style
+  improvement looks like."** Pairing now makes smaller effects detectable, so keeping 0.05 purely
+  out of inertia risks discarding real, visible improvements in the 0.03-0.05 band. Neither
+  reviewer knows of a validated mapping from a DINOv2 cosine-similarity delta to a human-visible
+  difference. Suggested cheap fix, not yet done: pick sample pairs with known score gaps already
+  on disk (e.g. `dim64_780` vs `control_780`, a 0.0995 gap; `lr2e4_780` vs `control_780`, a 0.0315
+  gap) and look at them side by side, unlabeled, to see which gap sizes are actually visible
+  before trusting 0.05 as the right cutoff for round 1.
+- **"Advance only the single best direction" is not a substitute for a real multiple-comparisons
+  correction (Benjamini-Hochberg).** They solve different problems: BH bounds the false-discovery
+  rate across a family of ~10 claims, while taking the argmax of 10 noisy statistics controls
+  nothing and is subject to "winner's curse," the single best-ranked direction looks like a
+  winner even when all 10 are actually null, every time, by construction. Both reviewers'
+  recommendation: keep the significance-plus-effect-size gate first (screen every direction;
+  advance nothing if none pass), and use "take the single best" only as a tie-break *among
+  directions that already passed the gate*, with the full 780-step commit retrain serving as
+  independent confirmation. Reserve full BH correction for any whitepaper claim of the shape "we
+  tested 10, N improved," which is a different (family-wise) claim than "we picked one to
+  commit."
+- **The paired-seed design may not hold for the network_dim/network_alpha direction
+  specifically.** Changing LoRA rank changes the shape of the randomly-initialized weight
+  matrices, which changes how many values get drawn from the shared torch RNG stream during
+  model construction, before the DataLoader's shuffle order is drawn from that same stream. A
+  same-seed control/dim-change pair could desync in shuffle order despite sharing a seed value,
+  which would mean that direction's paired deltas are really unpaired deltas in disguise. Fable's
+  suggested check (cheaper than reading kohya's source top to bottom): log the first ~20 sample
+  filenames per run and diff them between a control replicate and a dim-change replicate on the
+  same seed; if they match, pairing held. Not yet done. Consequence if it doesn't hold: the
+  `alpha32`/`dim16` slate entries (Section 3, candidate slate) get less statistical power than the
+  other six directions, not an invalid result, just a weaker one.
+- **`lr_scheduler_num_cycles` variants need their own probe length.** Caught by Fable, not Opus:
+  a `cycles1` direction's single decay cycle spans the full 780 steps, so a 260-step probe of it
+  would replicate the exact `constlr`-style failure mode step 1's calibration check exists to
+  catch. Folded into the candidate slate's caveat (Section 3).
+- **Mode collapse is a live risk for the centroid metric even with MMD as a cross-check.** DINOv2
+  centroid similarity only measures how close a generated image sits to the *average* of all real
+  images; it has no way to notice if every generation from a given config converges on the same
+  "safest" output, since a collapsed-but-centroid-adjacent set can score as well as, or better
+  than, a genuinely varied one. MMD is structurally more resistant, since its formula includes a
+  generated-vs-generated similarity term that rises toward its maximum under collapse and adds
+  *into* the discrepancy score rather than being invisible to it (matches the existing gen-gen
+  vs. real-real check already run once against `art_batch`, Section 3's metric-upgrade note).
+  But MMD's collapse alarm isn't foolproof: round 1's probes only generate 4 images per
+  checkpoint, small enough that a real diversity drop could still hide in ordinary sampling
+  noise; collapse onto one specific real training image (rather than the abstract centroid) can
+  partly cancel out in the MMD terms; and per-prompt collapse can wash out in an aggregate score
+  across all 4 prompts. The existing "no collapse signature" finding was measured on the original
+  `art_batch` full-length run, not on any of round 1's new candidate directions, so it doesn't
+  automatically carry over to a direction that changes things sharply (e.g. a much lower
+  `min_snr_gamma`). Decision: reuse `notes/mmd_score.py` alongside centroid scoring in round 1's
+  real scoring pass, watching the gen-gen self-similarity term per direction specifically, not
+  just the final MMD^2 number, rather than assuming the earlier check still holds.
+- Also flagged, not yet acted on: pre-register a single summary statistic per direction (which
+  checkpoint, which prompt aggregation) before looking at any scores, to avoid quietly picking
+  the best-looking cut after the fact; and plan one final unbiased end-to-end check (original
+  baseline vs. whatever config wins after all 5 rounds, fresh seeds, on the holdout set) at the
+  very end, to counter the optimistic bias that greedy round-over-round selection accumulates.
+
+**Candidate-direction slate drafted** in response to the open question (8 directions, folded
+into Section 3 above): proposed, not yet approved by the user.
+
+**Liminal-band/uncanny-frontier overnight run, done (Section 3b).** The exploratory side branch
+went from proposal to full run in one session. Found the RunPod serverless endpoint wedged before
+starting (test jobs stuck `IN_QUEUE` with idle workers available); root cause was a negative
+account balance (-$0.099) causing RunPod's dispatcher to silently withhold work rather than error.
+Fixed once the user added funds, confirmed with a real completed test job before committing to an
+unattended run. Launched `notes/run_uncanny_allnight.py`: 49 generations, 2.28 hours, 3392 total
+images, stopped cleanly on its own $8.50 budget guard (of a $10 cap). Liminal-band novelty moved
+0.8143 -> 0.8396 across the run, most of the gain landing right after a plateau-triggered GPT-5.5
+creative handoff supplied 15 fresh uncanny-scene prompts, then flattened for the last 23
+generations with no further escalation available. Real finding, not yet explained: either this
+style has a fairly low novelty ceiling at these settings, or the search's exploit-heavy generation
+mix starved exploration once the pool filled with similar high scorers, needs a follow-up run with
+a more explore-heavy mix to tell apart. Full writeup in Section 3b. Gallery at
+`notes/uncanny_sweep/gallery.html`.
+
+**New idea, not started:** a separate exploratory thread using the same DINOv2 scorer in reverse
+(maximize distance from any single real image while staying inside a "still looks like the
+style" band) plus a MAP-Elites quality-diversity search to map the style's uncanny/liminal
+frontier rather than just its centroid. Written up as Section 3b. Explicitly a side branch, not
+part of the 5-round hyperparameter sweep, and not scoped or budgeted yet.
+
+**Uncanny sweep 2 prompt seed list refreshed.** Wrote
+`notes/uncanny_sweep2/gpt55_subjects.json` with 20 short, concrete subject prompts for testing
+whether the CLAWMARKS style survives across unfamiliar everyday scenes. The list avoids the prior
+used subjects and spreads across spaces, objects, weather, crowds, machines, and architecture so a
+follow-up sweep can probe style generalization rather than repeat the first liminal set.
+
+**Uncanny sweep 2 GPT-5.5 subject list regenerated.** Rewrote
+`notes/uncanny_sweep2/gpt55_subjects.json` with 20 fresh 5-15 word subject prompts that avoid the
+full prior used-subject list. The replacement set deliberately spans small businesses, courts,
+roads, transit, storage, public notices, classrooms, machines, weather, and architecture to stress
+where the fine-tuned style generalizes cleanly and where it dissolves into noise.
+
+**Uncanny sweep 2 GPT-5.5 subject list refreshed again.** Replaced
+`notes/uncanny_sweep2/gpt55_subjects.json` with another 20 short concrete prompts, excluding the
+expanded prior-subject list supplied in chat. This pass emphasizes different everyday categories:
+small shops, sports sites, civic storage, weathered infrastructure, machines, retail displays, and
+ordinary objects arranged in uncanny ways.
+
+### 2026-07-09: Exploration tools made mobile-first, added a favoriting control, and gained in-UI tooltips
+
+Round 2's 280 images were merged into round 1's dataset and all 8 exploration tools (scan
+gallery, solution map, coverage/void map, elite archive, redundancy clusters, novelty decay
+watchlist, lineage tree, hub) were rebuilt against the combined set. Added a shared, hide-on-
+scroll-down/show-on-scroll-up nav bar and a standalone `lightbox.js` module (reads
+`scan_data.json` plus `/api/picks`/`/api/favorites` at runtime, so any page can call
+`Lightbox.open(tag)` without a page load) via `notes/shared_ui.py`. Made every page's layout and
+the solution map's canvas touch-friendly, since the UMAP's hover-based info panel was unusable on
+a phone; added `touchstart` handling with a larger hit radius. Fixed a z-index bug that made the
+lightbox's close button unclickable (the next/prev nav strips overlapped it with no stacking
+order). Fixed the scan gallery lagging on every keystroke in the faithfulness filter by debouncing
+text/number inputs and rendering thumbnails in chunks of 150 via `IntersectionObserver`, since the
+user works over a poor connection and prioritizes a fast-loading page over a single big render.
+
+Added a second marking mechanism distinct from "pick as winner": favoriting. Picking feeds the
+next search generation's exploit pool (algorithmic consequence); favoriting is a pure bookmark
+with zero effect on search behavior, stored in a parallel `user_favorites.json` next to
+`user_picks.json`, with matching `/api/favorite`, `/api/unfavorite`, `/api/favorites` endpoints on
+`notes/curation_server.py`. Wired into the lightbox (button plus `f`/`F` keyboard shortcut) and
+into the scan gallery grid (badge, "favorited only" filter, live-updating on
+`lightbox:favorite`).
+
+Wrote in-UI tooltips (click-to-toggle "?" icons, since hover doesn't work on touch) explaining
+faithfulness, novelty, picking vs. favoriting, MAP-Elites/"elite," the UMAP projection and its
+mode-collapse chart, frontier cells, the novelty-decay trend threshold, and the caveat that
+redundancy clusters are transitive (a chain of gradual drift, not necessarily a tight group of
+look-alikes). Framed as general "explore an AI-generated image space" copy per the user's stated
+intent for this to become a general tool, not documentation specific to this one dataset. All
+tool pages rebuilt and `curation_server.py` restarted to pick up the favorites API; verified via
+curl that all 8 pages 200, the favorite/unfavorite round-trip works, and the tooltip assets serve.
+Not yet checked in an actual browser on a phone, which the project's UI-testing norm calls for
+before this counts as fully done.
+
+Not started: "generate counterfactual runs," requested in the same message as the above. Needs
+scoping with the user before any build starts, since it may require live RunPod/ComfyUI
+generation, which costs money while idle and shouldn't be spun up without a clear plan for what a
+counterfactual run actually means here.
+
+### 2026-07-09: Elite archive gets per-bin browsing; confirmed the exploit mutation genome is (strength, cfg, seed) only, not prompt
+
+Discussion surfaced a real gap in the elite archive: `build_elite_archive.py` picked each bin's
+"elite" by highest novelty alone whenever no human pick existed, but the DINOv2 scorer has no
+aesthetic judgment, so the automated pick could easily be worse-looking than another image in the
+same bin. Added a "view all N in this cell" modal (same pattern as coverage.html's cell-preview
+modal) so a human can browse every candidate in a bin and pick a different one directly; elite
+selection was moved client-side (was previously baked into the page at build time) so picking
+inside the modal updates which image shows as the bin's elite immediately, no rebuild required.
+
+Also confirmed by reading `run_uncanny_allnight2.py`'s job-building code directly: exploit jobs
+(mutating near a parent) inherit the parent's prompt and prompt_name unchanged; only strength,
+cfg, and seed get Gaussian-jittered. Explore jobs don't mutate anything, they re-roll a fresh
+random subject/texture pair from scratch each time. So the actual search genome is
+(strength, cfg, seed), not prompt. This matters for scoping "generate counterfactual runs"
+(requested but not yet designed, see previous entry): re-running an image with a different prompt
+would be a new kind of variation the search itself never performs, not a replay of existing
+mutation logic with the prompt field held out.
+
+### 2026-07-09: Counterfactual runs wired to live generation
+
+Built and verified the counterfactual-runs feature: from any image in the lightbox, "generate
+counterfactual" opens a panel prefilled with that image's prompt/strength/cfg (seed left blank,
+defaulting to a fresh random draw), the user edits whatever field(s) they want to vary, and
+submitting calls the same serverless ComfyUI endpoint (`uix4vdb2cec7sb`) the search itself uses.
+`notes/curation_server.py` gained a synchronous `/api/counterfactual` endpoint: checks the RunPod
+balance first and refuses below a $0.05 floor (the earlier gotcha where a negative balance made
+jobs silently stall in queue rather than error), submits the job, polls up to 330s, saves the
+result to `notes/uncanny_sweep/counterfactuals/`, and records it in `user_counterfactuals.json`.
+Counterfactuals are deliberately outside the search: not scored against the DINOv2 metrics, never
+fed into the exploit pool, a comparison tool only.
+
+Live-tested end to end before trusting it. First attempt hit a real gotcha: a cold endpoint (no
+recent jobs, scaled to zero workers) took 215s just to spin up a worker before generation even
+started, blowing through the server's original 90s timeout and orphaning a queued job (cleaned
+up via the endpoint's `/purge-queue`, confirmed no charge since it never reached `IN_PROGRESS`).
+Raised the server timeout to 330s and reran: warm-worker generation completes in ~35-40s, so the
+real range is "seconds if warm, up to several minutes if cold." Verified the full round trip
+against the live server (not just the standalone script): submitted a job, got back a valid
+1024x1024 on-style image (confirmed by eye, feathery ink linework matching the CLAWMARKS look),
+confirmed the file serves and the record persists in `user_counterfactuals.json`. Test artifacts
+deleted afterward.
+
+Also confirmed via `notes/run_uncanny_allnight2.py`'s job-building code that the search's actual
+mutation genome is (strength, cfg, seed) only, never the prompt text; see the previous entry.
+
+### 2026-07-09: Round 2 pick analysis; lightbox loading/prefetch and tooltip fixes
+
+Compared the 39 human-picked elites (all from round 1; round 2's 280 images are unreviewed, not
+rejected) against the 3672-image population. Picks skew toward higher faithfulness and lower
+novelty than average (0.487/0.487 picked vs. 0.324/0.630 population), and explore images get
+picked about 12x more often than exploit images proportionally (2.4% vs. 0.2%). Read as: the
+automated per-bin elite fallback ("highest novelty wins" when no human pick exists) is selecting
+against what humans actually prefer, and exploit mutation isn't obviously earning its keep over
+fresh explore draws. Not acted on yet since round 2 is unreviewed and was the run built
+specifically to test the explore-heavy mix; browsing round 2 comes first. Both follow-ups are in
+`TODO.txt`.
+
+Fixed three UI bugs/gaps in the shared lightbox (`shared_ui.py`), live on all 8 tool pages:
+
+- **Tooltip question marks silently failed inside the lightbox.** Root cause: `.infopop` used
+  `position:absolute` with `window.scrollX/Y` added to the button's `getBoundingClientRect()`
+  coordinates, a standard technique for normal page content, but wrong for anything inside the
+  lightbox's `position:fixed` overlay, whose rect is already viewport-relative and doesn't move
+  with scroll. On any page scrolled down before opening the lightbox, the popover landed off
+  -screen. Fixed by switching `.infopop` to `position:fixed` and using the rect directly, which
+  works correctly for both cases.
+- **No loading feedback when stepping to the next/previous image.** Added a spinner overlay on
+  the main image, shown from the moment `src` changes until the browser's `load`/`error` event
+  fires.
+- **No prefetching anywhere.** Added two-stage lightbox prefetch (the immediate next image
+  fetched right away, next-next and previous fetched after a short delay so they don't compete
+  with the immediate one on a slow connection) and a page-wide `IntersectionObserver` that fires
+  an async request for a thumbnail's full-size file as soon as that thumbnail scrolls into view
+  (gated on visibility, not the whole grid, since a filtered page can hold thousands of
+  thumbnails). Wired the `data-tag` attribute the observer needs into every thumbnail-grid
+  script: scan gallery, elite archive (both the main grid and the bin-browsing modal), coverage
+  map, redundancy clusters.
+
+Also added a "how does this search work" tooltip explaining MAP-Elites, explore vs. exploit, and
+plateau/budget in plain language: one on the tools hub (`explore.html`) and one next to the scan
+gallery's category filter, since that's where explore/exploit labels actually appear in the UI.
+
+Extended the thumbnail prefetch to pause and resume with scroll position, not just start once
+visible. Previously the `IntersectionObserver` fired a full-size prefetch the first time a
+thumbnail scrolled into view and then stopped watching it, so a fast scroll through the grid
+could queue up dozens of full-size downloads for thumbnails already scrolled past, competing for
+bandwidth with whatever's actually on screen. Now the observer keeps watching every thumbnail for
+as long as it's in the DOM: entering the viewport starts (or resumes) its full-size prefetch,
+leaving the viewport aborts it by clearing the in-flight `Image`'s `src` (which cancels the
+network request in every major browser) if it hasn't finished yet. A shared `prefetchState` map
+replaces the old write-once `prefetched` set so the lightbox's own next/prev prefetch and the
+grid's visibility-driven prefetch share one cache instead of ever double-downloading the same
+image.
