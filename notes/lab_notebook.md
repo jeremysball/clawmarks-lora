@@ -1077,3 +1077,11 @@ so it carries none of the RunPod balance-floor risk the counterfactual endpoint 
 against. Not yet wired the other direction: `run_uncanny_allnight2.py` still keeps its own
 per-round `gpt55_subjects.json` rather than reading from this shared pool, so seeds added here
 aren't picked up by a run until that gets wired up.
+
+Closed that gap the same day. `run_uncanny_allnight2.py` now loads `candidate_seeds.json` at
+startup and merges it into the subjects list alongside `FALLBACK_SUBJECTS` and its own
+per-round `gpt55_subjects`, so anything added through `seeds.html` reaches the very next run.
+The wiring is bidirectional: whenever the run's own plateau-triggered GPT-5.5 escalation
+produces new subjects, those get written back into `candidate_seeds.json` too (tagged
+`source: "gpt5.5-round2"`), so a live run enriches the shared pool the same way the browser
+does, instead of the two staying separate lists that happen to read the same fallback subjects.

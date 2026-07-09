@@ -36,6 +36,7 @@ OUT_DIR = f"{SC}/notes/uncanny_sweep2"
 os.makedirs(OUT_DIR, exist_ok=True)
 STATE_FILE = f"{OUT_DIR}/allnight2_state.json"
 USER_PICKS_FILE = f"{PREV_DIR}/user_picks.json"
+SEEDS_FILE = f"{PREV_DIR}/candidate_seeds.json"
 API_KEY = os.environ["RUNPOD_API_KEY"]
 GRAPHQL = f"https://api.runpod.io/graphql?api_key={API_KEY}"
 
@@ -99,6 +100,35 @@ def load_state():
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=1)
+
+
+def load_shared_seed_pool():
+    """candidate_seeds.json is the run-independent pool browsable/growable from seeds.html
+    (notes/curation_server.py), a dict of subject text -> {source, created_at}. Reading it here
+    means a seed someone added through that UI reaches the next run instead of sitting unused
+    until someone notices the gap."""
+    if os.path.exists(SEEDS_FILE):
+        with open(SEEDS_FILE) as f:
+            return list(json.load(f).keys())
+    return []
+
+
+def add_to_shared_seed_pool(subjects, source):
+    if not subjects:
+        return
+    seeds = {}
+    if os.path.exists(SEEDS_FILE):
+        with open(SEEDS_FILE) as f:
+            seeds = json.load(f)
+    existing_lower = {s.lower().strip() for s in seeds}
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for s in subjects:
+        s = str(s).strip()
+        if s and s.lower() not in existing_lower:
+            seeds[s] = {"source": source, "created_at": now}
+            existing_lower.add(s.lower())
+    with open(SEEDS_FILE, "w") as f:
+        json.dump(seeds, f, indent=1)
 
 
 def request_gpt55_subjects(existing_subjects, n=30):
@@ -365,12 +395,16 @@ def main():
     prev_embs = embed_images(prev_paths, model=model)
     print(f"embedded {len(prev_paths)} round-1 images as the exclusion set", flush=True)
 
+    shared_pool = load_shared_seed_pool()
+    print(f"loaded {len(shared_pool)} subjects from the shared candidate seed pool ({SEEDS_FILE})", flush=True)
+
     if not state["gpt55_subjects"]:
         print("seeding subject pool with GPT-5.5 from generation 1 (no plateau wait this time)...", flush=True)
-        gpt_subjects = request_gpt55_subjects(FALLBACK_SUBJECTS, n=30)
+        gpt_subjects = request_gpt55_subjects(FALLBACK_SUBJECTS + shared_pool, n=30)
         state["gpt55_subjects"] = gpt_subjects
+        add_to_shared_seed_pool(gpt_subjects, source="gpt5.5-round2")
         save_state(state)
-    subjects = FALLBACK_SUBJECTS + state["gpt55_subjects"]
+    subjects = FALLBACK_SUBJECTS + state["gpt55_subjects"] + shared_pool
     if not state["gpt55_subjects"]:
         print("GPT-5.5 handoff produced nothing usable; continuing with the fallback subject list only", flush=True)
 
@@ -425,6 +459,7 @@ def main():
                 if more:
                     subjects = subjects + more
                     state["gpt55_subjects"] = state["gpt55_subjects"] + more
+                    add_to_shared_seed_pool(more, source="gpt5.5-round2")
         save_state(state)
 
     print(f"\nROUND 2 RUN ENDED at generation {state['generation']}, {len(manifest)} total images, "
