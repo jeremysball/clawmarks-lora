@@ -74,9 +74,9 @@ def main(argv=None):
         targets = _build_targets()
         if args.target == "all":
             for fn in targets.values():
-                fn()
+                fn([])
         else:
-            targets[args.target]()
+            targets[args.target]([])
         return 0
 
     if args.command == "run":

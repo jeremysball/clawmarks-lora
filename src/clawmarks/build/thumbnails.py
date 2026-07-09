@@ -8,18 +8,22 @@ already exists), so build_scan_gallery.py can point the grid at those instead of
 
 Run: python3 -m clawmarks.build.thumbnails [sweep_dir]
 """
-import os, sys, json
+import argparse
+import os, json
 from PIL import Image
 
 from clawmarks.config import SWEEP_DIR
 
-THUMB_DIR = f"{SWEEP_DIR}/thumbs"
 THUMB_SIZE = 220
 QUALITY = 78
 
 
-def main():
-    sweep_dir = sys.argv[1] if len(sys.argv) > 1 else str(SWEEP_DIR)
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("sweep_dir", nargs="?", default=str(SWEEP_DIR),
+                        help=f"sweep directory containing scored_manifest.json (default: {SWEEP_DIR})")
+    args = parser.parse_args(argv)
+    sweep_dir = args.sweep_dir
     thumb_dir = f"{sweep_dir}/thumbs"
     os.makedirs(thumb_dir, exist_ok=True)
 
