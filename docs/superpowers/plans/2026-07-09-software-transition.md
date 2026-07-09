@@ -1084,18 +1084,56 @@ git commit -m "fix(clawmarks): resolve import/wiring issues found running the fu
 
 **Files:** none created; verification only. This is the gate for deleting the old files in Task 13.
 
-- [ ] **Step 1: Snapshot current script output**
+**CRITICAL: `notes/uncanny_sweep/` and `notes/uncanny_sweep2/` are live production data**, not
+disposable fixtures. `scored_manifest.json` in particular is the accumulated result of multiple
+real, RunPod-billed generation rounds merged together over time (see `merge_round2.py`) - it
+cannot be regenerated from nothing if lost. Several `build_*.py` scripts write derived JSON back
+into these same directories as a side effect of running (`similarity.json`, `similarity_scored.json`,
+`solution_map_data.json`, `solution_map_final_embs.pt` are all rewritten in place, not just the
+`.html`/`.js` files this smoke check compares). Running the old scripts and the new package
+back-to-back against the live directory with no isolation between them means the second run's
+writes land on top of whatever the first run left behind, and a comparison that only checks
+`.html`/`.js` will not notice the underlying JSON getting corrupted or truncated. **Never run
+either the old scripts or the new package directly against `notes/uncanny_sweep/` or
+`notes/uncanny_sweep2/` in this task without a backup-restore step bracketing each run.**
+
+- [ ] **Step 1: Back up the live data directories before touching them**
 
 Run:
 ```bash
 cd /workspace/trent-with-smart-prompts
+rm -rf /tmp/clawmarks-smoke-data-backup
+cp -r notes/uncanny_sweep /tmp/clawmarks-smoke-data-backup-sweep
+cp -r notes/uncanny_sweep2 /tmp/clawmarks-smoke-data-backup-sweep2
+python3 -c "import json; print('backup manifest count:', len(json.load(open('/tmp/clawmarks-smoke-data-backup-sweep/scored_manifest.json'))))"
+```
+Expected: prints the current real entry count (should be in the thousands, not a small round
+number like 452 - if it prints 452, the live data is already in a bad state from a prior run;
+stop and investigate before proceeding, do not treat 452 as the correct baseline).
+
+- [ ] **Step 2: Snapshot current script output**
+
+Run:
+```bash
 mkdir -p /tmp/clawmarks-smoke-before
 for f in notes/build_*.py; do python3 "$f"; done
 cp notes/uncanny_sweep/*.html notes/uncanny_sweep/*.js /tmp/clawmarks-smoke-before/ 2>/dev/null
 ```
 Expected: every `build_*.py` script runs successfully with its current exit code 0
 
-- [ ] **Step 2: Run the new package's build-all and compare**
+- [ ] **Step 3: Restore the live directories from backup before the second run**
+
+Run:
+```bash
+rm -rf notes/uncanny_sweep notes/uncanny_sweep2
+cp -r /tmp/clawmarks-smoke-data-backup-sweep notes/uncanny_sweep
+cp -r /tmp/clawmarks-smoke-data-backup-sweep2 notes/uncanny_sweep2
+python3 -c "import json; print('restored manifest count:', len(json.load(open('notes/uncanny_sweep/scored_manifest.json'))))"
+```
+Expected: prints the same count as Step 1. This undoes any JSON side effects from the old-script
+run in Step 2 before the new package touches the same directory.
+
+- [ ] **Step 4: Run the new package's build-all and compare**
 
 Run:
 ```bash
@@ -1106,7 +1144,23 @@ diff -rq /tmp/clawmarks-smoke-before /tmp/clawmarks-smoke-after
 ```
 Expected: no differences reported. If any file differs, do not proceed to Task 13: diagnose
 which moved module introduced the difference (most likely a path-constant substitution mistake
-from Task 8's mechanical recipe) and fix it, re-running this whole task from Step 1.
+from Task 8's mechanical recipe) and fix it, re-running this whole task from Step 3 (restore
+first, don't re-diff against a directory the new package already mutated).
+
+- [ ] **Step 5: Restore the live directories once more so neither run's side effects persist**
+
+Run:
+```bash
+rm -rf notes/uncanny_sweep notes/uncanny_sweep2
+cp -r /tmp/clawmarks-smoke-data-backup-sweep notes/uncanny_sweep
+cp -r /tmp/clawmarks-smoke-data-backup-sweep2 notes/uncanny_sweep2
+python3 -c "import json; print('final restored count:', len(json.load(open('notes/uncanny_sweep/scored_manifest.json'))))"
+```
+Expected: same count as Step 1 again. The smoke check's job is to compare *output*, not to leave
+either run's mutation as the new live state - the live directories must end this task exactly as
+they started it. Once this is confirmed, regenerate the derived JSON files for real (not as a
+smoke-test side effect) by running `uv run clawmarks build all` one final time, intentionally,
+against the now-confirmed-correct live data.
 
 - [ ] **Step 3: Smoke-test `clawmarks serve` starts without error**
 
