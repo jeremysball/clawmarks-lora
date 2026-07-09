@@ -25,6 +25,13 @@ if" comparison tool, not part of the MAP-Elites archive. A RunPod balance check 
 submission and refuses below a safety floor rather than risk the silent-stall failure mode this
 project hit once already with a negative balance.
 
+Candidate seeds (notes/uncanny_sweep/candidate_seeds.json) are the pool of subject/texture
+descriptions "explore" jobs draw from. The search driver (run_uncanny_allnight2.py) escalates to
+GPT-5.5 for fresh ones on plateau, via a subprocess call to `opencode run`; this server exposes
+the same mechanism on demand so the pool can be reviewed and topped up between runs, not just
+mid-run. Generation is synchronous (up to 5 minutes) and calls out to opencode/GPT-5.5, so it
+costs real API time but no RunPod spend.
+
 API:
   GET  /api/picks             -> {tag: {...metadata, picked_at}}
   POST /api/pick               body: full item object (must include "tag") -> upserts, returns ok
@@ -37,20 +44,26 @@ API:
                                         negative, overridden: [field names]}
                                  -> generates synchronously, returns {ok, tag, file, ...record}
                                     or {error} on failure/timeout/low balance
+  GET  /api/seeds              -> {text: {source, created_at}}
+  POST /api/seeds/generate      body: {n: int (default 20)}
+                                 -> calls GPT-5.5 for n new subjects excluding existing ones,
+                                    returns {ok, added: [text, ...], count} or {error}
 Everything else falls through to normal static file serving.
 
 Run with: python3 notes/curation_server.py [port]
 """
-import base64, json, os, random, sys, threading, time
+import base64, json, os, random, subprocess, sys, threading, time
 import urllib.request
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime, timezone
 
-SWEEP_DIR = "/workspace/trent-with-smart-prompts/notes/uncanny_sweep"
+SC = "/workspace/trent-with-smart-prompts"
+SWEEP_DIR = f"{SC}/notes/uncanny_sweep"
 PICKS_FILE = f"{SWEEP_DIR}/user_picks.json"
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
 COUNTERFACTUALS_FILE = f"{SWEEP_DIR}/user_counterfactuals.json"
+SEEDS_FILE = f"{SWEEP_DIR}/candidate_seeds.json"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8420
 
 COMFY_ENDPOINT_ID = "uix4vdb2cec7sb"  # same serverless endpoint the search uses
@@ -58,6 +71,7 @@ COMFY_BASE = f"https://api.runpod.ai/v2/{COMFY_ENDPOINT_ID}"
 GRAPHQL_URL = "https://api.runpod.io/graphql"
 BALANCE_FLOOR_USD = 0.05  # refuse to submit below this rather than risk a silent stall
 GENERATION_TIMEOUT_S = 330  # a cold endpoint (scaled to zero) took ~215s to spin up a worker in testing
+SEED_GEN_TIMEOUT_S = 300  # matches run_uncanny_allnight2.py's request_gpt55_subjects timeout
 NEG_DEFAULT = "low quality, blurry, watermark"
 
 os.makedirs(COUNTERFACTUALS_DIR, exist_ok=True)
@@ -167,6 +181,10 @@ class Handler(SimpleHTTPRequestHandler):
             with _lock:
                 self._json_response(200, load_store(COUNTERFACTUALS_FILE))
             return
+        if self.path == "/api/seeds":
+            with _lock:
+                self._json_response(200, load_store(SEEDS_FILE))
+            return
         if self.path == "/":
             self.send_response(302)
             self.send_header("Location", "/scan.html")
@@ -229,6 +247,10 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/counterfactual":
             self._handle_counterfactual(payload)
+            return
+
+        if self.path == "/api/seeds/generate":
+            self._handle_seed_generate(payload)
             return
 
         self._json_response(404, {"error": "unknown endpoint"})
@@ -313,6 +335,73 @@ class Handler(SimpleHTTPRequestHandler):
             time.sleep(2)
 
         self._json_response(504, {"error": f"generation timed out after {GENERATION_TIMEOUT_S}s"})
+
+    def _handle_seed_generate(self, payload):
+        n = int(payload.get("n", 20))
+        n = max(1, min(n, 40))
+        with _lock:
+            seeds = load_store(SEEDS_FILE)
+        existing = list(seeds.keys())
+
+        tmp_path = f"{SWEEP_DIR}/candidate_seeds_gen_{int(time.time())}.json"
+        prompt = (
+            f"Write {n} short, vivid, concrete visual scene or subject descriptions (5-15 words "
+            f"each, no artist-style words, no medium words) suitable for testing where a "
+            f"fine-tuned image-generation style survives on unfamiliar subject matter, versus "
+            f"where it breaks down into visual noise. Favor liminal, uncanny, quietly unsettling "
+            f"everyday scenes over gore or fantasy creatures. Prioritize genuinely different "
+            f"categories of scene from each other (spaces, objects, weather, crowds, machines, "
+            f"architecture), not variations on the same idea. Do not repeat or closely paraphrase "
+            f"any of these already-used subjects: {json.dumps(existing)}. "
+            f"Write ONLY a JSON array of {n} strings to the file {tmp_path}, nothing else in that "
+            f"file. When done, print exactly: === DONE ==="
+        )
+        try:
+            result = subprocess.run(
+                ["opencode", "run", "--dir", SC, "--dangerously-skip-permissions",
+                 "-m", "openai/gpt-5.5", "--", prompt],
+                capture_output=True, text=True, timeout=SEED_GEN_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            self._json_response(504, {"error": f"opencode call timed out after {SEED_GEN_TIMEOUT_S}s"})
+            return
+        except Exception as e:
+            self._json_response(502, {"error": f"failed to invoke opencode: {e}"})
+            return
+
+        if not os.path.exists(tmp_path):
+            self._json_response(502, {
+                "error": f"opencode exit={result.returncode}, no output file produced: "
+                         f"{result.stdout[-300:]!r}"
+            })
+            return
+        try:
+            with open(tmp_path) as f:
+                new_subjects = json.load(f)
+        except Exception as e:
+            self._json_response(502, {"error": f"couldn't parse opencode output: {e}"})
+            return
+        finally:
+            os.remove(tmp_path)
+
+        if not isinstance(new_subjects, list) or not new_subjects:
+            self._json_response(502, {"error": f"opencode returned no usable subjects: {new_subjects!r}"})
+            return
+
+        existing_lower = {s.lower().strip() for s in existing}
+        added = []
+        now = datetime.now(timezone.utc).isoformat()
+        with _lock:
+            seeds = load_store(SEEDS_FILE)
+            for s in new_subjects:
+                s = str(s).strip()
+                if not s or s.lower() in existing_lower:
+                    continue
+                seeds[s] = {"source": "gpt5.5", "created_at": now}
+                existing_lower.add(s.lower())
+                added.append(s)
+            save_store(SEEDS_FILE, seeds)
+        self._json_response(200, {"ok": True, "added": added, "count": len(seeds)})
 
     def log_message(self, fmt, *args):
         if "/api/" in (self.path or ""):

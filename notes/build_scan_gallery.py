@@ -206,6 +206,7 @@ body {{
     <option value="redundancy.html">redundancy clusters</option>
     <option value="novelty_decay.html">novelty decay watchlist</option>
     <option value="lineage.html">lineage tree</option>
+    <option value="seeds.html">candidate seeds</option>
     <option value="gallery.html">binned atlas (original)</option>
   </select></label>
   <label>Sort{novelty_tip} <select id="sortKey">

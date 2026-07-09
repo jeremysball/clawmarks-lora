@@ -41,6 +41,7 @@ TOOLS = [
     ("redundancy.html", "Redundancy clusters", "Near-duplicate clustering by DINOv2 similarity at an adjustable threshold, to see the population's true effective diversity."),
     ("novelty_decay.html", "Novelty decay watchlist", "Per-prompt-family novelty over generations, to see which prompts are exhausted vs. still yielding new territory."),
     ("lineage.html", "Lineage tree", "Exploit chains showing whether mutating near a parent actually improves on it. Needs parent-tracking data that only starts accumulating after 2026-07-09."),
+    ("seeds.html", "Candidate seeds", "View the subject/texture pool 'explore' jobs draw from, and ask GPT-5.5 for more on demand instead of waiting for a run to plateau and escalate on its own."),
 ]
 
 items_html = "".join(f"""

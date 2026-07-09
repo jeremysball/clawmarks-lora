@@ -1,0 +1,194 @@
+{
+ "close-up cat portrait": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "close-up wolf portrait": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "close-up fox portrait": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "close-up human face, pale skin, hand pressed beside cheek": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "dollhouse interior seen through a broken window": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "empty parking garage at night, one flickering light": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "wall of surveillance camera monitors, mostly static": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "vending machine humming alone in a dark hallway": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "abandoned playground, swing set mid-motion with no one on it": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "waiting room with rows of identical empty chairs": {
+  "source": "fallback",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "suburban bus shelter at dawn, wet seats, no passengers": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "kitchen table set for one, chair pulled too far back": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "laundromat washer door open, single sock on tile floor": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "office copier glowing in darkness, paper tray overflowing": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "school hallway trophy case reflecting a figure behind you": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "motel ice machine alcove, carpet soaked beneath humming pipes": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "grocery freezer aisle, one door fogged from inside": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "public restroom mirror showing one extra sink reflection": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "quiet cul-de-sac, every porch light on except one": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "basement rec room with television static and deflated balloons": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "hospital corridor window looking onto another identical corridor": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "self-storage hallway, one unit door rolled halfway open": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "empty diner booth, coffee steaming beside untouched pie": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "subway platform clock stopped, train lights approaching slowly": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "bedroom closet door ajar, hangers swaying without wind": {
+  "source": "gpt5.5-round1",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "after-hours tailor shop, tape measures hanging from locked fitting rooms": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "foggy miniature golf course with windmills turning over puddles": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "empty radio studio, microphones wrapped in grocery bags": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "snowy alley lined with bicycles wearing numbered tags": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "suburban birdbath filled with house keys and rainwater": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "closed nail salon, pedicure chairs facing a blank television": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "office supply aisle where staplers sit in perfect circles": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "riverside bench holding folded maps weighted by stones": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "empty hardware store, ceiling fans spinning at different speeds": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "foggy vineyard rows ending at a locked refrigerator": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "warehouse breakroom calendar filled with identical dentist appointments": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "city bike rack chained to twenty empty helmets": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "sunlit bakery case displaying only sealed envelopes": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "abandoned car dealership, balloons bobbing inside locked trunks": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "public archive table set with white gloves and wedding rings": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "empty planetarium lobby, constellations labeled with room numbers": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "flooded tennis court, ball machine feeding nothing": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "closed florist cooler packed with numbered lunchboxes": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "apartment laundry chute whispering through a taped-over handle": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "rural post office counter covered in damp feathers": {
+  "source": "gpt5.5-round2",
+  "created_at": "2026-07-09T20:57:52.667130+00:00"
+ },
+ "airport baggage carousel circling one wet birthday cake": {
+  "source": "gpt5.5",
+  "created_at": "2026-07-09T21:00:50.699463+00:00"
+ },
+ "glass office atrium filled with umbrellas dripping upward": {
+  "source": "gpt5.5",
+  "created_at": "2026-07-09T21:00:50.699463+00:00"
+ },
+ "night roadwork cones surrounding a running microwave": {
+  "source": "gpt5.5",
+  "created_at": "2026-07-09T21:00:50.699463+00:00"
+ }
+}

@@ -1059,3 +1059,21 @@ network request in every major browser) if it hasn't finished yet. A shared `pre
 replaces the old write-once `prefetched` set so the lightbox's own next/prev prefetch and the
 grid's visibility-driven prefetch share one cache instead of ever double-downloading the same
 image.
+
+### 2026-07-09: Candidate seed browser, view and grow the explore-job subject pool on demand
+
+The search driver already escalates to GPT-5.5 for fresh subjects when novelty plateaus
+mid-run (`request_gpt55_subjects` in `run_uncanny_allnight2.py`), but that pool was only
+visible or growable from inside a live run. Added a persistent, run-independent pool
+(`notes/uncanny_sweep/candidate_seeds.json`, `{text: {source, created_at}}`) seeded from the
+fallback list plus both rounds' existing GPT-5.5 subjects (45 to start, deduped), a new
+`curation_server.py` endpoint (`POST /api/seeds/generate`, mirrors the driver's own prompt and
+subprocess call to `opencode run -m openai/gpt-5.5`, deduped case-insensitively against the
+existing pool before merging), and a browser page (`seeds.html`) to view the pool and trigger
+generation. Live-tested: asked for 3 new seeds, got back 3 concrete, non-duplicate subjects
+(airport baggage carousel, glass office atrium, roadwork cones) in well under a minute, merged
+into the pool bringing it to 48. Generation costs opencode/GPT-5.5 API time, not RunPod spend,
+so it carries none of the RunPod balance-floor risk the counterfactual endpoint has to guard
+against. Not yet wired the other direction: `run_uncanny_allnight2.py` still keeps its own
+per-round `gpt55_subjects.json` rather than reading from this shared pool, so seeds added here
+aren't picked up by a run until that gets wired up.
