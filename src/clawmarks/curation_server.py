@@ -68,7 +68,7 @@ from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
-    novelty_decay, lineage_view,
+    novelty_decay, lineage_view, elite_archive,
 )
 
 _live_cache = LiveCache()
@@ -324,6 +324,20 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/lineage.html":
             html = lineage_view.render_html(lineage_view.compute_data(str(SWEEP_DIR)))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path.startswith("/archive.html"):
+            from urllib.parse import urlparse, parse_qs
+            query = parse_qs(urlparse(self.path).query)
+            use_predicted = query.get("use_predicted_preference", ["0"])[0] == "1"
+            data = elite_archive.compute_data(str(SWEEP_DIR), use_predicted_preference=use_predicted)
+            html = elite_archive.render_html(data)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
