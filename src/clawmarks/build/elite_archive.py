@@ -5,16 +5,19 @@ whitepaper-ready artifact, and clicking through the archive to override an elite
 the existing pick API) is a faster human-curation loop than scrolling all 3392 images in
 scan.html.
 
-Elite selection per cell: a human pick (notes/uncanny_sweep/user_picks.json) wins if one exists
-in that cell, since a person's judgment substitutes for the coherence/quality scorer this
+Elite selection per cell: a yes-rated image (notes/uncanny_sweep/user_ratings.json) wins if one
+exists in that cell, since a person's judgment substitutes for the coherence/quality scorer this
 project doesn't have (lab_notebook.md Section 3b). Otherwise falls back to highest novelty in
 the cell, matching the ranking the search itself uses to build its automated "elites" list.
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.elite_archive
 """
+import argparse
 import json, os, sys
 
 from clawmarks.config import SWEEP_DIR
+from clawmarks.search.manifest_index import item_summary
+from clawmarks.search.preference_model import MODEL_FILE as PREFERENCE_MODEL_FILE
 from clawmarks.shared_ui import (
     nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
     write_infotip_asset, INFOTIP_CSS, info_btn,
@@ -23,7 +26,35 @@ from clawmarks.shared_ui import (
 N_BINS = 4  # matches gallery.html's display grid
 
 
+def elite_sort_key(m, predicted_scores):
+    """Sort key for ranking a cell's candidates, most-preferred first (caller sorts ascending
+    on this value). Falls back to novelty when no predicted-preference scores exist at all
+    (Stage 5a behavior); once scores exist, a tag missing its own score (e.g. an image added to
+    the manifest after the embedding cache was last synced) is treated as neutral (0.0) rather
+    than assumed bad, so a sync gap doesn't quietly bury an otherwise-good image."""
+    if predicted_scores:
+        return -predicted_scores.get(m["tag"], 0.0)
+    return -m["novelty"]
+
+
+def build_item_summary(m, sweep_dir, predicted_scores):
+    summary = item_summary(m, sweep_dir)
+    if m["tag"] in predicted_scores:
+        summary["predicted_preference"] = round(float(predicted_scores[m["tag"]]), 4)
+    return summary
+
+
 def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--use-predicted-preference", action="store_true", default=False,
+        help="Stage 5b (opt-in, requires notes/uncanny_sweep/preference_model.joblib and human "
+             "validation via preference_rank.html first): rank each cell's fallback candidate "
+             "(the one shown when no yes-rated image exists in that cell) by predicted "
+             "preference instead of raw novelty. Defaults off.",
+    )
+    args = parser.parse_args(argv if argv is not None else [])
+
     write_lightbox_asset(SWEEP_DIR)
     write_scrollnav_asset(SWEEP_DIR)
     write_infotip_asset(SWEEP_DIR)
@@ -38,11 +69,24 @@ def main(argv=None):
     with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
         manifest = json.load(f)
 
-    picks = {}
-    picks_path = f"{SWEEP_DIR}/user_picks.json"
-    if os.path.exists(picks_path):
-        with open(picks_path) as f:
-            picks = json.load(f)
+    ratings = {}
+    ratings_path = f"{SWEEP_DIR}/user_ratings.json"
+    if os.path.exists(ratings_path):
+        with open(ratings_path) as f:
+            ratings = json.load(f)
+    picks = {tag: r for tag, r in ratings.items() if r.get("label") == "yes"}
+
+    predicted_scores = {}
+    if args.use_predicted_preference and os.path.exists(PREFERENCE_MODEL_FILE):
+        import joblib
+
+        from clawmarks.search import embed_cache
+        from clawmarks.search.preference_model import predict_proba
+
+        tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+        model = joblib.load(PREFERENCE_MODEL_FILE)
+        scores = predict_proba(model, embeddings)
+        predicted_scores = dict(zip(tags, scores))
 
     faith_vals = sorted(m["centroid_sim"] for m in manifest)
     novelty_vals = sorted(m["novelty"] for m in manifest)
@@ -65,16 +109,6 @@ def main(argv=None):
         nb = bin_of(m["novelty"], novelty_edges)
         grid.setdefault((fb, nb), []).append(m)
 
-    def item_summary(m):
-        return {
-            "tag": m["tag"], "prompt_name": m["prompt_name"], "prompt_type": m["prompt_type"],
-            "faith": round(m["centroid_sim"], 4), "novelty": round(m["novelty"], 4),
-            "strength": m["strength"], "cfg": m["cfg"],
-            "thumb": (f"thumbs/{m['tag']}.jpg" if os.path.exists(f"{SWEEP_DIR}/thumbs/{m['tag']}.jpg")
-                      else os.path.basename(m["file"])),
-            "file": os.path.basename(m["file"]),
-        }
-
     cells = []
     n_human = 0
     for fb in range(N_BINS):
@@ -87,7 +121,8 @@ def main(argv=None):
                 n_human += 1
             cells.append({
                 "fb": fb, "nb": nb, "n": len(items),
-                "items": [item_summary(m) for m in sorted(items, key=lambda m: -m["novelty"])],
+                "items": [build_item_summary(m, SWEEP_DIR, predicted_scores)
+                          for m in sorted(items, key=lambda m: elite_sort_key(m, predicted_scores))],
             })
 
     cells.sort(key=lambda c: (c["fb"], c["nb"]))
@@ -98,7 +133,7 @@ def main(argv=None):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --pick:#f5c542; --style:#5ec98a; --conflict:#e0a25e; }}
+  --text-dim:#9a9aa4; --pick:#f5c542; --style:#5ec98a; --conflict:#e0a25e; --predicted:#7c9eff; }}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
@@ -111,8 +146,10 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 .cell .meta {{ padding:8px 10px; font-size:11px; color:var(--text-dim); line-height:1.6; }}
 .cell .meta b {{ color:var(--text); }}
 .cell.human {{ box-shadow:0 0 0 2px var(--pick); }}
+.cell.predicted {{ box-shadow:0 0 0 2px var(--predicted); }}
 .badge {{ display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; margin-left:4px; }}
 .badge.human {{ background:rgba(245,197,66,0.18); color:var(--pick); }}
+.badge.predicted {{ background:rgba(124,158,255,0.18); color:var(--predicted); }}
 .badge.auto {{ background:rgba(154,154,164,0.15); color:var(--text-dim); }}
 .cell .viewall {{ display:block; width:100%; background:var(--panel-2,#1d1d22); color:var(--text);
   border:1px solid var(--border); border-top:none; border-radius:0 0 10px 10px; padding:6px;
@@ -145,11 +182,12 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {nav_bar_html('archive.html')}
 <h1>Elite archive{elite_tip}</h1>
 <p class="sub">One image per occupied cell of the faithfulness x novelty grid: the actual
-MAP-Elites archive, not the full population. Gold-bordered cells are human-picked winners;
-others fall back to the highest-novelty image the automated search found in that cell. The
-DINOv2 scorer only ranks faithfulness and novelty, not aesthetic quality, so it can't tell which
-image in a cell is the better picture: click "view all" to browse every candidate in a cell and
-pick a different one by hand.</p>
+MAP-Elites archive, not the full population. Gold-bordered cells are yes-rated winners;
+blue-bordered cells (only when this page is built with --use-predicted-preference) are the
+trained model's top pick for that cell; others fall back to the highest-novelty image the
+automated search found. The DINOv2 scorer only ranks faithfulness and novelty, not aesthetic
+quality, so it can't tell which image in a cell is the better picture: click "view all" to browse
+every candidate in a cell and pick a different one by hand.</p>
 
 <div id="grid"></div>
 
@@ -170,20 +208,24 @@ CELLS.sort((a, b) => a.fb - b.fb || b.nb - a.nb);
 
 function eliteFor(c) {{
   const pickedHere = c.items.filter(it => picks[it.tag]);
-  if (pickedHere.length) return {{ item: pickedHere[0], source: 'human pick' }};
-  return {{ item: c.items[0], source: 'highest novelty' }};  // items pre-sorted by -novelty
+  if (pickedHere.length) return {{ item: pickedHere[0], source: 'yes-rated' }};
+  if (c.items[0].predicted_preference !== undefined) return {{ item: c.items[0], source: 'predicted preference' }};
+  return {{ item: c.items[0], source: 'highest novelty' }};  // items pre-sorted by elite_sort_key
 }}
 
 function render() {{
   const grid = document.getElementById('grid');
   grid.innerHTML = CELLS.map((c, i) => {{
     const {{ item: elite, source }} = eliteFor(c);
-    const human = source === 'human pick';
+    const human = source === 'yes-rated';
+    const predicted = source === 'predicted preference';
+    const badgeClass = human ? 'human' : (predicted ? 'predicted' : 'auto');
+    const cellClass = human ? 'human' : (predicted ? 'predicted' : '');
     return `
-    <div class="cell ${{human ? 'human' : ''}}">
+    <div class="cell ${{cellClass}}">
       <img src="${{elite.thumb}}" loading="lazy" data-tag="${{elite.tag}}" onclick="Lightbox.open('${{elite.tag}}')">
       <div class="meta">
-        <b>${{elite.prompt_name}}</b> <span class="badge ${{human ? 'human' : 'auto'}}">${{source}}</span><br>
+        <b>${{elite.prompt_name}}</b> <span class="badge ${{badgeClass}}">${{source}}</span><br>
         faith=${{elite.faith}} novelty=${{elite.novelty}}<br>
         n=${{c.n}} in cell | s=${{elite.strength}} cfg=${{elite.cfg}}
       </div>
@@ -209,17 +251,11 @@ document.addEventListener('keydown', e => {{
   if (e.key === 'Escape') closeModal();
 }});
 
-document.addEventListener('lightbox:pick', e => {{
-  if (e.detail.picked) picks[e.detail.tag] = true; else delete picks[e.detail.tag];
+fetch('/api/ratings').then(r => r.json()).then(ratings => {{
+  picks = {{}};
+  Object.entries(ratings).forEach(([tag, r]) => {{ if (r.label === 'yes') picks[tag] = true; }});
   render();
-  if (document.getElementById('modal').classList.contains('open')) {{
-    document.querySelectorAll('#modalGrid .item').forEach(el => {{
-      el.classList.toggle('human', !!picks[el.title]);
-    }});
-  }}
-}});
-
-fetch('/api/picks').then(r => r.json()).then(p => {{ picks = p; render(); }}).catch(() => {{ render(); }});
+}}).catch(() => {{ render(); }});
 </script>
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>

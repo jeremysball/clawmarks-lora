@@ -15,10 +15,12 @@ import os
 
 NAV_OPTIONS = [
     ("explore.html", "all tools (hub)"),
+    ("rate.html", "rate images (yes/no)"),
     ("scan.html", "scan gallery"),
     ("map.html", "solution map (UMAP)"),
     ("coverage.html", "coverage / void map"),
     ("archive.html", "elite archive"),
+    ("preference_rank.html", "predicted preference"),
     ("redundancy.html", "redundancy clusters"),
     ("novelty_decay.html", "novelty decay watchlist"),
     ("lineage.html", "lineage tree"),
@@ -158,7 +160,6 @@ _LIGHTBOX_JS = r"""(function(){
   let order = [];
   let idx = -1;
   let history = [];
-  let picks = {};
   let favorites = {};
   let counterfactuals = {};
   let el = null;
@@ -189,7 +190,6 @@ _LIGHTBOX_JS = r"""(function(){
 #lb-overlay .lb-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; }
 #lb-overlay button { background:#1d1d22; color:#eaeaee; border:1px solid #2a2a30; border-radius:7px;
   padding:8px 16px; font-size:13px; cursor:pointer; }
-#lb-overlay button.picked { background:rgba(245,197,66,0.16); border-color:#f5c542; color:#f5c542; }
 #lb-overlay button.favorited { background:rgba(224,96,150,0.16); border-color:#e0609a; color:#e0609a; }
 #lb-overlay .lb-actions .infobtn { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.3); color:#dcdce2; }
 #lb-overlay .lb-simlabel { font-size:11px; color:#6a6a74; letter-spacing:0.02em; text-transform:uppercase; }
@@ -244,8 +244,6 @@ _LIGHTBOX_JS = r"""(function(){
   <div class="lb-info"></div>
   <div class="lb-actions">
     <button class="lb-back" style="display:none;">&#8592; back</button>
-    <button class="lb-pick">&#9733; pick as winner</button>
-    <span class="infobtn" data-id="lb-tip-pick" data-tip="Picking marks this image as a human-approved success. The next search generation uses picked images as starting points for new variations, ahead of the algorithm's own ranking: it's how your judgment steers where the search goes next.">?</span>
     <button class="lb-favorite">&#9825; favorite</button>
     <span class="infobtn" data-id="lb-tip-favorite" data-tip="Favoriting just bookmarks this image for your own reference (e.g. for a writeup). Unlike picking, it has no effect on the search: use it for images you like but don't want the next generation to build on.">?</span>
     <button class="lb-cf-toggle">&#8635; generate counterfactual</button>
@@ -277,7 +275,6 @@ _LIGHTBOX_JS = r"""(function(){
     el.querySelector('.lb-prev').onclick = () => step(-1);
     el.querySelector('.lb-next').onclick = () => step(1);
     el.querySelector('.lb-back').onclick = back;
-    el.querySelector('.lb-pick').onclick = togglePick;
     el.querySelector('.lb-favorite').onclick = toggleFavorite;
     el.querySelector('.lb-cf-toggle').onclick = toggleCfPanel;
     el.querySelector('.lb-cf-submit').onclick = submitCounterfactual;
@@ -287,7 +284,6 @@ _LIGHTBOX_JS = r"""(function(){
       if (e.key === 'ArrowRight') step(1);
       if (e.key === 'ArrowLeft') step(-1);
       if (e.key === 'Escape') close();
-      if (e.key === ' ') { e.preventDefault(); togglePick(); }
       if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFavorite(); }
       if (e.key === 'Backspace' && history.length) { e.preventDefault(); back(); }
     });
@@ -313,9 +309,6 @@ _LIGHTBOX_JS = r"""(function(){
       d.forEach(it => byTag[it.tag] = it);
       return d;
     });
-  }
-  function loadPicks(){
-    return fetch('/api/picks').then(r => r.json()).then(p => { picks = p; }).catch(() => {});
   }
   function loadFavorites(){
     return fetch('/api/favorites').then(r => r.json()).then(f => { favorites = f; }).catch(() => {});
@@ -370,10 +363,6 @@ _LIGHTBOX_JS = r"""(function(){
     el.querySelector('.lb-info').textContent =
       `${d.tag} | gen ${d.gen} | ${d.category} | type=${d.prompt_type} | prompt=${d.prompt_name} | ` +
       `strength=${d.strength} cfg=${d.cfg} | faith=${d.faith} novelty=${d.novelty}`;
-    const isPicked = !!picks[d.tag];
-    const pickBtn = el.querySelector('.lb-pick');
-    pickBtn.textContent = isPicked ? '★ picked (click to unpick)' : '☆ pick as winner';
-    pickBtn.classList.toggle('picked', isPicked);
     const isFav = !!favorites[d.tag];
     const favBtn = el.querySelector('.lb-favorite');
     favBtn.textContent = isFav ? '♥ favorited (click to remove)' : '♡ favorite';
@@ -493,19 +482,6 @@ _LIGHTBOX_JS = r"""(function(){
     order = prev.order; idx = prev.idx;
     render();
   }
-  function togglePick(){
-    const d = order[idx];
-    const isPicked = !!picks[d.tag];
-    const endpoint = isPicked ? '/api/unpick' : '/api/pick';
-    const body = isPicked ? {tag: d.tag} : Object.assign({}, d);
-    fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-      .then(r => r.json())
-      .then(() => {
-        if (isPicked) delete picks[d.tag]; else picks[d.tag] = body;
-        render();
-        document.dispatchEvent(new CustomEvent('lightbox:pick', {detail: {tag: d.tag, picked: !isPicked}}));
-      });
-  }
   function toggleFavorite(){
     const d = order[idx];
     const isFav = !!favorites[d.tag];
@@ -523,7 +499,7 @@ _LIGHTBOX_JS = r"""(function(){
 
   function open(tag, localTags){
     ensureDom();
-    Promise.all([loadData(), loadPicks(), loadFavorites(), loadCounterfactuals()]).then(() => {
+    Promise.all([loadData(), loadFavorites(), loadCounterfactuals()]).then(() => {
       history = [];
       order = (localTags && localTags.length) ? localTags.map(t => byTag[t]).filter(Boolean) : DATA;
       const d = byTag[tag];

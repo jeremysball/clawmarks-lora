@@ -19,6 +19,8 @@ _BUILD_MODULES = {
     "seeds": "clawmarks.build.seed_browser",
     "probe-report": "clawmarks.build.probe_report",
     "uncanny-gallery": "clawmarks.build.uncanny_gallery",
+    "preference-rank": "clawmarks.build.preference_rank",
+    "rate": "clawmarks.build.rate_page",
 }
 
 
@@ -37,11 +39,21 @@ def build_parser():
     # resolved lazily in main() via _build_targets().
     build_p = sub.add_parser("build")
     build_p.add_argument("target", choices=["all", *_BUILD_MODULES])
+    build_p.add_argument(
+        "--use-predicted-preference", action="store_true", default=False,
+        help="Stage 5b, archive target only: rank each cell's fallback by predicted preference "
+             "instead of novelty. Defaults off; requires a trained preference model.",
+    )
 
     run_p = sub.add_parser("run")
     run_sub = run_p.add_subparsers(dest="run_target", required=True)
     allnight_p = run_sub.add_parser("allnight")
     allnight_p.add_argument("--round", type=int, choices=[1, 2], required=True)
+    allnight_p.add_argument(
+        "--use-predicted-preference", action="store_true", default=False,
+        help="Stage 5b: build the exploit pool from the trained preference model's top picks "
+             "instead of yes-rated images. Defaults off; requires a trained preference model.",
+    )
     allnight_p.set_defaults(command="run")
 
     probe_p = sub.add_parser("probe")
@@ -77,16 +89,24 @@ def main(argv=None):
         return serve_main()
 
     if args.command == "build":
+        # Only the archive target understands --use-predicted-preference; forwarding it to
+        # every target would raise "unrecognized arguments" in any target that parses its own
+        # argv (e.g. thumbnails).
+        archive_argv = ["--use-predicted-preference"] if args.use_predicted_preference else []
         if args.target == "all":
             for name in _BUILD_MODULES:
-                _build_target_main(name)([])
+                _build_target_main(name)(archive_argv if name == "archive" else [])
         else:
-            _build_target_main(args.target)([])
+            fn_argv = archive_argv if args.target == "archive" else []
+            _build_target_main(args.target)(fn_argv)
         return 0
 
     if args.command == "run":
         from clawmarks.search.driver import main as driver_main
-        return driver_main(["--round", str(args.round)])
+        run_argv = ["--round", str(args.round)]
+        if args.use_predicted_preference:
+            run_argv.append("--use-predicted-preference")
+        return driver_main(run_argv)
 
     if args.command == "pod":
         from clawmarks.compute import runpod

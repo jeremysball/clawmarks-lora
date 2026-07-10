@@ -17,3 +17,7 @@ def test_derived_paths_under_repo_root():
     root = config.repo_root()
     assert config.SWEEP_DIR == root / "notes" / "uncanny_sweep"
     assert config.SWEEP2_DIR == root / "notes" / "uncanny_sweep2"
+
+
+def test_user_ratings_file_path():
+    assert config.USER_RATINGS_FILE == config.SWEEP_DIR / "user_ratings.json"

@@ -40,10 +40,15 @@ notes/uncanny_sweep/solution_map_data.json
 notes/uncanny_sweep/*.pt
 notes/uncanny_sweep2/*.html
 notes/uncanny_sweep2/scored_manifest.json
+tests/fixtures/sample_sweep/notes/uncanny_sweep/*.html
+tests/fixtures/sample_sweep/notes/uncanny_sweep/*.js
+tests/fixtures/sample_sweep/notes/uncanny_sweep/embeddings.npz
+tests/fixtures/sample_sweep/notes/uncanny_sweep/user_ratings.json
 *.png
 *.jpg
 *.jpeg
 !corrected_dataset_extract/*.jpg
+!tests/fixtures/**/*.jpg
 
 # python
 __pycache__/
