@@ -27,3 +27,12 @@ def test_render_html_has_zoom_machinery():
     assert "function clampOffset(" in html
     assert "dblclick" in html
     assert "classList.add('zoomed')" in html
+
+
+def test_render_html_has_touch_swipe_machinery():
+    html = rate_page.render_html()
+    assert "addEventListener('touchstart'" in html
+    assert "addEventListener('touchmove'" in html
+    assert "addEventListener('touchend'" in html
+    assert "SWIPE_THRESHOLD_FRACTION" in html
+    assert "function finishSwipe(" in html

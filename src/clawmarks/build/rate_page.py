@@ -173,6 +173,97 @@ document.addEventListener('mouseup', e => {{
   panOffsetY = clampOffset(panOffsetY + (e.clientY - mouseStartY), wrap.clientHeight, img.naturalHeight);
 }});
 
+// --- touch: swipe-to-vote when not zoomed, pan when zoomed ---
+
+const DEADZONE_PX = 10;
+const SWIPE_THRESHOLD_FRACTION = 0.25;
+let touchActive = false, touchClassified = null; // null | 'swipe' | 'pan' | 'ignore'
+let touchStartX = 0, touchStartY = 0, touchDX = 0, touchDY = 0;
+
+function updateSwipeVisual(dx) {{
+  const img = document.getElementById('img');
+  const overlay = document.getElementById('swipe-overlay');
+  img.style.transition = '';
+  img.style.transform = `translateX(${{dx}}px)`;
+  const width = img.getBoundingClientRect().width || 1;
+  const frac = Math.min(1, Math.abs(dx) / (width * SWIPE_THRESHOLD_FRACTION));
+  overlay.className = dx > 0 ? 'yes' : 'no';
+  overlay.style.opacity = frac;
+}}
+
+function finishSwipe(dx) {{
+  const img = document.getElementById('img');
+  const overlay = document.getElementById('swipe-overlay');
+  const width = img.getBoundingClientRect().width || 1;
+  const threshold = width * SWIPE_THRESHOLD_FRACTION;
+  if (Math.abs(dx) >= threshold) {{
+    const label = dx > 0 ? 'yes' : 'no';
+    img.style.transition = 'transform 0.2s ease';
+    img.style.transform = `translateX(${{dx > 0 ? width * 1.2 : -width * 1.2}}px)`;
+    overlay.style.opacity = 0;
+    setTimeout(() => rate(label), 180);
+  }} else {{
+    img.style.transition = 'transform 0.2s ease';
+    img.style.transform = 'translateX(0px)';
+    overlay.style.opacity = 0;
+  }}
+}}
+
+imgwrapEl.addEventListener('touchstart', e => {{
+  if (!current || e.touches.length !== 1) return;
+  touchActive = true;
+  touchClassified = null;
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+  touchDX = 0;
+  touchDY = 0;
+}});
+
+imgwrapEl.addEventListener('touchmove', e => {{
+  if (!touchActive) return;
+  const t = e.touches[0];
+  touchDX = t.clientX - touchStartX;
+  touchDY = t.clientY - touchStartY;
+
+  if (touchClassified === null) {{
+    if (Math.abs(touchDX) < DEADZONE_PX && Math.abs(touchDY) < DEADZONE_PX) return;
+    if (zoomed) {{
+      touchClassified = 'pan';
+    }} else if (Math.abs(touchDX) > Math.abs(touchDY)) {{
+      touchClassified = 'swipe';
+    }} else {{
+      touchClassified = 'ignore';
+    }}
+  }}
+
+  if (touchClassified === 'ignore') return;
+  e.preventDefault();
+
+  if (touchClassified === 'swipe') {{
+    updateSwipeVisual(touchDX);
+  }} else if (touchClassified === 'pan') {{
+    const img = document.getElementById('img');
+    const wrap = document.getElementById('imgwrap');
+    const newX = clampOffset(panOffsetX + touchDX, wrap.clientWidth, img.naturalWidth);
+    const newY = clampOffset(panOffsetY + touchDY, wrap.clientHeight, img.naturalHeight);
+    img.style.transform = `translate(${{newX}}px, ${{newY}}px)`;
+  }}
+}}, {{passive: false}});
+
+imgwrapEl.addEventListener('touchend', () => {{
+  if (!touchActive) return;
+  touchActive = false;
+  if (touchClassified === 'swipe') {{
+    finishSwipe(touchDX);
+  }} else if (touchClassified === 'pan') {{
+    const img = document.getElementById('img');
+    const wrap = document.getElementById('imgwrap');
+    panOffsetX = clampOffset(panOffsetX + touchDX, wrap.clientWidth, img.naturalWidth);
+    panOffsetY = clampOffset(panOffsetY + touchDY, wrap.clientHeight, img.naturalHeight);
+  }}
+  touchClassified = null;
+}});
+
 loadNext();
 </script>
 <script src="scrollnav.js"></script>
