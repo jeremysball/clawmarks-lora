@@ -5,8 +5,8 @@ eventually be ranked by predicted preference instead of raw novelty. See
 docs/superpowers/specs/2026-07-09-preference-classifier-design.md, Component 3.
 
 Refuses to train below MIN_LABELS: with only a handful of ratings, any model would be
-overfitting noise, not learning taste. Run rate.html (via `clawmarks build rate` +
-`clawmarks serve`) until this floor is cleared.
+overfitting noise, not learning taste. Run rate.html (via `clawmarks serve`) until this
+floor is cleared.
 
 Run with: python -m clawmarks.search.preference_model
 """

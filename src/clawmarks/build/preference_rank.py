@@ -5,7 +5,7 @@ user's own taste before Stage 5b lets it steer anything live. Requires
 search/preference_model.py to have already produced notes/uncanny_sweep/preference_model.joblib
 (needs 50+ ratings — see search/preference_model.py's MIN_LABELS).
 
-Run with: python3 -m clawmarks.build.preference_rank (or `clawmarks build preference-rank`)
+Served live at /preference_rank.html by curation_server.py.
 """
 import json
 import os

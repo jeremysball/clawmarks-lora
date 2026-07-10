@@ -4,7 +4,7 @@ build/*.py generator, this page bakes in no per-image data at build time — it 
 GET /api/rate/next itself and POSTs to /api/rate, both served by curation_server.py, so the page
 never goes stale between rebuilds. Rebuilding only matters if this file itself changes.
 
-Run with: python3 -m clawmarks.build.rate_page (or `clawmarks build rate`)
+Served live at /rate.html by curation_server.py.
 """
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
