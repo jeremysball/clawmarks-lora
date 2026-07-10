@@ -7,29 +7,14 @@ from the explore pool; one whose novelty still climbs is still yielding new terr
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.novelty_decay
 """
-import json, os, re, sys
+import json, re
 from collections import defaultdict
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def main(argv=None):
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
-    trend_tip = info_btn(
-        "The trend is the average novelty of a prompt's last 3 generations minus the average of its "
-        "first 3. Below -0.01 counts as declining, above +0.01 as still rising, and anything in "
-        "between as flat. That 0.01 cutoff is a rough rule of thumb, not a statistically derived "
-        "noise floor, so treat borderline cases as worth a second look rather than a firm verdict."
-    )
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+def compute_data(sweep_dir):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
     def generation_of(tag):
@@ -58,7 +43,19 @@ def main(argv=None):
         })
 
     series.sort(key=lambda s: s["trend"])
+    return {"series": series}
+
+
+def render_html(data):
+    series = data["series"]
     data_json = json.dumps(series)
+
+    trend_tip = info_btn(
+        "The trend is the average novelty of a prompt's last 3 generations minus the average of its "
+        "first 3. Below -0.01 counts as declining, above +0.01 as still rising, and anything in "
+        "between as flat. That 0.01 cutoff is a rough rule of thumb, not a statistically derived "
+        "noise floor, so treat borderline cases as worth a second look rather than a firm verdict."
+    )
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS novelty decay watchlist</title>
@@ -130,11 +127,4 @@ list.innerHTML = SERIES.map(s => {{
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/novelty_decay.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/novelty_decay.html ({len(series)} prompt families with 2+ generations)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

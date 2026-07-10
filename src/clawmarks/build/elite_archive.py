@@ -12,16 +12,11 @@ the cell, matching the ranking the search itself uses to build its automated "el
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.elite_archive
 """
-import argparse
-import json, os, sys
+import json, os
 
-from clawmarks.config import SWEEP_DIR
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.search.preference_model import MODEL_FILE as PREFERENCE_MODEL_FILE
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 N_BINS = 4  # matches gallery.html's display grid
 
@@ -44,40 +39,19 @@ def build_item_summary(m, sweep_dir, predicted_scores):
     return summary
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--use-predicted-preference", action="store_true", default=False,
-        help="Stage 5b (opt-in, requires notes/uncanny_sweep/preference_model.joblib and human "
-             "validation via preference_rank.html first): rank each cell's fallback candidate "
-             "(the one shown when no yes-rated image exists in that cell) by predicted "
-             "preference instead of raw novelty. Defaults off.",
-    )
-    args = parser.parse_args(argv if argv is not None else [])
-
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
-    elite_tip = info_btn(
-        "MAP-Elites is a search strategy that keeps a grid of bins (here, faithfulness x novelty) "
-        "and remembers only the single best image found so far for each bin, rather than every image "
-        "ever generated. Each cell below is that bin's current champion: a human pick if one exists, "
-        "otherwise the highest-novelty image the automated search found there."
-    )
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+def compute_data(sweep_dir, use_predicted_preference=False):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
     ratings = {}
-    ratings_path = f"{SWEEP_DIR}/user_ratings.json"
+    ratings_path = f"{sweep_dir}/user_ratings.json"
     if os.path.exists(ratings_path):
         with open(ratings_path) as f:
             ratings = json.load(f)
     picks = {tag: r for tag, r in ratings.items() if r.get("label") == "yes"}
 
     predicted_scores = {}
-    if args.use_predicted_preference and os.path.exists(PREFERENCE_MODEL_FILE):
+    if use_predicted_preference and os.path.exists(PREFERENCE_MODEL_FILE):
         import joblib
 
         from clawmarks.search import embed_cache
@@ -121,12 +95,24 @@ def main(argv=None):
                 n_human += 1
             cells.append({
                 "fb": fb, "nb": nb, "n": len(items),
-                "items": [build_item_summary(m, SWEEP_DIR, predicted_scores)
+                "items": [build_item_summary(m, sweep_dir, predicted_scores)
                           for m in sorted(items, key=lambda m: elite_sort_key(m, predicted_scores))],
             })
 
     cells.sort(key=lambda c: (c["fb"], c["nb"]))
+    return {"cells": cells, "n_human": n_human}
+
+
+def render_html(data):
+    cells = data["cells"]
     data_json = json.dumps(cells)
+
+    elite_tip = info_btn(
+        "MAP-Elites is a search strategy that keeps a grid of bins (here, faithfulness x novelty) "
+        "and remembers only the single best image found so far for each bin, rather than every image "
+        "ever generated. Each cell below is that bin's current champion: a human pick if one exists, "
+        "otherwise the highest-novelty image the automated search found there."
+    )
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS elite archive</title>
@@ -262,11 +248,4 @@ fetch('/api/ratings').then(r => r.json()).then(ratings => {{
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/archive.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/archive.html ({len(cells)} occupied cells, {n_human} human-picked elites)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

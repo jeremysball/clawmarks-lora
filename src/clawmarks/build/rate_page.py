@@ -4,19 +4,12 @@ build/*.py generator, this page bakes in no per-image data at build time — it 
 GET /api/rate/next itself and POSTs to /api/rate, both served by curation_server.py, so the page
 never goes stale between rebuilds. Rebuilding only matters if this file itself changes.
 
-Run with: python3 -m clawmarks.build.rate_page (or `clawmarks build rate`)
+Served live at /rate.html by curation_server.py.
 """
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_scrollnav_asset, write_infotip_asset,
-    INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def main(argv=None):
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
+def render_html():
     rate_tip = info_btn(
         "Rating trains the preference classifier: yes/no on as many images as you can stand "
         "to look at. Yes-rated images immediately take over the search's exploit pool (the same "
@@ -110,11 +103,4 @@ loadNext();
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/rate.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/rate.html", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

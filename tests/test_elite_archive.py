@@ -5,8 +5,7 @@ import re
 from clawmarks.build import elite_archive
 
 
-def test_main_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(elite_archive, "SWEEP_DIR", tmp_path)
+def test_compute_data_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch):
     # Force every image into a single cell, regardless of its faith/novelty values, so the test
     # doesn't depend on how a 2-item manifest happens to quantile-split across N_BINS x N_BINS
     # cells (bin_edges(vals, 1) always returns [], so bin_of always returns 0).
@@ -24,12 +23,11 @@ def test_main_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch, capsys
     # a stale user_picks.json should be ignored entirely
     (tmp_path / "user_picks.json").write_text(json.dumps({"b": {"picked_at": "t0"}}))
 
-    elite_archive.main([])
+    data = elite_archive.compute_data(str(tmp_path))
+    assert len(data["cells"]) == 1
+    assert data["n_human"] == 1
 
-    captured = capsys.readouterr()
-    assert "1 occupied cells, 1 human-picked elites" in captured.out
-
-    html = (tmp_path / "archive.html").read_text()
+    html = elite_archive.render_html(data)
     match = re.search(r"const CELLS = (\[.+?\]);\nlet picks", html)
     assert match is not None, "could not find 'const CELLS = [...]; let picks' in archive.html"
     cells = json.loads(match.group(1))

@@ -8,17 +8,14 @@ scrolling through the whole batch by eye and guiding the next search run, unlike
 notes/uncanny_sweep/gallery.html's binned descriptor grid (capped at 12 thumbnails per bin,
 built for the faithfulness/novelty map shape, not for browsing or picking).
 
-Run after scored_manifest.json (and, for "show similar," similarity.json) exist:
-    python3 -m clawmarks.build.scan_gallery
-Then open via clawmarks serve (NOT plain http.server, which can't accept picks).
+compute_data() depends on similarity_index's compute_data() (DEPENDS_ON = ["similarity"]) for
+"show similar" neighbor lists; render_html() is a pure function of the returned items list, used
+for both scan.html and scan_data.json (the shared data source lightbox.js fetches on every tool
+page, not just scan.html's own grid).
 """
-import json, os, re, sys
+import json, os, re
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    write_lightbox_asset, write_scrollnav_asset, write_infotip_asset,
-    MOBILE_BASE_CSS, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
 def generation_of(tag):
@@ -26,22 +23,18 @@ def generation_of(tag):
     return int(m.group(1)) if m else 0
 
 
-def main(argv=None):
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+def compute_data(sweep_dir, deps):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
-    similarity = {}
-    sim_path = f"{SWEEP_DIR}/similarity.json"
-    if os.path.exists(sim_path):
-        with open(sim_path) as f:
-            similarity = json.load(f)
+    similarity = deps.get("similarity", {})
 
     items = []
     tag_to_index = {}
     for i, m in enumerate(manifest):
         tag_to_index[m["tag"]] = i
         thumb_path = f"thumbs/{m['tag']}.jpg"
-        has_thumb = os.path.exists(f"{SWEEP_DIR}/{thumb_path}")
+        has_thumb = os.path.exists(f"{sweep_dir}/{thumb_path}")
         items.append({
             "file": os.path.basename(m["file"]),
             "thumb": thumb_path if has_thumb else os.path.basename(m["file"]),
@@ -67,15 +60,11 @@ def main(argv=None):
             if tag in tag_to_index:
                 items[tag_to_index[tag]]["sim"] = [t for t in neighbor_tags if t in tag_to_index]
 
-    data_json = json.dumps(items)
+    return items
 
-    # scan_data.json is the single shared data source lightbox.js fetches, so every tool page's
-    # lightbox (not just scan.html's own grid) has full metadata and "show similar" data for any tag.
-    with open(f"{SWEEP_DIR}/scan_data.json", "w") as f:
-        json.dump(items, f)
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
+
+def render_html(items):
+    data_json = json.dumps(items)
 
     faith_tip = info_btn(
         "Faithfulness measures how close an image stays to the original training photos, on a scale "
@@ -378,12 +367,4 @@ applyFilters();
 </script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/scan.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/scan.html ({len(items)} images, "
-          f"{sum(1 for it in items if it['sim'])} with similarity data)")
-
-
-if __name__ == "__main__":
-    main()
+    return html

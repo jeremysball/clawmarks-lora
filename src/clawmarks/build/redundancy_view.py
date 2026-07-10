@@ -9,38 +9,21 @@ population's true effective size and which "different" bins are actually duplica
 Clustering happens client-side in JS (union-find over ~3400 nodes / ~54k edges is instant), so
 one threshold slider can be dragged live instead of needing a rebuild per threshold.
 
-Depends on build_solution_map.py's similarity_scored.json (top-16 neighbors WITH cosine
-scores; the original build_similarity_index.py only stores neighbor identity, not the score,
-which isn't enough to threshold on).
-
-Run after similarity_scored.json exists: python3 -m clawmarks.build.redundancy_view
+Depends on solution_map.py's compute_data(), which includes top-16 neighbors WITH cosine scores
+(the separate similarity_index.py only stores neighbor identity, not the score, which isn't
+enough to threshold on). compute_data(sweep_dir, deps) takes solution_map's result via
+`deps["solution-map"]`, served live by curation_server.py through LiveCache's
+depends_on=["solution-map"] mechanism, not a standalone build step.
 """
-import json, os, sys
+import json, os
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def main(argv=None):
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
+def compute_data(sweep_dir, deps):
+    sim_scored = deps["solution-map"]["similarity_scored"]
 
-    cluster_tip = info_btn(
-        "A cluster here is a connected component: if A is similar enough to B, and B is similar "
-        "enough to C, then A, B, and C all land in one cluster, even if A and C aren't directly "
-        "similar to each other. So a cluster can be a chain of gradual drift rather than a tight "
-        "group of near-duplicates. Read a big cluster as 'this region is redundant,' not as 'every "
-        "pair in it looks alike.'"
-    )
-
-    with open(f"{SWEEP_DIR}/similarity_scored.json") as f:
-        sim_scored = json.load(f)
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
     by_tag = {m["tag"]: m for m in manifest}
@@ -50,12 +33,30 @@ def main(argv=None):
         m = by_tag.get(tag)
         if not m:
             continue
-        thumbs[tag] = f"thumbs/{tag}.jpg" if os.path.exists(f"{SWEEP_DIR}/thumbs/{tag}.jpg") else os.path.basename(m["file"])
+        thumbs[tag] = f"thumbs/{tag}.jpg" if os.path.exists(f"{sweep_dir}/thumbs/{tag}.jpg") else os.path.basename(m["file"])
+
+    meta = {t: {"prompt_name": m["prompt_name"], "novelty": round(m["novelty"], 4),
+                "faith": round(m["centroid_sim"], 4)} for t, m in by_tag.items() if t in sim_scored}
+
+    return {"sim_scored": sim_scored, "thumbs": thumbs, "meta": meta}
+
+
+def render_html(data):
+    sim_scored = data["sim_scored"]
+    thumbs = data["thumbs"]
+    meta = data["meta"]
+
+    cluster_tip = info_btn(
+        "A cluster here is a connected component: if A is similar enough to B, and B is similar "
+        "enough to C, then A, B, and C all land in one cluster, even if A and C aren't directly "
+        "similar to each other. So a cluster can be a chain of gradual drift rather than a tight "
+        "group of near-duplicates. Read a big cluster as 'this region is redundant,' not as 'every "
+        "pair in it looks alike.'"
+    )
 
     edges_json = json.dumps(sim_scored)
     thumbs_json = json.dumps(thumbs)
-    meta_json = json.dumps({t: {"prompt_name": m["prompt_name"], "novelty": round(m["novelty"], 4),
-                                 "faith": round(m["centroid_sim"], 4)} for t, m in by_tag.items() if t in sim_scored})
+    meta_json = json.dumps(meta)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS redundancy clusters</title>
@@ -150,11 +151,4 @@ render();
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/redundancy.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/redundancy.html ({len(sim_scored)} images with similarity edges)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

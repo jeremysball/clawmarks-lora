@@ -11,19 +11,10 @@ after that, since new seeds show up via the API without a rebuild.
 
 Run: python3 -m clawmarks.build.seed_browser
 """
-import os, sys
-
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def main(argv=None):
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
+def render_html():
     seeds_tip = info_btn(
         "A candidate seed is a short subject/texture description (e.g. \"empty parking garage at "
         "night, one flickering light\") that an \"explore\" job can draw when building a fresh, "
@@ -158,11 +149,4 @@ load();
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/seeds.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/seeds.html", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

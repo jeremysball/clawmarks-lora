@@ -1,132 +1,43 @@
 """
-Scores every image from notes/uncanny_sweep/manifest.json on two axes (DINOv2 centroid
-similarity = faithfulness, 1 - nearest-neighbor similarity to any single real image =
-novelty), bins them into a 2D descriptor grid (lab_notebook.md Section 3b's "liminal band"
-idea), and writes an HTML gallery/atlas to notes/uncanny_sweep/gallery.html.
+Renders notes/uncanny_sweep/scored_manifest.json (already scored by
+clawmarks.search.score_manifest) as an HTML gallery/atlas: bins every image into a 2D
+descriptor grid (lab_notebook.md Section 3b's "liminal band" idea) by faithfulness (DINOv2
+centroid similarity) and novelty (1 - nearest-neighbor similarity to any real image).
 
 This keeps every image per bin rather than picking one "elite" per bin (no automated
 coherence/quality scorer exists to pick with); final curation is left to a human looking at
 the gallery, per this project's standing rule that a metric is a filter, not a verdict.
-
-Run after notes/run_uncanny_sweep.py finishes (or on manifest_partial.json if run early):
-    python3 -m clawmarks.build.uncanny_gallery [manifest_path]
 """
-import os, sys, json, base64
-import torch
-import numpy as np
-from PIL import Image
-from transformers import AutoModel
+import base64
+import json
+import os
 
-from clawmarks.config import ROOT, SWEEP_DIR
-
-MODEL_ID = "facebook/dinov2-base"
-REAL_DIR = f"{ROOT}/corrected_dataset_extract"
 N_BINS = 4
 
-IMAGE_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-IMAGE_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-
-
-def preprocess(img):
-    img = img.convert("RGB")
-    w, h = img.size
-    shortest = 256
-    if w < h:
-        new_w, new_h = shortest, round(h * shortest / w)
-    else:
-        new_h, new_w = shortest, round(w * shortest / h)
-    img = img.resize((new_w, new_h), Image.BICUBIC)
-    left, top = (new_w - 224) // 2, (new_h - 224) // 2
-    img = img.crop((left, top, left + 224, top + 224))
-    arr = np.asarray(img).astype(np.float32) / 255.0
-    t = torch.from_numpy(arr).permute(2, 0, 1)
-    return (t - IMAGE_MEAN) / IMAGE_STD
-
-
-def embed_images(paths, batch_size=16, model=None):
-    embs = []
-    with torch.no_grad():
-        for i in range(0, len(paths), batch_size):
-            batch = paths[i:i + batch_size]
-            tensors = [preprocess(Image.open(p)) for p in batch]
-            pixel_values = torch.stack(tensors, dim=0)
-            out = model(pixel_values=pixel_values)
-            feats = out.pooler_output
-            feats = feats / feats.norm(dim=-1, keepdim=True)
-            embs.append(feats)
-    return torch.cat(embs, dim=0)
+TYPE_COLOR = {"style": "#5ec98a", "conflict": "#e0a25e"}
 
 
 def thumb_data_uri(path, size=192):
+    from io import BytesIO
+    from PIL import Image
     img = Image.open(path).convert("RGB")
     img.thumbnail((size, size))
-    from io import BytesIO
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=78)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def _default_manifest():
-    full = f"{SWEEP_DIR}/manifest.json"
-    partial = f"{SWEEP_DIR}/manifest_partial.json"
-    if os.path.exists(full):
-        return full
-    if os.path.exists(partial):
-        print(f"NOTE: {full} not found yet, building from partial results ({partial}). "
-              f"Some planned jobs may still be missing; that's fine, this doesn't wait for "
-              f"100% completion.", flush=True)
-        return partial
-    raise FileNotFoundError("neither manifest.json nor manifest_partial.json exists yet")
-
-
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
-    manifest_path = argv[0] if argv else _default_manifest()
-    print("loading DINOv2...", flush=True)
-    model = AutoModel.from_pretrained(MODEL_ID)
-    model.eval()
-
-    real_paths = sorted(os.path.join(REAL_DIR, f) for f in os.listdir(REAL_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png")))
-    real_embs = embed_images(real_paths, model=model)
-    centroid = real_embs.mean(dim=0)
-    centroid = centroid / centroid.norm()
-
-    # Leave-one-out reference: how similar does each real image score against the centroid of
-    # the *other* real images? This anchors "definitely in-style" on an absolute scale, rather
-    # than the generated batch's own quartiles, which are skewed by deliberately extreme
-    # settings (strength up to 1.8, CFG up to 12) and out-of-domain prompts (flagged by an
-    # external reviewer, Fable, 2026-07-09: batch-relative quartiles alone could put the
-    # "middle faithfulness" bins in garbage territory if half the batch is fried noise).
-    n_real = real_embs.shape[0]
-    loo_sims = []
-    for i in range(n_real):
-        others = torch.cat([real_embs[:i], real_embs[i + 1:]], dim=0)
-        loo_centroid = others.mean(dim=0)
-        loo_centroid = loo_centroid / loo_centroid.norm()
-        loo_sims.append((real_embs[i] @ loo_centroid).item())
-    real_ref_mean = sum(loo_sims) / len(loo_sims)
-    real_ref_min = min(loo_sims)
-    real_ref_max = max(loo_sims)
-    print(f"real-image leave-one-out reference: mean={real_ref_mean:.4f} "
-          f"min={real_ref_min:.4f} max={real_ref_max:.4f}", flush=True)
-
-    with open(manifest_path) as f:
+def compute_data(sweep_dir):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
-    print(f"scoring {len(manifest)} generated images...", flush=True)
 
-    paths = [m["file"] for m in manifest if os.path.exists(m["file"])]
-    manifest = [m for m in manifest if os.path.exists(m["file"])]
-    embs = embed_images(paths, model=model)
-
-    centroid_sim = (embs @ centroid).tolist()
-    nn_matrix = embs @ real_embs.T
-    nn_sim = nn_matrix.max(dim=1).values.tolist()
-
-    for m, cs, ns in zip(manifest, centroid_sim, nn_sim):
-        m["centroid_sim"] = cs
-        m["novelty"] = 1 - ns
-        m["prompt_type"] = "style" if m["prompt_name"].startswith("style_") else "conflict"
+    real_ref_path = f"{sweep_dir}/real_ref.json"
+    if os.path.exists(real_ref_path):
+        with open(real_ref_path) as f:
+            real_ref_data = json.load(f)
+        real_ref = (real_ref_data["mean"], real_ref_data["min"], real_ref_data["max"])
+    else:
+        real_ref = (0.0, 0.0, 0.0)
 
     faith_vals = sorted(m["centroid_sim"] for m in manifest)
     novelty_vals = sorted(m["novelty"] for m in manifest)
@@ -149,9 +60,6 @@ def main(argv=None):
         nb = bin_of(m["novelty"], novelty_edges)
         grid.setdefault((fb, nb), []).append(m)
 
-    with open(f"{SWEEP_DIR}/scored_manifest.json", "w") as f:
-        json.dump(manifest, f, indent=1)
-
     liminal_lo, liminal_hi = faith_edges[0], faith_edges[-1]
     liminal_band = [m for m in manifest if liminal_lo <= m["centroid_sim"] <= liminal_hi]
     # Select by novelty (this is the whole point: find what's far from any real image while
@@ -164,15 +72,12 @@ def main(argv=None):
     for m in manifest:
         by_type.setdefault(m["prompt_type"], []).append(m["centroid_sim"])
     type_summary = {t: (sum(v) / len(v), len(v)) for t, v in by_type.items()}
-    print(f"faithfulness by prompt type: {type_summary}", flush=True)
 
-    print("building gallery...", flush=True)
-    build_html(manifest, grid, faith_edges, novelty_edges, liminal_band_top,
-               (real_ref_mean, real_ref_min, real_ref_max), type_summary)
-    print(f"DONE: {SWEEP_DIR}/gallery.html ({len(manifest)} images, {len(grid)} occupied bins)", flush=True)
-
-
-TYPE_COLOR = {"style": "#5ec98a", "conflict": "#e0a25e"}
+    return {
+        "manifest": manifest, "grid": grid, "faith_edges": faith_edges,
+        "novelty_edges": novelty_edges, "liminal_band_top": liminal_band_top,
+        "real_ref": real_ref, "type_summary": type_summary,
+    }
 
 
 def cell_html(items, faith_edges, novelty_edges, fb, nb):
@@ -191,8 +96,12 @@ def cell_html(items, faith_edges, novelty_edges, fb, nb):
     return f'<div class="cell" data-count="{len(items)}"><div class="cell-label">{label}<br>n={len(items)}</div><div class="cell-thumbs">{thumbs}</div></div>'
 
 
-def build_html(manifest, grid, faith_edges, novelty_edges, highlight, real_ref, type_summary):
+def render_html(data):
+    manifest, grid = data["manifest"], data["grid"]
+    faith_edges, novelty_edges = data["faith_edges"], data["novelty_edges"]
+    highlight, real_ref, type_summary = data["liminal_band_top"], data["real_ref"], data["type_summary"]
     real_ref_mean, real_ref_min, real_ref_max = real_ref
+
     rows = []
     for fb in range(N_BINS):
         cols = []
@@ -243,7 +152,7 @@ descriptor binning, not full MAP-Elites: every image per bin is kept rather than
 "elite," since no reliable automated coherence score exists yet, per this project's standing
 rule that a metric filters, it doesn't verdict. Final curation is a human call.</p>
 
-<div class="refband"><b>Reference anchor</b>: the 31 real training images score
+<div class="refband"><b>Reference anchor</b>: the real training images score
 {real_ref_min:.3f}-{real_ref_max:.3f} (mean {real_ref_mean:.3f}) against each other's own
 centroid (leave-one-out). Treat that range as "definitely in-style" on an absolute scale, since
 this batch's own bin edges are relative to a deliberately extreme sweep (LoRA strength up to
@@ -273,9 +182,4 @@ bins, low (left) to high (right).</p>
 <div class="grid">{"".join(rows)}</div>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/gallery.html", "w") as f:
-        f.write(html)
-
-
-if __name__ == "__main__":
-    main()
+    return html

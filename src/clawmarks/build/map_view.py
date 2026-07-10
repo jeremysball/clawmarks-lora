@@ -7,25 +7,35 @@ a "nearest real image" bar chart (mode-collapse check: if the population only ev
 handful of the 31 real training images, faithfulness is being measured against a sliver of the
 style, not the whole thing).
 
-Depends on build_solution_map.py's output (solution_map_data.json), which does the actual
-DINOv2 re-embedding and UMAP fit; this script only lays out the already-computed points.
-
-Run after solution_map_data.json exists: python3 -m clawmarks.build.map_view
+Depends on solution_map.py's compute_data(), which does the actual DINOv2 re-embedding and UMAP
+fit; this module only lays out the already-computed points. compute_data(sweep_dir, deps) takes
+solution_map's result via `deps["solution-map"]`, served live by curation_server.py through
+LiveCache's depends_on=["solution-map"] mechanism, not a standalone build step.
 """
-import json, os, sys
+import json
 from collections import Counter
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def main(argv=None):
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
+def compute_data(sweep_dir, deps):
+    solution_map_data = deps["solution-map"]["solution_map_data"]
+    points = solution_map_data["points"]
+    real_points = solution_map_data["real_points"]
+    max_gen = max((p["gen"] for p in points), default=0)
+    real_anchor_counts = Counter(p["nearest_real"] for p in points)
+    return {
+        "points": points,
+        "real_points": real_points,
+        "max_gen": max_gen,
+        "real_anchor_counts": sorted(real_anchor_counts.items(), key=lambda kv: -kv[1]),
+    }
+
+
+def render_html(data):
+    points = data["points"]
+    real_points = data["real_points"]
+    max_gen = data["max_gen"]
 
     umap_tip = info_btn(
         "UMAP takes the high-dimensional embedding (the numeric fingerprint DINOv2 assigns each "
@@ -42,15 +52,7 @@ def main(argv=None):
         "to it as their closest match."
     )
 
-    with open(f"{SWEEP_DIR}/solution_map_data.json") as f:
-        data = json.load(f)
-
-    points = data["points"]
-    real_points = data["real_points"]
-    max_gen = max((p["gen"] for p in points), default=0)
-
-    real_anchor_counts = Counter(p["nearest_real"] for p in points)
-    real_anchor_json = json.dumps(sorted(real_anchor_counts.items(), key=lambda kv: -kv[1]))
+    real_anchor_json = json.dumps(data["real_anchor_counts"])
 
     points_json = json.dumps(points)
     real_json = json.dumps(real_points)
@@ -307,11 +309,4 @@ draw();
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/map.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/map.html ({len(points)} points, {len(real_points)} real anchors, max gen {max_gen})", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

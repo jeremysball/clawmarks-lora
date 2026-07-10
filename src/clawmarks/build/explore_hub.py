@@ -6,10 +6,7 @@ its own.
 Run: python3 -m clawmarks.build.explore_hub
 """
 
-import os, sys
-
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, write_infotip_asset
+from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 TOOLS = [
     ("scan.html", "Scan gallery", "Every image, sortable/filterable/searchable, with a lightbox, similarity browsing, and the pick-as-winner curation control that feeds round 2."),
@@ -24,9 +21,7 @@ TOOLS = [
 ]
 
 
-def main(argv=None):
-    write_infotip_asset(SWEEP_DIR)
-
+def render_html():
     process_tip = info_btn(
         "This is a MAP-Elites search: instead of hill-climbing toward one 'best' image, it keeps a "
         "grid of bins (a faithfulness x novelty archive, see the elite archive) and tries to fill "
@@ -80,11 +75,4 @@ where it's empty but reachable, and how it's moved generation over generation.</
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/explore.html", "w") as f:
-        f.write(html)
-
-    print(f"wrote {SWEEP_DIR}/explore.html ({len(TOOLS)} tools linked)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

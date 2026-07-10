@@ -2,11 +2,7 @@
 from clawmarks.build import rate_page
 
 
-def test_main_writes_rate_html(tmp_path, monkeypatch):
-    monkeypatch.setattr(rate_page, "SWEEP_DIR", tmp_path)
-    rate_page.main([])
-    out = tmp_path / "rate.html"
-    assert out.exists()
-    content = out.read_text()
-    assert "/api/rate/next" in content
-    assert "/api/rate" in content
+def test_render_html_includes_rate_api_calls():
+    html = rate_page.render_html()
+    assert "/api/rate/next" in html
+    assert "/api/rate" in html

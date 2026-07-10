@@ -5,21 +5,17 @@ user's own taste before Stage 5b lets it steer anything live. Requires
 search/preference_model.py to have already produced notes/uncanny_sweep/preference_model.joblib
 (needs 50+ ratings — see search/preference_model.py's MIN_LABELS).
 
-Run with: python3 -m clawmarks.build.preference_rank (or `clawmarks build preference-rank`)
+Served live at /preference_rank.html by curation_server.py.
 """
 import json
 import os
 
 import joblib
 
-from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import index_by_tag, item_summary
 from clawmarks.search.preference_model import MODEL_FILE, predict_proba
-from clawmarks.shared_ui import (
-    INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html, write_infotip_asset,
-    write_lightbox_asset, write_scrollnav_asset,
-)
+from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
 def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
@@ -35,24 +31,28 @@ def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
     return items
 
 
-def main(argv=None):
+def compute_data(sweep_dir):
     if not os.path.exists(MODEL_FILE):
-        print(f"no trained model at {MODEL_FILE}; run `python -m "
-              f"clawmarks.search.preference_model` first (needs 50+ ratings)", flush=True)
-        return 1
+        return {"has_model": False}
 
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
     by_tag = index_by_tag(manifest)
 
     tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
     model = joblib.load(MODEL_FILE)
     scores = predict_proba(model, embeddings)
-    items = build_ranked_items(by_tag, tags, scores, SWEEP_DIR)
+    items = build_ranked_items(by_tag, tags, scores, sweep_dir)
+
+    return {"has_model": True, "items": items}
+
+
+def render_html(data):
+    if not data["has_model"]:
+        return (f"<!doctype html><html><body>no trained model at {MODEL_FILE}; run `python -m "
+                f"clawmarks.search.preference_model` first (needs 50+ ratings)</body></html>")
+
+    items = data["items"]
 
     rank_tip = info_btn(
         "Sorted by the trained preference model's predicted probability that you'd rate this "
@@ -96,11 +96,4 @@ document.getElementById('grid').innerHTML = ITEMS.map(it => `
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/preference_rank.html", "w") as f:
-        f.write(html)
-    print(f"wrote {SWEEP_DIR}/preference_rank.html ({len(items)} ranked images)", flush=True)
-    return 0
-
-
-if __name__ == "__main__":
-    main()
+    return html

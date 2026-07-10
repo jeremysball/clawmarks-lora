@@ -1,15 +1,15 @@
 """
-Shared UI pieces used by every notes/build_*.py tool-page generator, so the lightbox, the
-top navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated
-across 8 scripts. Import and use:
+Shared UI pieces used by every build/*.py tool-page generator, so the lightbox, the top
+navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated across
+every page. Import and use:
 
-    from shared_ui import write_lightbox_asset, nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS
+    from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS
 
-`write_lightbox_asset(sweep_dir)` copies the static lightbox.js module into the sweep
-directory (idempotent, safe to call from every builder). Every generated page includes it
-with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(tag)` instead
-of `window.open('scan.html?open=...')`: no new tab, no page load, works from any page
-because the module fetches notes/uncanny_sweep/scan_data.json itself.
+`curation_server.py` serves `_LIGHTBOX_JS`, `SCROLLNAV_JS`, and `INFOTIP_JS` directly from
+`/lightbox.js`, `/scrollnav.js`, and `/infotip.js` routes; every generated page includes them
+with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(tag)` instead of
+`window.open('scan.html?open=...')`: no new tab, no page load, works from any page because the
+module fetches scan_data.json itself.
 """
 import os
 
@@ -97,6 +97,12 @@ INFOTIP_JS = """
     });
     if (!btn) return;
     e.stopPropagation();
+    // infobtn spans are nested inside <label> elements wrapping the filter control they
+    // annotate (e.g. <label>Sort<span class="infobtn">...</span> <select>...). Without this,
+    // the label's default action re-fires a synthetic click at that control right after this
+    // one, which bubbles to document a second time with no infobtn target and immediately
+    // closes the tooltip this same click just opened.
+    e.preventDefault();
     var pop = document.querySelector('.infopop[data-for="' + btn.dataset.id + '"]');
     if (!pop) {
       pop = document.createElement('div');
@@ -120,11 +126,6 @@ INFOTIP_JS = """
   });
 })();
 """
-
-
-def write_infotip_asset(sweep_dir):
-    with open(os.path.join(sweep_dir, "infotip.js"), "w") as f:
-        f.write(INFOTIP_JS)
 
 
 MOBILE_BASE_CSS = """
@@ -190,9 +191,9 @@ _LIGHTBOX_JS = r"""(function(){
   opacity:0.5; transition:opacity .15s ease, background .15s ease; }
 #lb-overlay .lb-nav:hover::before { opacity:1; background:rgba(34,34,40,0.85); }
 #lb-overlay .lb-prev { left:0; justify-content:flex-start; padding-left:14px; }
-#lb-overlay .lb-prev::before { content:'\2039'; }
+#lb-overlay .lb-prev::before { content:'\\2039'; }
 #lb-overlay .lb-next { right:0; justify-content:flex-end; padding-right:14px; }
-#lb-overlay .lb-next::before { content:'\203A'; }
+#lb-overlay .lb-next::before { content:'\\203A'; }
 #lb-overlay .lb-close { position:absolute; top:16px; right:22px; font-size:28px; cursor:pointer; color:#9a9aa4;
   width:40px; height:40px; display:flex; align-items:center; justify-content:center; z-index:2; }
 #lb-overlay .lb-close:hover { color:#eaeaee; }
@@ -571,13 +572,3 @@ _LIGHTBOX_JS = r"""(function(){
   })();
 })();
 """
-
-
-def write_lightbox_asset(sweep_dir):
-    with open(os.path.join(sweep_dir, "lightbox.js"), "w") as f:
-        f.write(_LIGHTBOX_JS)
-
-
-def write_scrollnav_asset(sweep_dir):
-    with open(os.path.join(sweep_dir, "scrollnav.js"), "w") as f:
-        f.write(SCROLLNAV_JS)

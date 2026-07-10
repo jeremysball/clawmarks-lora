@@ -374,7 +374,7 @@ def score_batch(model, real_embs, real_centroid, manifest_batch, prev_embs=None)
     """Score a batch of new images. With prev_embs (round 2), novelty is measured against
     BOTH the real training set AND round 1's already-explored images; without (round 1), only
     the real set."""
-    from clawmarks.build.uncanny_gallery import embed_images
+    from clawmarks.search.score_manifest import embed_images
     manifest_batch = [m for m in manifest_batch if os.path.exists(m["file"])]
     if not manifest_batch:
         return []
@@ -492,7 +492,7 @@ def main(argv=None):
     cfg = ROUND_CONFIGS[args.round]
 
     import torch
-    from clawmarks.build.uncanny_gallery import (
+    from clawmarks.search.score_manifest import (
         MODEL_ID, REAL_DIR, embed_images,
     )
     from transformers import AutoModel

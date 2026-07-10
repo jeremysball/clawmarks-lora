@@ -8,23 +8,33 @@ has a parent_tag yet, it writes an explanatory placeholder page instead of an em
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.lineage_view
 """
-import json, os, sys
+import json
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
 
 
-def main(argv=None):
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+def compute_data(sweep_dir):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
     by_tag = {m["tag"]: m for m in manifest}
     has_lineage = any(m.get("parent_tag") for m in manifest)
 
-    PLACEHOLDER = f"""<!doctype html><html><head><meta charset="utf-8">
+    if not has_lineage:
+        return {"has_lineage": False}
+
+    children_by_parent = {}
+    for m in manifest:
+        p = m.get("parent_tag")
+        if p and p in by_tag:
+            children_by_parent.setdefault(p, []).append(m["tag"])
+
+    return {"has_lineage": True, "by_tag": by_tag, "children_by_parent": children_by_parent}
+
+
+def render_html(data):
+    if not data["has_lineage"]:
+        return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS lineage tree</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -39,40 +49,28 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {nav_bar_html('lineage.html')}
 <h1>Lineage tree</h1>
 <p>No image in this dataset carries a <code>parent_tag</code> yet, so there's nothing to draw a
-tree from. Round 1's driver never recorded which parent an exploit step mutated near, and while
+tree from (placeholder page). Round 1's driver never recorded which parent an exploit step mutated near, and while
 round 2's driver was patched on 2026-07-09 to record it, the patch only takes effect the next
 time that process is (re)started, not for a run already in progress.</p>
-<p>Once round 2 restarts (or a future round runs) with the patch active, re-run
-<code>python3 -m clawmarks.build.lineage_view</code> and this page will render exploit chains:
-each parent image and the children it spawned, with faithfulness/novelty deltas at each step,
-to show whether exploiting actually improves on its parent or just wobbles.</p>
+<p>Once round 2 restarts (or a future round runs) with the patch active, reload this page and it
+will render exploit chains: each parent image and the children it spawned, with faithfulness/novelty
+deltas at each step, to show whether exploiting actually improves on its parent or just wobbles.</p>
 </body></html>"""
 
-    if not has_lineage:
-        with open(f"{SWEEP_DIR}/lineage.html", "w") as f:
-            f.write(PLACEHOLDER)
-        print(f"wrote {SWEEP_DIR}/lineage.html (placeholder: no parent_tag data exists yet)", flush=True)
-    else:
-        children_by_parent = {}
-        roots = []
-        for m in manifest:
-            p = m.get("parent_tag")
-            if p and p in by_tag:
-                children_by_parent.setdefault(p, []).append(m["tag"])
-            elif p:
-                roots.append(m["tag"])  # parent existed but isn't in this dataset (e.g. a user pick)
+    by_tag = data["by_tag"]
+    children_by_parent = data["children_by_parent"]
 
-        def node_html(tag, depth=0):
-            m = by_tag[tag]
-            children = children_by_parent.get(tag, [])
-            child_html = "".join(node_html(c, depth + 1) for c in children)
-            return (f'<li><div class="node" onclick="Lightbox.open(\'{tag}\')"><b>{tag}</b> faith={m["centroid_sim"]:.3f} '
-                    f'novelty={m["novelty"]:.3f}</div>{"<ul>" + child_html + "</ul>" if children else ""}</li>')
+    def node_html(tag, depth=0):
+        m = by_tag[tag]
+        children = children_by_parent.get(tag, [])
+        child_html = "".join(node_html(c, depth + 1) for c in children)
+        return (f'<li><div class="node" onclick="Lightbox.open(\'{tag}\')"><b>{tag}</b> faith={m["centroid_sim"]:.3f} '
+                f'novelty={m["novelty"]:.3f}</div>{"<ul>" + child_html + "</ul>" if children else ""}</li>')
 
-        top_level = [t for t in by_tag if t not in {c for cs in children_by_parent.values() for c in cs}]
-        tree_html = "<ul>" + "".join(node_html(t) for t in top_level if t in children_by_parent) + "</ul>"
+    top_level = [t for t in by_tag if t not in {c for cs in children_by_parent.values() for c in cs}]
+    tree_html = "<ul>" + "".join(node_html(t) for t in top_level if t in children_by_parent) + "</ul>"
 
-        html = f"""<!doctype html><html><head><meta charset="utf-8">
+    html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS lineage tree</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -91,10 +89,4 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 </body></html>"""
-        with open(f"{SWEEP_DIR}/lineage.html", "w") as f:
-            f.write(html)
-        print(f"wrote {SWEEP_DIR}/lineage.html ({len(children_by_parent)} parent nodes)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html

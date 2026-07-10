@@ -64,6 +64,69 @@ from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
 from clawmarks.search import rating_sampler
 from clawmarks.search.manifest_index import item_summary
+from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
+from clawmarks.live_cache import LiveCache
+from clawmarks.build import (
+    scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
+    novelty_decay, lineage_view, elite_archive, preference_rank, uncanny_gallery, explore_hub,
+    seed_browser, rate_page,
+)
+from clawmarks.build.thumbnails import generate_thumbnail
+
+_live_cache = LiveCache()
+
+
+def _manifest_path():
+    return f"{SWEEP_DIR}/scored_manifest.json"
+
+
+def _get_scan_items():
+    _live_cache.get(
+        "similarity", similarity_index.compute_data,
+        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+    )
+    return _live_cache.get(
+        "scan", scan_gallery.compute_data,
+        watched_files=[_manifest_path()], depends_on=["similarity"], sweep_dir=str(SWEEP_DIR),
+    )
+
+
+def _solution_map_watched_files():
+    files = [_manifest_path()]
+    embs_file = f"{SWEEP_DIR}/solution_map_final_embs.pt"
+    if os.path.exists(embs_file):
+        files.append(embs_file)
+    return files
+
+
+def _get_solution_map_data():
+    return _live_cache.get(
+        "solution-map", solution_map.compute_data,
+        watched_files=_solution_map_watched_files(), sweep_dir=str(SWEEP_DIR),
+    )
+
+
+def _get_map_data():
+    _get_solution_map_data()
+    return _live_cache.get(
+        "map", map_view.compute_data,
+        watched_files=[], depends_on=["solution-map"], sweep_dir=str(SWEEP_DIR),
+    )
+
+
+def _get_redundancy_data():
+    _get_solution_map_data()
+    return _live_cache.get(
+        "redundancy", redundancy_view.compute_data,
+        watched_files=[], depends_on=["solution-map"], sweep_dir=str(SWEEP_DIR),
+    )
+
+
+def _get_manifest_cached(target_name, compute_fn):
+    return _live_cache.get(
+        target_name, compute_fn,
+        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+    )
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
@@ -161,17 +224,26 @@ def record_rating(ratings, tag, label, now):
     return updated
 
 
-_manifest_cache = {"manifest": None, "mtime": None}
+_manifest_cache = {"manifest": None, "mtime": None, "by_tag": None}
+_manifest_cache_lock = threading.Lock()
 
 
 def load_manifest():
     path = f"{SWEEP_DIR}/scored_manifest.json"
-    mtime = os.path.getmtime(path)
-    if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
-        with open(path) as f:
-            _manifest_cache["manifest"] = json.load(f)
-        _manifest_cache["mtime"] = mtime
-    return _manifest_cache["manifest"]
+    with _manifest_cache_lock:
+        mtime = os.path.getmtime(path)
+        if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
+            with open(path) as f:
+                manifest = json.load(f)
+            _manifest_cache["manifest"] = manifest
+            _manifest_cache["by_tag"] = {m["tag"]: m for m in manifest}
+            _manifest_cache["mtime"] = mtime
+        return _manifest_cache["manifest"]
+
+
+def manifest_entry_by_tag(tag):
+    load_manifest()
+    return _manifest_cache["by_tag"].get(tag)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -226,6 +298,157 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Location", "/scan.html")
             self.end_headers()
             return
+
+        _JS_ASSETS = {"/lightbox.js": _LIGHTBOX_JS, "/scrollnav.js": SCROLLNAV_JS, "/infotip.js": INFOTIP_JS}
+        if self.path in _JS_ASSETS:
+            body = _JS_ASSETS[self.path].encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/scan.html":
+            html = scan_gallery.render_html(_get_scan_items())
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/scan_data.json":
+            self._json_response(200, _get_scan_items())
+            return
+
+        if self.path == "/map.html":
+            html = map_view.render_html(_get_map_data())
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/redundancy.html":
+            html = redundancy_view.render_html(_get_redundancy_data())
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/coverage.html":
+            html = coverage_map.render_html(_get_manifest_cached("coverage", coverage_map.compute_data))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/novelty_decay.html":
+            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/lineage.html":
+            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path.startswith("/archive.html"):
+            from urllib.parse import urlparse, parse_qs
+            query = parse_qs(urlparse(self.path).query)
+            use_predicted = query.get("use_predicted_preference", ["0"])[0] == "1"
+            target_name = "archive_predicted" if use_predicted else "archive_actual"
+            data = _get_manifest_cached(
+                target_name,
+                lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
+            )
+            html = elite_archive.render_html(data)
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/preference_rank.html":
+            html = preference_rank.render_html(_get_manifest_cached("preference_rank", preference_rank.compute_data))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/gallery.html":
+            html = uncanny_gallery.render_html(_get_manifest_cached("gallery", uncanny_gallery.compute_data))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/explore.html":
+            body = explore_hub.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/seeds.html":
+            body = seed_browser.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/rate.html":
+            body = rate_page.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path.startswith("/thumbs/") and self.path.endswith(".jpg"):
+            thumb_path = f"{SWEEP_DIR}{self.path}"
+            if not os.path.exists(thumb_path):
+                tag = os.path.basename(self.path)[: -len(".jpg")]
+                match = manifest_entry_by_tag(tag)
+                if match is None:
+                    self.send_error(404, "no manifest entry for this tag")
+                    return
+                os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                generate_thumbnail(match["file"], thumb_path)
+            # fall through to super().do_GET() below, which now finds the file on disk
+
         super().do_GET()
 
     def do_POST(self):

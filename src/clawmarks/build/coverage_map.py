@@ -11,32 +11,15 @@ occupied-cell count) called out separately from ordinary empty cells.
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.coverage_map
 """
-import json, os, sys
+import json, os
 
-from clawmarks.config import SWEEP_DIR
-from clawmarks.shared_ui import (
-    nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, write_lightbox_asset, write_scrollnav_asset,
-    write_infotip_asset, INFOTIP_CSS, info_btn,
-)
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 N_BINS = 8
 
 
-def main(argv=None):
-    write_lightbox_asset(SWEEP_DIR)
-    write_scrollnav_asset(SWEEP_DIR)
-    write_infotip_asset(SWEEP_DIR)
-
-    axes_tip = info_btn(
-        "Faithfulness (x-axis) measures how close an image stays to the original training photos, "
-        "from 0 (no resemblance) to 1 (near-identical). Novelty (y-axis) measures how different an "
-        "image is from everything already explored, so 1 means nothing found so far looks like it. "
-        "Every image lands in exactly one cell of this grid based on those two scores; a frontier "
-        "cell is an empty one next to a well-populated one, a promising, reachable gap the search "
-        "hasn't filled yet."
-    )
-
-    with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+def compute_data(sweep_dir):
+    with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
     faith_vals = sorted(m["centroid_sim"] for m in manifest)
@@ -77,7 +60,7 @@ def main(argv=None):
     def item_summary(m):
         return {
             "tag": m["tag"],
-            "thumb": (f"thumbs/{m['tag']}.jpg" if os.path.exists(f"{SWEEP_DIR}/thumbs/{m['tag']}.jpg")
+            "thumb": (f"thumbs/{m['tag']}.jpg" if os.path.exists(f"{sweep_dir}/thumbs/{m['tag']}.jpg")
                       else os.path.basename(m["file"])),
             "faith": round(m["centroid_sim"], 4),
             "novelty": round(m["novelty"], 4),
@@ -97,13 +80,28 @@ def main(argv=None):
                 "faith_hi": round(faith_edges[fb], 3) if fb < len(faith_edges) else None,
                 "novelty_lo": round(novelty_edges[nb - 1], 3) if nb > 0 else None,
                 "novelty_hi": round(novelty_edges[nb], 3) if nb < len(novelty_edges) else None,
-                "thumb": (f"thumbs/{best['tag']}.jpg" if best and os.path.exists(f"{SWEEP_DIR}/thumbs/{best['tag']}.jpg")
+                "thumb": (f"thumbs/{best['tag']}.jpg" if best and os.path.exists(f"{sweep_dir}/thumbs/{best['tag']}.jpg")
                           else (os.path.basename(best["file"]) if best else None)),
                 "best_tag": best["tag"] if best else None,
                 "items": [item_summary(m) for m in items],
             })
 
+    return {"cells": cells_json, "max_count": max_count}
+
+
+def render_html(data):
+    cells_json = data["cells"]
+    max_count = data["max_count"]
     data_json = json.dumps(cells_json)
+
+    axes_tip = info_btn(
+        "Faithfulness (x-axis) measures how close an image stays to the original training photos, "
+        "from 0 (no resemblance) to 1 (near-identical). Novelty (y-axis) measures how different an "
+        "image is from everything already explored, so 1 means nothing found so far looks like it. "
+        "Every image lands in exactly one cell of this grid based on those two scores; a frontier "
+        "cell is an empty one next to a well-populated one, a promising, reachable gap the search "
+        "hasn't filled yet."
+    )
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS coverage map</title>
@@ -275,13 +273,4 @@ legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></s
 <script src="infotip.js"></script>
 </body></html>"""
 
-    with open(f"{SWEEP_DIR}/coverage.html", "w") as f:
-        f.write(html)
-
-    n_frontier = sum(1 for c in cells_json if c["frontier"])
-    n_occupied = sum(1 for c in cells_json if c["count"] > 0)
-    print(f"wrote {SWEEP_DIR}/coverage.html ({n_occupied}/{N_BINS*N_BINS} cells occupied, {n_frontier} frontier cells)", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    return html
