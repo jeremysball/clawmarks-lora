@@ -161,13 +161,16 @@ def record_rating(ratings, tag, label, now):
     return updated
 
 
-_manifest_cache = {"manifest": None}
+_manifest_cache = {"manifest": None, "mtime": None}
 
 
 def load_manifest():
-    if _manifest_cache["manifest"] is None:
-        with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+    path = f"{SWEEP_DIR}/scored_manifest.json"
+    mtime = os.path.getmtime(path)
+    if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
+        with open(path) as f:
             _manifest_cache["manifest"] = json.load(f)
+        _manifest_cache["mtime"] = mtime
     return _manifest_cache["manifest"]
 
 

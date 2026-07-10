@@ -251,7 +251,10 @@ let picks = {{}};
 let favorites = {{}};
 
 Promise.all([
-  fetch('/api/picks').then(r => r.json()).then(p => {{ picks = p; }}).catch(() => {{}}),
+  fetch('/api/ratings').then(r => r.json()).then(ratings => {{
+    picks = {{}};
+    Object.entries(ratings).forEach(([tag, r]) => {{ if (r.label === 'yes') picks[tag] = true; }});
+  }}).catch(() => {{}}),
   fetch('/api/favorites').then(r => r.json()).then(f => {{ favorites = f; }}).catch(() => {{}}),
 ]).then(render);
 
@@ -366,10 +369,6 @@ const debouncedApplyFilters = debounce(applyFilters, 250);
 ['faithMin', 'faithMax', 'search'].forEach(id =>
   document.getElementById(id).addEventListener('input', debouncedApplyFilters));
 
-document.addEventListener('lightbox:pick', e => {{
-  if (e.detail.picked) picks[e.detail.tag] = true; else delete picks[e.detail.tag];
-  render();
-}});
 document.addEventListener('lightbox:favorite', e => {{
   if (e.detail.favorited) favorites[e.detail.tag] = true; else delete favorites[e.detail.tag];
   render();
