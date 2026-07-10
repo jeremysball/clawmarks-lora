@@ -1,5 +1,12 @@
 # rate.html: swipe-to-vote and double-click zoom
 
+> **Revision (2026-07-10, after Tasks 1-3 landed):** the interaction model below is superseded
+> by three changes made after manual review of the live page: zoom now triggers on a single
+> tap/click instead of double, mouse drag now votes the same way touch drag does (rotate +
+> color overlay), and the swipe overlay uses a thumbs up/down icon instead of a text stamp. The
+> "Interaction model" table and the "Zoom trigger" and "Swipe-to-vote" sections below reflect
+> the revised design; the rest of the document (scope, state reset, non-goals) still holds.
+
 ## Background
 
 `rate.html` (`src/clawmarks/build/rate_page.py`) is the full-screen yes/no rating page that
@@ -34,39 +41,43 @@ One image is on screen at a time, same as today. Two independent gestures apply 
 
 | Gesture | Not zoomed | Zoomed |
 |---|---|---|
-| Touch drag, horizontal-dominant, past a deadzone | Swipe-vote: image follows the finger, a colored yes/no overlay fades in with drag distance; releasing past a threshold votes and advances, releasing short of it snaps back to center | Pans the full-resolution image under the finger |
-| Mouse drag | No-op (desktop keeps voting via arrow keys / `y` / `n`) | Pans the full-resolution image (kept symmetric with zoom being mouse-accessible) |
-| Single click/tap, no movement | No-op | No-op |
-| Double click/tap | Toggles zoom in, centered on the click point | Toggles zoom back out to fit-to-screen |
+| Touch drag or mouse drag, horizontal-dominant, past a deadzone | Swipe-vote: image follows the pointer and rotates (tilt proportional to drag distance, capped at 15deg); a colored overlay (green/red) with a thumbs up/down icon fades in with drag distance; releasing past a threshold votes and advances, releasing short of it snaps back to center with rotation reset | Pans the full-resolution image under the pointer (no rotation, no overlay) |
+| Single click/tap, no movement | Toggles zoom in, centered on the click point | Toggles zoom back out to fit-to-screen |
 | Arrow keys / `y` / `n` | Vote, unchanged from today | Unchanged; zoom state resets when the next image loads |
 
 ### Swipe-to-vote
 
 Replaces the "no" / "yes" buttons entirely (removed from the DOM). Keyboard shortcuts remain as
-the non-touch/desktop way to vote.
+an alternative way to vote on desktop. Mouse drag now votes the same way touch drag does (this
+supersedes the original "mouse drag never votes" rule); only mouse/touch drag *while zoomed*
+stays pan-only, since a vote gesture on an already-zoomed image would be ambiguous with panning.
 
-Mechanics: `touchstart` / `touchmove` / `touchend` listeners on `#img`. A touch is classified as
-a drag once movement exceeds a small deadzone (~10px) and horizontal movement dominates
-vertical. This single classification, decided once per touch, is what keeps a drag from also
-registering as a tap (see "Gesture disambiguation" below).
+Mechanics: `touchstart`/`touchmove`/`touchend` (touch) and `mousedown`/`mousemove`/`mouseup`
+(mouse) listeners on `#imgwrap`, sharing the same classification and visual-update logic. A drag
+is classified once movement exceeds a small deadzone (~10px): horizontal-dominant movement while
+not zoomed classifies as swipe; any movement while zoomed classifies as pan. This single
+classification, decided once per pointer-down, is what keeps a drag from also registering as a
+tap (see "Gesture disambiguation" below).
 
-While dragging: the image translates horizontally with the finger; a colored overlay (reusing
-the page's existing `--yes` / `--no` CSS variables) fades in on the corresponding side, opacity
-scaling with `|dx| / threshold` capped at 1, with a "YES"/"NO" stamp.
+While dragging (swipe): the image translates horizontally with the pointer and rotates
+(`rotate(deg)` composed with the existing `translate`), tilt magnitude scaling with
+`|dx| / threshold` capped at 1 and mapped to a max 15deg. A colored overlay (reusing the page's
+existing `--yes`/`--no` CSS variables for the background tint) fades in on the corresponding
+side, opacity scaling the same way, showing a thumbs up (👍) or thumbs down (👎) icon instead of
+a text stamp.
 
 Commit threshold: 25% of the image's rendered width. At or past it on release, animate the image
-off-screen in the drag direction, then call the existing `rate()` → `loadNext()` flow (unchanged
-API calls). Short of threshold, animate back to center via CSS transition; no vote is recorded.
+off-screen in the drag direction (continuing its rotation), then call the existing
+`rate()` → `loadNext()` flow (unchanged API calls). Short of threshold, animate back to center
+(rotation back to 0) via CSS transition; no vote is recorded.
 
-### Double-click/double-tap zoom
+### Tap/click zoom
 
-Triggered by the native `dblclick` event, not a hand-rolled timer: `dblclick` fires for both
-mouse double-click and, on most touch browsers, double-tap, so this avoids reimplementing tap-
-timing logic. Because some mobile browsers are inconsistent about firing `dblclick` for touch
-(particularly interactions with `touch-action`), implementation must verify double-tap-to-zoom
-actually works under touch emulation; if `dblclick` doesn't fire reliably there, fall back to a
-manual double-tap detector (two `touchend`s within ~300ms and close together in position) purely
-for the touch path, keeping `dblclick` for mouse.
+Triggered by a single tap or click that stays within the drag deadzone (no `dblclick`, no
+timer-based double-tap detection). This is only reachable when not zoomed and the pointer never
+crossed the ~10px deadzone; anything that moves past it is a swipe or pan instead, never a zoom
+toggle, per "Gesture disambiguation" below. Tapping again while zoomed (same no-movement rule)
+zooms back out to fit-to-screen.
 
 Zoom states are two CSS states on `#img`'s wrapper, toggled by class:
 
@@ -83,12 +94,11 @@ Double-click/double-tap again while zoomed toggles back to fit, discarding the p
 
 ### Gesture disambiguation
 
-A single touch interaction must resolve to exactly one outcome: a completed swipe-vote, a
-snap-back (aborted swipe), or a tap contributing to double-click detection. This is why drag
-classification happens once, early (deadzone + direction), and is reused as the gate for
-whether a touch's `touchend` should also be eligible to combine into a `dblclick`/double-tap:
-a touch classified as a drag never contributes to double-tap detection, and a touch that never
-exceeded the deadzone is never treated as a drag.
+A single pointer interaction (touch or mouse) must resolve to exactly one outcome: a completed
+swipe-vote, a snap-back (aborted swipe), a pan, or a tap/click that toggles zoom. This is why
+drag classification happens once, early, on the same deadzone (~10px) used for both purposes:
+a release that never exceeded the deadzone is a tap and toggles zoom; a release that did exceed
+it was already classified as swipe or pan and never also triggers a zoom toggle.
 
 ## State reset
 
