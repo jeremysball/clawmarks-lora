@@ -45,6 +45,28 @@ def build_training_set(tags, embeddings, ratings):
     return np.stack(X_rows), np.array(y, dtype=np.int64)
 
 
+def class_balance_error(y, min_labels=MIN_LABELS):
+    """Returns a human-readable refusal message if `y` doesn't have enough of both classes to
+    train/cross-validate, or "" if training can proceed. A total label count clearing MIN_LABELS
+    (checked separately, in main()) says nothing about per-class balance: a set that is all
+    `yes` (the natural state right after the picks-to-ratings migration) would otherwise reach
+    LogisticRegression.fit with a single class and crash, or reach StratifiedKFold(n_splits=5)
+    with a minority class too small to split."""
+    n_yes = int(y.sum())
+    n_no = len(y) - n_yes
+    if n_yes == 0 or n_no == 0:
+        return (f"labels are all one class ({n_yes} yes / {n_no} no); need at least one of each "
+                f"to train. Rate more images via rate.html.")
+    if len(y) >= min_labels:
+        n_splits = 5
+        minority = min(n_yes, n_no)
+        if minority < n_splits:
+            return (f"minority class has only {minority} labels ({n_yes} yes / {n_no} no); need "
+                    f"at least {n_splits} for {n_splits}-fold cross-validation. Rate more of the "
+                    f"less-common label via rate.html.")
+    return ""
+
+
 def cross_validate(X, y):
     """Mean cross-validated accuracy. Leave-one-out below MIN_LABELS, since every label matters
     at that scale; 5-fold StratifiedKFold at or above it."""
@@ -77,6 +99,11 @@ def main(argv=None):
     if len(y) < MIN_LABELS:
         print(f"only {len(y)} usable labels (need {MIN_LABELS}); not training. "
               f"Rate more images via rate.html first.", flush=True)
+        return 1
+
+    balance_error = class_balance_error(y)
+    if balance_error:
+        print(balance_error, flush=True)
         return 1
 
     acc = cross_validate(X, y)

@@ -43,3 +43,31 @@ def test_cross_validate_returns_a_valid_accuracy_using_leave_one_out_below_min_l
     y = np.array([0, 1] * 5)
     acc = preference_model.cross_validate(X, y)
     assert 0.0 <= acc <= 1.0
+
+
+def test_class_balance_error_flags_an_all_yes_label_set():
+    y = np.ones(60, dtype=np.int64)
+    error = preference_model.class_balance_error(y)
+    assert "one class" in error
+
+
+def test_class_balance_error_flags_an_all_no_label_set():
+    y = np.zeros(60, dtype=np.int64)
+    error = preference_model.class_balance_error(y)
+    assert "one class" in error
+
+
+def test_class_balance_error_flags_a_minority_class_below_the_fold_count():
+    y = np.array([1] * 57 + [0] * 3, dtype=np.int64)
+    error = preference_model.class_balance_error(y)
+    assert "5-fold" in error
+
+
+def test_class_balance_error_allows_a_well_balanced_label_set():
+    y = np.array([1] * 30 + [0] * 30, dtype=np.int64)
+    assert preference_model.class_balance_error(y) == ""
+
+
+def test_class_balance_error_allows_an_imbalanced_but_above_fold_count_label_set_below_min_labels():
+    y = np.array([1] * 8 + [0] * 2, dtype=np.int64)
+    assert preference_model.class_balance_error(y) == ""

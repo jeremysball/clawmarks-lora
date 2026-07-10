@@ -55,6 +55,11 @@ def build_parser():
     run_sub = run_p.add_subparsers(dest="run_target", required=True)
     allnight_p = run_sub.add_parser("allnight")
     allnight_p.add_argument("--round", type=int, choices=[1, 2], required=True)
+    allnight_p.add_argument(
+        "--use-predicted-preference", action="store_true", default=False,
+        help="Stage 5b: build the exploit pool from the trained preference model's top picks "
+             "instead of yes-rated images. Defaults off; requires a trained preference model.",
+    )
     allnight_p.set_defaults(command="run")
 
     probe_p = sub.add_parser("probe")
@@ -79,17 +84,24 @@ def main(argv=None):
 
     if args.command == "build":
         targets = _build_targets()
-        extra_argv = ["--use-predicted-preference"] if args.use_predicted_preference else []
+        # Only the archive target understands --use-predicted-preference; forwarding it to
+        # every target would raise "unrecognized arguments" in any target that parses its own
+        # argv (e.g. thumbnails).
+        archive_argv = ["--use-predicted-preference"] if args.use_predicted_preference else []
         if args.target == "all":
-            for fn in targets.values():
-                fn([])
+            for name, fn in targets.items():
+                fn(archive_argv if name == "archive" else [])
         else:
-            targets[args.target](extra_argv)
+            fn_argv = archive_argv if args.target == "archive" else []
+            targets[args.target](fn_argv)
         return 0
 
     if args.command == "run":
         from clawmarks.search.driver import main as driver_main
-        return driver_main(["--round", str(args.round)])
+        run_argv = ["--round", str(args.round)]
+        if args.use_predicted_preference:
+            run_argv.append("--use-predicted-preference")
+        return driver_main(run_argv)
 
     if args.command == "probe" and args.probe_target == "train":
         from clawmarks.probe.train import main as train_main
