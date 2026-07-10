@@ -68,7 +68,7 @@ from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
-    novelty_decay, lineage_view, elite_archive, preference_rank,
+    novelty_decay, lineage_view, elite_archive, preference_rank, uncanny_gallery,
 )
 
 _live_cache = LiveCache()
@@ -348,6 +348,16 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/preference_rank.html":
             html = preference_rank.render_html(preference_rank.compute_data(str(SWEEP_DIR)))
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/gallery.html":
+            html = uncanny_gallery.render_html(uncanny_gallery.compute_data(str(SWEEP_DIR)))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
