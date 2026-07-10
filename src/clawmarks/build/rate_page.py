@@ -1,6 +1,6 @@
 """
-Generates rate.html: a full-screen, keyboard-driven yes/no rating page. Unlike every other
-build/*.py generator, this page bakes in no per-image data at build time — it fetches
+Generates rate.html: a full-screen, swipe-driven yes/no rating page. Unlike every other
+build/*.py generator, this page bakes in no per-image data at build time. It fetches
 GET /api/rate/next itself and POSTs to /api/rate, both served by curation_server.py, so the page
 never goes stale between rebuilds. Rebuilding only matters if this file itself changes.
 
@@ -30,12 +30,15 @@ body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-
 h1 {{ font-size:18px; margin:0 0 4px; align-self:flex-start; }}
 p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6; align-self:flex-start; }}
 #stage {{ margin-top:20px; width:100%; max-width:640px; display:flex; flex-direction:column; align-items:center; }}
-#img {{ max-width:100%; max-height:78vh; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.6); }}
+#imgwrap {{ position:relative; max-width:100%; max-height:78vh; overflow:hidden; touch-action:none;
+  display:flex; align-items:center; justify-content:center; }}
+#img {{ max-width:100%; max-height:78vh; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.6);
+  user-select:none; -webkit-user-drag:none; }}
+#swipe-overlay {{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:48px; font-weight:800; letter-spacing:0.08em; opacity:0; pointer-events:none; border-radius:10px; }}
+#swipe-overlay.yes {{ color:var(--yes); background:rgba(94,201,138,0.12); }}
+#swipe-overlay.no {{ color:var(--no); background:rgba(224,96,94,0.12); }}
 #meta {{ color:var(--text-dim); font-size:12.5px; margin-top:10px; text-align:center; }}
-#buttons {{ display:flex; gap:16px; margin-top:18px; }}
-#buttons button {{ font-size:16px; padding:14px 34px; border-radius:10px; cursor:pointer; border:1px solid var(--border); background:var(--panel); color:var(--text); }}
-#buttons .no {{ border-color:var(--no); color:var(--no); }}
-#buttons .yes {{ border-color:var(--yes); color:var(--yes); }}
 #count {{ color:var(--text-dim); font-size:12px; margin-top:14px; }}
 #done {{ color:var(--text-dim); font-size:14px; margin-top:40px; text-align:center; }}
 {INFOTIP_CSS}
@@ -43,15 +46,15 @@ p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6
 
 {nav_bar_html('rate.html')}
 <h1>Rate{rate_tip}</h1>
-<p class="sub">Yes or no, as fast as you can go. Keyboard: &larr; or n = no, &rarr; or y = yes.</p>
+<p class="sub">Swipe left for no, right for yes (or &larr;/&rarr;, n/y on a keyboard). Double-click
+or double-tap an image to zoom to full resolution; drag to look around while zoomed.</p>
 
 <div id="stage">
-  <img id="img" style="display:none;">
-  <div id="meta"></div>
-  <div id="buttons" style="display:none;">
-    <button class="no" onclick="rate('no')">&larr; no</button>
-    <button class="yes" onclick="rate('yes')">yes &rarr;</button>
+  <div id="imgwrap">
+    <img id="img" style="display:none;">
+    <div id="swipe-overlay"></div>
   </div>
+  <div id="meta"></div>
   <div id="done" style="display:none;">Nothing left to rate right now &mdash; every image in the pool has been rated or favorited.</div>
 </div>
 <div id="count"></div>
@@ -61,7 +64,6 @@ let current = null;
 let ratedThisSession = 0;
 
 function loadNext() {{
-  document.getElementById('buttons').style.display = 'none';
   fetch('/api/rate/next').then(r => r.json()).then(d => {{
     if (d.done) {{
       current = null;
@@ -71,11 +73,12 @@ function loadNext() {{
     }}
     current = d;
     const img = document.getElementById('img');
+    img.style.transform = 'translateX(0px)';
     img.src = d.file;
     img.style.display = 'block';
+    document.getElementById('swipe-overlay').style.opacity = 0;
     document.getElementById('meta').textContent =
       `${{d.prompt_name}} | faith=${{d.faith}} novelty=${{d.novelty}}`;
-    document.getElementById('buttons').style.display = 'flex';
   }});
 }}
 
