@@ -100,3 +100,30 @@ def test_concurrent_get_only_computes_once(tmp_path):
         t.join(timeout=2)
 
     assert len(calls) == 1
+
+
+def test_get_reads_dependency_data_and_mtimes_from_a_single_snapshot():
+    """Regression test for a race where two separate self._entries[dep_name] reads (one for
+    data, one for mtimes) could straddle a concurrent update to the dependency, pairing old
+    data with new mtimes and caching a stale result that never self-invalidates. The fix reads
+    each dependency's entry once and takes both fields from that single snapshot."""
+
+    class _CountingDict(dict):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.access_count = 0
+
+        def __getitem__(self, key):
+            self.access_count += 1
+            return super().__getitem__(key)
+
+    cache = LiveCache()
+    cache.get("dep", lambda sweep_dir: "dep-data-v1", watched_files=[])
+
+    cache._entries = _CountingDict(cache._entries)
+    result = cache.get(
+        "target", lambda sweep_dir, deps: deps["dep"], watched_files=[], depends_on=["dep"],
+    )
+
+    assert result == "dep-data-v1"
+    assert cache._entries.access_count == 1

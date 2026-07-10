@@ -27,6 +27,7 @@ class LiveCache:
     def get(self, target_name, compute_fn, watched_files, depends_on=(), sweep_dir=None):
         with self._lock_for(target_name):
             deps = None
+            dep_mtimes = {}
             if depends_on:
                 deps = {}
                 for dep_name in depends_on:
@@ -36,10 +37,11 @@ class LiveCache:
                             f"but {dep_name!r} has never been computed yet. "
                             f"Call cache.get({dep_name!r}, ...) before {target_name!r}."
                         )
-                    deps[dep_name] = self._entries[dep_name]["data"]
+                    dep_entry = self._entries[dep_name]
+                    deps[dep_name] = dep_entry["data"]
+                    dep_mtimes[dep_name] = dep_entry["mtimes"]
 
             mtimes = self._current_mtimes(watched_files)
-            dep_mtimes = {name: self._entries[name]["mtimes"] for name in depends_on}
             entry = self._entries.get(target_name)
             if entry is not None and entry["mtimes"] == mtimes and entry["dep_mtimes"] == dep_mtimes:
                 return entry["data"]
