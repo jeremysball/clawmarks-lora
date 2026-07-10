@@ -1085,3 +1085,150 @@ The wiring is bidirectional: whenever the run's own plateau-triggered GPT-5.5 es
 produces new subjects, those get written back into `candidate_seeds.json` too (tagged
 `source: "gpt5.5-round2"`), so a live run enriches the shared pool the same way the browser
 does, instead of the two staying separate lists that happen to read the same fallback subjects.
+
+### 2026-07-09: Preference classifier designed, replaces picking; full implementation plan written
+
+The round-2 pick analysis above (picks skew toward higher faithfulness/lower novelty than the
+population, and the automated per-bin fallback selects against what humans actually prefer) was
+the trigger for a bigger decision: pause the round-1 hyperparameter sweep and shift effort to
+inference-time exploration tooling instead, specifically closing the gap the pick analysis
+surfaced. Brainstormed and wrote a design spec
+(`docs/superpowers/specs/2026-07-09-preference-classifier-design.md`) for a preference
+classifier: a model that predicts how much the user will like an image, trained on the user's own
+yes/no ratings of generated images rather than on the DINOv2 faithfulness/novelty scores, which
+have no aesthetic opinion.
+
+Mid-design, scope grew: the new rating system supersedes "pick as winner" entirely (button,
+badge, `/api/pick`/`/api/unpick` endpoints all removed), while favoriting (a pure bookmark with
+zero search effect) stays exactly as it is. The 40 existing picks migrate into the new
+`user_ratings.json` as yes-ratings via a one-time script, so no prior judgment is lost.
+
+Design settled on, in order: (1) an embedding cache (`search/embed_cache.py`) that runs DINOv2
+once per image and persists the vector, so training doesn't need to re-run the model; (2) a fast
+yes/no rating page (`rate.html`) sampling unreviewed images stratified across the existing
+faithfulness x novelty bins, so an early rating session doesn't over-sample whichever region
+happens to dominate the pool; (3) a logistic regression trained on the frozen embeddings alone
+(no generation metadata, and deliberately not a transformer or deeper model: with realistically
+dozens-to-low-hundreds of labels, a higher-capacity model would memorize the label set instead of
+generalizing: the standard "linear probe" approach exists specifically for this label-scarce
+regime); (4) a pool re-ranking view (`preference_rank.html`) as the human validation gate, sorted
+by predicted P(yes), sanity-checked against the 40 migrated picks scoring highly; (5) a two-stage
+handoff for what actually steers the search: Stage 5a (immediate, no model needed) has
+`elite_archive.py`'s per-bin fallback and `driver.py`'s exploit pool read yes-ratings exactly
+where picks were read before; Stage 5b (opt-in, gated on Component 4 passing) swaps the *fitness*
+function inside each MAP-Elites bin from "highest novelty" to "highest predicted-preference,"
+while leaving the faith x novelty bin grid itself untouched, since collapsing the bins in favor of
+pure top-K-by-preference selection would defeat the point of quality-diversity search and risk
+collapsing the search onto one narrow mode. Both stages default off until the project owner
+validates the model by eye.
+
+Wrote the full implementation plan
+(`docs/superpowers/plans/2026-07-09-preference-classifier.md`): 13 TDD tasks covering the
+embedding cache, rating sampler, migration script, `curation_server.py`'s new ratings endpoints,
+`rate.html`, the lightbox's pick-removal, `elite_archive.py` and `driver.py`'s Stage 5a rewiring,
+`preference_model.py` (new `scikit-learn` dependency), `preference_rank.py`, and both files'
+opt-in Stage 5b wiring. Per the user's direction, this hands off to unattended execution via
+opencode/minimax rather than being implemented in this session.
+
+Also found and fixed two small repo-hygiene issues while cleaning up this session: two stray
+`.bak` files in `notes/uncanny_sweep/` (`scored_manifest.CORRUPTED_*.json.bak`,
+`scored_manifest.GARBAGE_*.json.bak`, 732 and 452 stale manifest entries respectively, both
+superseded long ago by the current 3672-entry `scored_manifest.json`) were confirmed as dead
+snapshots and deleted; and `notes/probe_uncanny_report.html`, a tracked file, had been silently
+truncated to 0 bytes by some earlier process (no current build script even references that
+filename, so it's likely dead output from a script removed in the `whitepaper/` -> `notes/`
+rename) and was restored from git rather than left corrupted or deleted outright, pending a
+decision on whether the file is worth keeping at all.
+
+### 2026-07-09: Data-loss incident during the CLAWMARKS package-transition smoke check - all
+### full-resolution generated images in `notes/uncanny_sweep/` and `notes/uncanny_sweep2/` lost
+An unattended opencode/minimax-m3 agent, executing Task 12 (the old-scripts-vs-new-package
+smoke check) of the CLAWMARKS software-transition plan, destroyed every full-resolution PNG in
+both sweep directories: `notes/uncanny_sweep/` dropped from 7.1 GB to 86 MB, `notes/uncanny_sweep2/`
+from 544 MB to 3 MB. These were real, RunPod-billed ComfyUI generations accumulated across two
+search rounds, never committed to git (gitignored as presumed-regenerable build output), and
+never backed up anywhere outside this sandbox. They are gone.
+
+**Root cause, step by step:**
+1. The first attempt at Task 12 ran the old `notes/build_*.py` scripts directly against the
+   live data directories with no isolation, truncating `scored_manifest.json` from 3672 to 452
+   entries. Caught, killed, and manually repaired by replaying `merge_round2.py`'s merge logic
+   against the surviving `scored_manifest_round1_only.json` backup and round 2's untouched
+   manifest, restoring the correct 3672-entry file, plus regenerating `similarity.json`,
+   `similarity_scored.json`, and `solution_map_data.json` (all confirmed correct afterward).
+2. The plan's Task 12 was patched to bracket both the old-script run and the new-package run
+   with an explicit backup/restore of the live directories, specifically to prevent recurrence
+   of (1).
+3. The second attempt hit a different failure: a naive full `cp -r` of both sweep directories
+   (7.6 GB combined) exhausted the sandbox's disk (100% full, only 2.2 GB free), truncating
+   `scored_manifest.json` and `similarity_scored.json` to 0 bytes mid-write. Root-caused to disk
+   exhaustion, not a script bug. Fixed by clearing ~38 GB of regenerable package caches
+   (`uv cache clean`, pip cache, `~/.cache/go-build`, `~/.cache/huggingface`) and re-restoring
+   both files from a known-good backup.
+4. The third attempt is where the real damage happened. The resumption prompt told the agent to
+   *exclude PNGs from the Task 12 backup* (to stay well under the freed disk headroom), but
+   Task 12's own restore steps do `rm -rf notes/uncanny_sweep{,2}` followed by `cp -r` from that
+   same backup. A backup missing the PNGs, combined with a restore that assumes the backup is a
+   complete mirror, deletes anything the backup doesn't have. The agent followed both
+   instructions literally and wiped every full-resolution image with no way back. This was a
+   plan-authoring mistake, not an agent error: two instructions that directly contradicted each
+   other, both written in the same session, and the contradiction wasn't caught before the agent
+   acted on it.
+
+**Recovery attempted and exhausted:** searched every `/tmp` backup made during this session
+(none held PNGs), git history (the images were never committed, so no git-based recovery
+existed), the whole accessible filesystem for exact filenames from the manifest (no hits), every
+live process's open file descriptors for a still-open handle to a deleted inode (none), the
+RunPod account (no pods currently running), and the generation setup's network volume
+(`pwkmq2gjhw`, holds only the base checkpoint and LoRA safetensors, never generation output).
+Confirmed with the project owner: no copy exists anywhere else either. The images are
+permanently gone.
+
+**What survived:** all JSON metadata (`scored_manifest.json` and friends, 3672 entries, verified
+correct), the downscaled `thumbs/` JPEGs (57 MB, not full resolution), and every generated HTML
+page. Only the full-resolution source images themselves are lost. Task 13 (deleting the old
+scripts) never ran and no PR was opened, so the package-transition work itself is undamaged; the
+loss is confined to the sweep directories' image data.
+
+**Standing lesson for any future unattended-agent data operation on this project:** never let an
+agent's backup step silently narrow scope (excluding files "to save space" or "because they seem
+regenerable") without re-checking every later step that assumes the backup is a complete mirror
+of what it's replacing. A partial backup plus a full-mirror restore is a data-loss pattern, not
+a size optimization, and it needs to be checked explicitly before the first destructive step
+runs, not caught after.
+
+### 2026-07-10: Near-miss with `solution_map_final_embs.pt` during PR #5's pre-merge review, and
+### the real bug behind it
+
+While landing the CLAWMARKS package-transition PR, I (Claude, this session) took a complete-mirror
+backup of `notes/uncanny_sweep/` and `notes/uncanny_sweep2/` (98 MB total now that the PNGs are
+gone, verified byte-identical to the live directories, entry counts 3672 and 280) before running
+any old-vs-new comparison, per the lesson above. Good thing: running `uv run clawmarks build all`
+from the `clawmarks-package-transition` worktree
+(`/workspace/trent-clawmarks-worktree`) triggered `src/clawmarks/build/solution_map.py` to delete
+`solution_map_final_embs.pt`, the only surviving copy of the DINOv2 embeddings for images that no
+longer exist on disk.
+
+**Root cause:** `solution_map.py` caches its embeddings keyed on an absolute-path list
+(`saved["real_paths"] == real_paths`, where `real_paths` is built from `config.ROOT`). The old,
+pre-transition script hardcoded its own root, so it always ran from the same absolute path and the
+cache stayed self-consistent. The new package resolves `ROOT` dynamically per checkout
+(`clawmarks.config.repo_root()`), so running it from a different checkout location (here, a git
+worktree instead of the main checkout) changes every path in `real_paths`, the equality check
+fails, and the old code (identical in both the old script and the new module) responded by calling
+`os.remove(FINAL_EMBS_FILE)` before attempting to recompute. The recompute then failed immediately
+(the source PNGs are gone), so without the backup, this would have been a second unrecoverable
+loss on the same data the first incident already destroyed.
+
+**Fix:** removed the `os.remove(FINAL_EMBS_FILE)` call in `src/clawmarks/build/solution_map.py`.
+The subsequent `torch.save(..., FINAL_EMBS_FILE)` already overwrites the file in place on a
+successful recompute, so the early delete served no purpose except destroying the last good copy
+if recompute then failed. Verified via `md5sum`: rerunning `clawmarks build solution-map` after the
+fix hits the same path mismatch, prints the same "re-embedding from scratch" message, fails on the
+same missing PNG, and the cache file's checksum is unchanged.
+
+This was not a bug the GLM review of PR #5 could have caught: it only surfaces by actually running
+the code against the real cached data from a different absolute path, not from reading the diff.
+Added a "data integrity is the number one goal" section to `CLAUDE.md` as a direct result: back up
+before any operation against these directories, and treat any delete-to-invalidate-a-cache pattern
+as suspect from now on.
