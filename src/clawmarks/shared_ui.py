@@ -1,15 +1,15 @@
 """
-Shared UI pieces used by every notes/build_*.py tool-page generator, so the lightbox, the
-top navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated
-across 8 scripts. Import and use:
+Shared UI pieces used by every build/*.py tool-page generator, so the lightbox, the top
+navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated across
+every page. Import and use:
 
-    from shared_ui import write_lightbox_asset, nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS
+    from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS
 
-`write_lightbox_asset(sweep_dir)` copies the static lightbox.js module into the sweep
-directory (idempotent, safe to call from every builder). Every generated page includes it
-with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(tag)` instead
-of `window.open('scan.html?open=...')`: no new tab, no page load, works from any page
-because the module fetches notes/uncanny_sweep/scan_data.json itself.
+`curation_server.py` serves `_LIGHTBOX_JS`, `SCROLLNAV_JS`, and `INFOTIP_JS` directly from
+`/lightbox.js`, `/scrollnav.js`, and `/infotip.js` routes; every generated page includes them
+with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(tag)` instead of
+`window.open('scan.html?open=...')`: no new tab, no page load, works from any page because the
+module fetches scan_data.json itself.
 """
 import os
 
@@ -126,10 +126,6 @@ INFOTIP_JS = """
   });
 })();
 """
-
-
-def write_infotip_asset(sweep_dir):
-    pass  # served directly by curation_server.py's /infotip.js route; no on-disk copy anymore
 
 
 MOBILE_BASE_CSS = """
@@ -576,11 +572,3 @@ _LIGHTBOX_JS = r"""(function(){
   })();
 })();
 """
-
-
-def write_lightbox_asset(sweep_dir):
-    pass  # served directly by curation_server.py's /lightbox.js route; no on-disk copy anymore
-
-
-def write_scrollnav_asset(sweep_dir):
-    pass  # served directly by curation_server.py's /scrollnav.js route
