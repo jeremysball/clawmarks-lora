@@ -9,11 +9,11 @@ population's true effective size and which "different" bins are actually duplica
 Clustering happens client-side in JS (union-find over ~3400 nodes / ~54k edges is instant), so
 one threshold slider can be dragged live instead of needing a rebuild per threshold.
 
-Depends on build_solution_map.py's similarity_scored.json (top-16 neighbors WITH cosine
-scores; the original build_similarity_index.py only stores neighbor identity, not the score,
-which isn't enough to threshold on).
-
-Run after similarity_scored.json exists: python3 -m clawmarks.build.redundancy_view
+Depends on solution_map.py's compute_data(), which includes top-16 neighbors WITH cosine scores
+(the separate similarity_index.py only stores neighbor identity, not the score, which isn't
+enough to threshold on). compute_data(sweep_dir, deps) takes solution_map's result via
+`deps["solution-map"]`, served live by curation_server.py through LiveCache's
+depends_on=["solution-map"] mechanism, not a standalone build step.
 """
 import json, os
 

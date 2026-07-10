@@ -7,10 +7,10 @@ a "nearest real image" bar chart (mode-collapse check: if the population only ev
 handful of the 31 real training images, faithfulness is being measured against a sliver of the
 style, not the whole thing).
 
-Depends on build_solution_map.py's output (solution_map_data.json), which does the actual
-DINOv2 re-embedding and UMAP fit; this script only lays out the already-computed points.
-
-Run after solution_map_data.json exists: python3 -m clawmarks.build.map_view
+Depends on solution_map.py's compute_data(), which does the actual DINOv2 re-embedding and UMAP
+fit; this module only lays out the already-computed points. compute_data(sweep_dir, deps) takes
+solution_map's result via `deps["solution-map"]`, served live by curation_server.py through
+LiveCache's depends_on=["solution-map"] mechanism, not a standalone build step.
 """
 import json
 from collections import Counter

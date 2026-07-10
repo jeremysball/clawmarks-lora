@@ -1,26 +1,28 @@
 """
 Re-embeds every image in scored_manifest.json (plus the real training images) with DINOv2,
-then builds the data three of the new exploration tools need:
+then returns the data three of the exploration tools need:
 
-  1/2. solution_map_data.json  - a 2D UMAP projection of the full embedding space (real images
-       + every generated image), with generation number attached, for map.html's scatter plot
-       and generation slider. Answers "what does the search space actually look like" and
-       "is round N finding new territory or re-treading round N-1's," which the faithfulness x
-       novelty plane (two derived scalars) can't show on its own.
-  4.   similarity_scored.json  - same top-K nearest-neighbor lists as build_similarity_index.py,
-       but with the actual cosine similarity values attached (not just neighbor identity), so
-       redundancy.html can cluster near-duplicates at an adjustable threshold.
+  1/2. a 2D UMAP projection of the full embedding space (real images + every generated image),
+       with generation number attached, for map.html's scatter plot and generation slider.
+       Answers "what does the search space actually look like" and "is round N finding new
+       territory or re-treading round N-1's," which the faithfulness x novelty plane (two
+       derived scalars) can't show on its own.
+  4.   top-K nearest-neighbor lists WITH the actual cosine similarity values attached (not just
+       neighbor identity, unlike similarity_index.py), so redundancy.html can cluster
+       near-duplicates at an adjustable threshold.
   6.   nearest_real_idx per image - which of the ~31 real training images each generation is
-       closest to, folded into solution_map_data.json so map.html and real_anchor.html can both
-       use it (mode-collapse check: if generations only ever anchor to a handful of the real
-       images, the search is faithful to a sliver of the style, not the whole thing).
+       closest to (mode-collapse check: if generations only ever anchor to a handful of the
+       real images, the search is faithful to a sliver of the style, not the whole thing).
 
-This duplicates build_similarity_index.py's embedding pass rather than importing its output,
-because that script discards the raw embeddings once it's done with them (only top-16 neighbor
-*tags* survive to disk) and UMAP/nearest-real-image both need the actual vectors.
+This duplicates similarity_index.py's embedding pass rather than importing its output, because
+that module discards the raw embeddings once it's done with them (only top-16 neighbor *tags*
+survive) and UMAP/nearest-real-image both need the actual vectors. The finished embeddings are
+cached on disk at solution_map_final_embs.pt purely as an internal speed-up (skips DINOv2
+entirely on a cache hit); this is an implementation detail, not an output other tools consume.
 
 compute_data() is a data-only live-cache target with no route of its own; map.html and
-redundancy.html both depend on it (DEPENDS_ON = ["solution-map"]).
+redundancy.html both depend on it (target name "solution-map"), via curation_server.py calling
+LiveCache.get(..., depends_on=["solution-map"]).
 """
 import os, json, time, re
 import torch
