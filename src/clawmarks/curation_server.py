@@ -91,10 +91,18 @@ def _get_scan_items():
     )
 
 
+def _solution_map_watched_files():
+    files = [_manifest_path()]
+    embs_file = f"{SWEEP_DIR}/solution_map_final_embs.pt"
+    if os.path.exists(embs_file):
+        files.append(embs_file)
+    return files
+
+
 def _get_solution_map_data():
     return _live_cache.get(
         "solution-map", solution_map.compute_data,
-        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+        watched_files=_solution_map_watched_files(), sweep_dir=str(SWEEP_DIR),
     )
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
