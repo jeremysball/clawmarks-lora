@@ -92,8 +92,12 @@ def main(argv=None):
         if saved["paths"] == paths and saved["real_paths"] == real_paths:
             real_embs, gen_embs = saved["real_embs"], saved["gen_embs"]
         else:
+            # Don't delete the file here: it's the only surviving embedding data if the
+            # source images are ever gone by the time this runs again, and the recompute
+            # below already overwrites it in place on success. A mismatch (e.g. running
+            # from a different checkout path, which changes REAL_DIR's absolute prefix)
+            # should never be able to destroy the last good copy.
             print("saved embeddings don't match current manifest, re-embedding from scratch", flush=True)
-            os.remove(FINAL_EMBS_FILE)
             real_embs = gen_embs = None
     else:
         real_embs = gen_embs = None

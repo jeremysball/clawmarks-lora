@@ -1196,3 +1196,39 @@ regenerable") without re-checking every later step that assumes the backup is a 
 of what it's replacing. A partial backup plus a full-mirror restore is a data-loss pattern, not
 a size optimization, and it needs to be checked explicitly before the first destructive step
 runs, not caught after.
+
+### 2026-07-10: Near-miss with `solution_map_final_embs.pt` during PR #5's pre-merge review, and
+### the real bug behind it
+
+While landing the CLAWMARKS package-transition PR, I (Claude, this session) took a complete-mirror
+backup of `notes/uncanny_sweep/` and `notes/uncanny_sweep2/` (98 MB total now that the PNGs are
+gone, verified byte-identical to the live directories, entry counts 3672 and 280) before running
+any old-vs-new comparison, per the lesson above. Good thing: running `uv run clawmarks build all`
+from the `clawmarks-package-transition` worktree
+(`/workspace/trent-clawmarks-worktree`) triggered `src/clawmarks/build/solution_map.py` to delete
+`solution_map_final_embs.pt`, the only surviving copy of the DINOv2 embeddings for images that no
+longer exist on disk.
+
+**Root cause:** `solution_map.py` caches its embeddings keyed on an absolute-path list
+(`saved["real_paths"] == real_paths`, where `real_paths` is built from `config.ROOT`). The old,
+pre-transition script hardcoded its own root, so it always ran from the same absolute path and the
+cache stayed self-consistent. The new package resolves `ROOT` dynamically per checkout
+(`clawmarks.config.repo_root()`), so running it from a different checkout location (here, a git
+worktree instead of the main checkout) changes every path in `real_paths`, the equality check
+fails, and the old code (identical in both the old script and the new module) responded by calling
+`os.remove(FINAL_EMBS_FILE)` before attempting to recompute. The recompute then failed immediately
+(the source PNGs are gone), so without the backup, this would have been a second unrecoverable
+loss on the same data the first incident already destroyed.
+
+**Fix:** removed the `os.remove(FINAL_EMBS_FILE)` call in `src/clawmarks/build/solution_map.py`.
+The subsequent `torch.save(..., FINAL_EMBS_FILE)` already overwrites the file in place on a
+successful recompute, so the early delete served no purpose except destroying the last good copy
+if recompute then failed. Verified via `md5sum`: rerunning `clawmarks build solution-map` after the
+fix hits the same path mismatch, prints the same "re-embedding from scratch" message, fails on the
+same missing PNG, and the cache file's checksum is unchanged.
+
+This was not a bug the GLM review of PR #5 could have caught: it only surfaces by actually running
+the code against the real cached data from a different absolute path, not from reading the diff.
+Added a "data integrity is the number one goal" section to `CLAUDE.md` as a direct result: back up
+before any operation against these directories, and treat any delete-to-invalidate-a-cache pattern
+as suspect from now on.

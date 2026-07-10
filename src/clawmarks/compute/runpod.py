@@ -16,20 +16,22 @@ import sys
 import time
 import urllib.request
 
+from clawmarks.config import ROOT
+
 API_KEY = os.environ["RUNPOD_API_KEY"]
 CIVITAI_TOKEN = os.environ["CIVITAI_TOKEN"]
 GRAPHQL = f"https://api.runpod.io/graphql?api_key={API_KEY}"
 
-KEY_PATH = "/workspace/trent-with-smart-prompts/runpod-ssh/id_ed25519"
-PUBLIC_KEY = open("/workspace/trent-with-smart-prompts/runpod-ssh/id_ed25519.pub").read().strip()
+KEY_PATH = str(ROOT / "runpod-ssh" / "id_ed25519")
+PUBLIC_KEY_PATH = str(ROOT / "runpod-ssh" / "id_ed25519.pub")
 
 IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 POD_NAME_PREFIX = "clawmarks-training"
 
 DEFAULT_GPU_PRIORITY = ["NVIDIA GeForce RTX 4090", "NVIDIA GeForce RTX 3090", "NVIDIA RTX A5000"]
-DEFAULT_DATASET_ZIP = "/workspace/trent-with-smart-prompts/clawmarks-dataset.zip"
-DEFAULT_DATASET_DIR = "/workspace/trent-with-smart-prompts/corrected_dataset_extract"
-DEFAULT_REMOTE_SETUP_SCRIPT = "/workspace/trent-with-smart-prompts/notes/remote_setup.sh"
+DEFAULT_DATASET_ZIP = str(ROOT / "clawmarks-dataset.zip")
+DEFAULT_DATASET_DIR = str(ROOT / "corrected_dataset_extract")
+DEFAULT_REMOTE_SETUP_SCRIPT = str(ROOT / "notes" / "remote_setup.sh")
 DEFAULT_POD_INDEX = 1
 
 _known_pods = {}
@@ -83,6 +85,7 @@ def _pick_gpu(gpu_priority):
 
 
 def _create_pod(gpu_id, pod_name):
+    public_key = open(PUBLIC_KEY_PATH).read().strip()
     mutation = f'''
     mutation {{
       podFindAndDeployOnDemand(input: {{
@@ -97,7 +100,7 @@ def _create_pod(gpu_id, pod_name):
         imageName: "{IMAGE}"
         ports: "22/tcp"
         volumeMountPath: "/workspace"
-        env: [{{ key: "PUBLIC_KEY", value: "{PUBLIC_KEY}" }}]
+        env: [{{ key: "PUBLIC_KEY", value: "{public_key}" }}]
       }}) {{
         id
       }}

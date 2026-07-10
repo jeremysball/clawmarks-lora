@@ -1,5 +1,31 @@
 # CLAWMARKS LoRA project
 
+## Data integrity is the project's number one goal
+
+Nothing else on this project outranks not losing data. Two incidents already prove the risk is
+real: an unattended agent's Task 12 smoke check permanently destroyed every full-resolution
+generated PNG in `notes/uncanny_sweep/` and `notes/uncanny_sweep2/` (see the lab notebook's
+2026-07-09 entry), and a later verification pass came within one restore of deleting the last
+surviving embeddings cache (`solution_map_final_embs.pt`) via a destructive
+cache-invalidate-by-`os.remove` pattern, saved only because a backup happened to exist.
+
+- **Before any operation that writes to, deletes from, or reads-then-overwrites
+  `notes/uncanny_sweep/`, `notes/uncanny_sweep2/`, or any other directory holding irreplaceable
+  RunPod-billed generation output: take a complete-mirror backup first, and verify the backup
+  (file count, a content diff, or both) before proceeding.** A partial backup ("exclude the big
+  files to save space") plus a full-mirror restore is the exact pattern that caused the Task 12
+  loss. Never narrow backup scope without re-checking every later step that assumes the backup is
+  complete.
+- **Treat any code that deletes a file to invalidate a cache as suspect**, especially caches
+  derived from source data that might not be regenerable (embeddings computed from images that
+  could later be deleted, for instance). Prefer overwriting on success over deleting-then-maybe-
+  recomputing: if the recompute can fail, deleting first destroys the only good copy for no
+  benefit.
+- If you're about to run a script or command against one of these directories and you are not
+  certain it's read-only, stop and back up first even if that feels like overhead. The cost of an
+  unnecessary backup is minutes; the cost of a missing one has already been a full sweep of
+  irreplaceable generation output.
+
 ## Your role
 
 Act as a lab assistant helping a non-academic, undergraduate-level researcher turn a
