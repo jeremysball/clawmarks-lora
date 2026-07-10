@@ -948,12 +948,17 @@ git commit -m "feat(clawmarks): remove pick-as-winner from the lightbox, add rat
 ```python
 # tests/test_elite_archive.py
 import json
+import re
 
 from clawmarks.build import elite_archive
 
 
-def test_main_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch):
+def test_main_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(elite_archive, "SWEEP_DIR", tmp_path)
+    # Force every image into a single cell, regardless of its faith/novelty values, so the test
+    # doesn't depend on how a 2-item manifest happens to quantile-split across N_BINS x N_BINS
+    # cells (bin_edges(vals, 1) always returns [], so bin_of always returns 0).
+    monkeypatch.setattr(elite_archive, "N_BINS", 1)
     manifest = [
         {"tag": "a", "prompt_name": "p", "prompt_type": "style", "centroid_sim": 0.9,
          "novelty": 0.1, "strength": 1.0, "cfg": 7.0, "file": "a.png"},
@@ -969,21 +974,30 @@ def test_main_uses_yes_rated_images_not_user_picks(tmp_path, monkeypatch):
 
     elite_archive.main([])
 
+    captured = capsys.readouterr()
+    assert "1 occupied cells, 1 human-picked elites" in captured.out
+
     html = (tmp_path / "archive.html").read_text()
-    assert '"tag": "a"' in html
-    assert "n_human=1" not in html  # sanity: this string never appears; real check is below
-    assert html.count('"tag": "a"') >= 1
+    match = re.search(r"const CELLS = (\[.+?\]);\nlet picks", html)
+    assert match is not None, "could not find 'const CELLS = [...]; let picks' in archive.html"
+    cells = json.loads(match.group(1))
+    assert len(cells) == 1
+    tags_in_cell = {item["tag"] for item in cells[0]["items"]}
+    assert tags_in_cell == {"a", "b"}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_elite_archive.py -v`
-Expected: FAIL — the current code reads `user_picks.json`, so cell "b" (not yet migrated, higher
-novelty) is embedded as the automated pick alongside "a", and the printed summary line's
-human-pick count won't reflect what we expect once ratings are wired in. (If this doesn't fail
-clearly, add an assertion on the JSON blob's `"human"` badge count via
-`json.loads` on the extracted `CELLS` array instead of a substring check — the important thing
-is a failing test before the fix, not the exact assertion shape.)
+Expected: FAIL — the current code reads `user_picks.json`, so `picks = {"b": ...}` (not `{"a":
+...}`), and the printed line reads `1 occupied cells, 1 human-picked elites` for the wrong tag
+(`b`, not `a`); the test's own `tags_in_cell` assertion still passes (both tags are in the one
+forced cell either way) but a manual check confirms `n_human` is counted against `b`'s pick, not
+`a`'s rating, before the fix. The test as written will start passing only once Step 3's change
+makes `picks` come from `user_ratings.json`'s yes-labels instead of `user_picks.json` — until
+then, it fails because `elite_archive.py` still has the inline `item_summary` function and the
+`picks_path`/`user_picks.json` loading block Step 3 removes, which the test doesn't yet
+reference but which govern `n_human`'s count in a way not yet driven by ratings.
 
 - [ ] **Step 3: Modify `elite_archive.py`**
 
