@@ -225,16 +225,18 @@ def record_rating(ratings, tag, label, now):
 
 
 _manifest_cache = {"manifest": None, "mtime": None}
+_manifest_cache_lock = threading.Lock()
 
 
 def load_manifest():
     path = f"{SWEEP_DIR}/scored_manifest.json"
-    mtime = os.path.getmtime(path)
-    if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
-        with open(path) as f:
-            _manifest_cache["manifest"] = json.load(f)
-        _manifest_cache["mtime"] = mtime
-    return _manifest_cache["manifest"]
+    with _manifest_cache_lock:
+        mtime = os.path.getmtime(path)
+        if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
+            with open(path) as f:
+                _manifest_cache["manifest"] = json.load(f)
+            _manifest_cache["mtime"] = mtime
+        return _manifest_cache["manifest"]
 
 
 class Handler(SimpleHTTPRequestHandler):
