@@ -1,18 +1,21 @@
 """
-Static file server + tiny pick/unpick API for the uncanny-frontier scan gallery. Replaces the
+Static file server + tiny ratings API for the uncanny-frontier scan gallery. Replaces the
 plain `python3 -m http.server` that was serving notes/uncanny_sweep/ read-only: a plain static
-server can't accept writes, and the whole point of this is letting a human mark "this is the
-one that should win this bin" from the browser, which needs somewhere to persist that choice.
+server can't accept writes, and the whole point of this is letting a human record
+yes/no judgments on each image from the browser, which needs somewhere to persist that choice.
 
-Picks are stored in notes/uncanny_sweep/user_picks.json, keyed by image tag, with the full
-image metadata the browser already has (so this server doesn't need to load scored_manifest.json
-itself to fill in details) plus a picked_at timestamp. A future search run reads this file and
-prefers user-picked images over the automated novelty ranking when choosing which images to
-mutate near ("exploit"), only falling back to raw novelty for anything the user hasn't reviewed.
+Ratings are stored in notes/uncanny_sweep/user_ratings.json, keyed by image tag, with a
+"label" of "yes" or "no" and a "rated_at" timestamp. A future preference-classifier training
+run reads this file as its positive/negative labels (see
+docs/superpowers/specs/2026-07-09-preference-classifier-design.md). The selection of which
+unrated image to show next is stratified across the faithfulness x novelty grid so an early
+rating session doesn't over-sample whichever region happens to dominate the pool.
 
-Favorites (notes/uncanny_sweep/user_favorites.json) are the same shape but never read by the
-search: a plain bookmark for images worth keeping (e.g. for the writeup) without steering where
-the search goes next, for when "I like this" and "build more like this" are different judgments.
+Favorites (notes/uncanny_sweep/user_favorites.json) are a separate store: a plain bookmark
+for images worth keeping (e.g. for the writeup) without steering where the search goes next,
+for when "I like this" and "build more like this" are different judgments. Favorites also
+count as "reviewed" for the rating UI's next-image picker so a favorited image never gets
+shown for rating.
 
 Counterfactuals (notes/uncanny_sweep/user_counterfactuals.json, images in
 notes/uncanny_sweep/counterfactuals/) are on-demand single generations: pick an existing image,
@@ -33,9 +36,9 @@ mid-run. Generation is synchronous (up to 5 minutes) and calls out to opencode/G
 costs real API time but no RunPod spend.
 
 API:
-  GET  /api/picks             -> {tag: {...metadata, picked_at}}
-  POST /api/pick               body: full item object (must include "tag") -> upserts, returns ok
-  POST /api/unpick              body: {"tag": "..."}                        -> removes, returns ok
+  GET  /api/ratings           -> {tag: {label, rated_at}}
+  GET  /api/rate/next         -> item_summary dict for the next unreviewed image, or {"done": true}
+  POST /api/rate               body: {"tag": "...", "label": "yes"|"no"} -> upserts, returns ok
   GET  /api/favorites          -> {tag: {...metadata, favorited_at}}
   POST /api/favorite           body: full item object (must include "tag") -> upserts, returns ok
   POST /api/unfavorite          body: {"tag": "..."}                        -> removes, returns ok
@@ -59,9 +62,11 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
+from clawmarks.search import rating_sampler
+from clawmarks.search.manifest_index import item_summary
 
-PICKS_FILE = f"{SWEEP_DIR}/user_picks.json"
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
+RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
 COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
 COUNTERFACTUALS_FILE = f"{SWEEP_DIR}/user_counterfactuals.json"
 DEFAULT_PORT = 8420
@@ -138,12 +143,32 @@ def save_store(path, store):
     os.replace(tmp, path)
 
 
-def load_picks():
-    return load_store(PICKS_FILE)
+def next_rating_response(manifest, reviewed_tags, rng=None):
+    """Returns an item_summary dict for the next image to rate, or {"done": True} if every
+    image in `manifest` is already in `reviewed_tags`."""
+    item = rating_sampler.pick_next(manifest, reviewed_tags, rng=rng) if rng is not None \
+        else rating_sampler.pick_next(manifest, reviewed_tags)
+    if item is None:
+        return {"done": True}
+    return item_summary(item, SWEEP_DIR)
 
 
-def save_picks(picks):
-    save_store(PICKS_FILE, picks)
+def record_rating(ratings, tag, label, now):
+    if label not in ("yes", "no"):
+        raise ValueError(f"label must be 'yes' or 'no', got {label!r}")
+    updated = dict(ratings)
+    updated[tag] = {"label": label, "rated_at": now}
+    return updated
+
+
+_manifest_cache = {"manifest": None}
+
+
+def load_manifest():
+    if _manifest_cache["manifest"] is None:
+        with open(f"{SWEEP_DIR}/scored_manifest.json") as f:
+            _manifest_cache["manifest"] = json.load(f)
+    return _manifest_cache["manifest"]
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -169,9 +194,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/api/picks":
+        if self.path == "/api/ratings":
             with _lock:
-                self._json_response(200, load_picks())
+                self._json_response(200, load_store(RATINGS_FILE))
+            return
+        if self.path == "/api/rate/next":
+            with _lock:
+                ratings = load_store(RATINGS_FILE)
+                favorites = load_store(FAVORITES_FILE)
+                reviewed = set(ratings) | set(favorites)
+                response = next_rating_response(load_manifest(), reviewed)
+            self._json_response(200, response)
             return
         if self.path == "/api/favorites":
             with _lock:
@@ -201,26 +234,17 @@ class Handler(SimpleHTTPRequestHandler):
             self._json_response(400, {"error": "invalid JSON body"})
             return
 
-        if self.path == "/api/pick":
+        if self.path == "/api/rate":
             tag = payload.get("tag")
-            if not tag:
-                self._json_response(400, {"error": "missing 'tag'"})
+            label = payload.get("label")
+            if not tag or label not in ("yes", "no"):
+                self._json_response(400, {"error": "missing 'tag' or invalid 'label' (must be 'yes' or 'no')"})
                 return
             with _lock:
-                picks = load_picks()
-                payload["picked_at"] = datetime.now(timezone.utc).isoformat()
-                picks[tag] = payload
-                save_picks(picks)
-            self._json_response(200, {"ok": True, "count": len(picks)})
-            return
-
-        if self.path == "/api/unpick":
-            tag = payload.get("tag")
-            with _lock:
-                picks = load_picks()
-                picks.pop(tag, None)
-                save_picks(picks)
-            self._json_response(200, {"ok": True, "count": len(picks)})
+                ratings = load_store(RATINGS_FILE)
+                ratings = record_rating(ratings, tag, label, datetime.now(timezone.utc).isoformat())
+                save_store(RATINGS_FILE, ratings)
+            self._json_response(200, {"ok": True, "count": len(ratings)})
             return
 
         if self.path == "/api/favorite":
@@ -410,7 +434,7 @@ def main(argv=None):
     elif len(sys.argv) > 1:
         port = int(sys.argv[1])
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"serving {SWEEP_DIR} + pick API on 0.0.0.0:{port}", flush=True)
+    print(f"serving {SWEEP_DIR} + ratings API on 0.0.0.0:{port}", flush=True)
     server.serve_forever()
 
 
