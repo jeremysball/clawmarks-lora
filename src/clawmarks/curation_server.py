@@ -121,6 +121,13 @@ def _get_redundancy_data():
         watched_files=[], depends_on=["solution-map"], sweep_dir=str(SWEEP_DIR),
     )
 
+
+def _get_manifest_cached(target_name, compute_fn):
+    return _live_cache.get(
+        target_name, compute_fn,
+        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+    )
+
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
 COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
@@ -327,7 +334,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/coverage.html":
-            html = coverage_map.render_html(coverage_map.compute_data(str(SWEEP_DIR)))
+            html = coverage_map.render_html(_get_manifest_cached("coverage", coverage_map.compute_data))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -337,7 +344,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/novelty_decay.html":
-            html = novelty_decay.render_html(novelty_decay.compute_data(str(SWEEP_DIR)))
+            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -347,7 +354,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/lineage.html":
-            html = lineage_view.render_html(lineage_view.compute_data(str(SWEEP_DIR)))
+            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -360,7 +367,11 @@ class Handler(SimpleHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             query = parse_qs(urlparse(self.path).query)
             use_predicted = query.get("use_predicted_preference", ["0"])[0] == "1"
-            data = elite_archive.compute_data(str(SWEEP_DIR), use_predicted_preference=use_predicted)
+            target_name = "archive_predicted" if use_predicted else "archive_actual"
+            data = _get_manifest_cached(
+                target_name,
+                lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
+            )
             html = elite_archive.render_html(data)
             body = html.encode()
             self.send_response(200)
@@ -371,7 +382,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/preference_rank.html":
-            html = preference_rank.render_html(preference_rank.compute_data(str(SWEEP_DIR)))
+            html = preference_rank.render_html(_get_manifest_cached("preference_rank", preference_rank.compute_data))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -381,7 +392,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/gallery.html":
-            html = uncanny_gallery.render_html(uncanny_gallery.compute_data(str(SWEEP_DIR)))
+            html = uncanny_gallery.render_html(_get_manifest_cached("gallery", uncanny_gallery.compute_data))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
