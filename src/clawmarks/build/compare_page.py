@@ -81,7 +81,10 @@ let current = null;
 let comparedThisSession = 0;
 
 function loadNext() {{
-  fetch('/api/compare/next').then(r => r.json()).then(d => {{
+  fetch('/api/compare/next').then(r => {{
+    if (!r.ok) throw new Error('Could not load the next comparison');
+    return r.json();
+  }}).then(d => {{
     if (d.done) {{
       current = null;
       document.getElementById('pair').style.display = 'none';
@@ -98,6 +101,10 @@ function loadNext() {{
     document.getElementById('meta').innerHTML =
       `<span>${{d.img1.prompt_name}} | faith=${{d.img1.faith}} novelty=${{d.img1.novelty}}</span>` +
       `<span>${{d.img2.prompt_name}} | faith=${{d.img2.faith}} novelty=${{d.img2.novelty}}</span>`;
+  }}).catch(() => {{
+    document.getElementById('done').textContent =
+      "Couldn't reach the server. Check your connection and try again.";
+    document.getElementById('done').style.display = 'block';
   }});
 }}
 
@@ -107,11 +114,18 @@ function choose(side) {{
   const loser = side === 1 ? current.img2.tag : current.img1.tag;
   fetch('/api/compare', {{method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{winner, loser}})}})
-    .then(r => r.json())
+    .then(r => {{
+      if (!r.ok) throw new Error('Could not save the comparison');
+      return r.json();
+    }})
     .then(() => {{
       comparedThisSession++;
       document.getElementById('count').textContent = `${{comparedThisSession}} compared this session`;
       loadNext();
+    }}).catch(() => {{
+      document.getElementById('done').textContent =
+        "Couldn't reach the server. Check your connection and try again.";
+      document.getElementById('done').style.display = 'block';
     }});
 }}
 
@@ -168,6 +182,25 @@ document.addEventListener('mousemove', e => {{
   zimg.style.transform = `translate(${{panX}}px, ${{panY}}px)`;
 }});
 document.addEventListener('mouseup', () => {{
+  if (dragging && !dragMoved) closeZoom();
+  dragging = false;
+}});
+overlayEl.addEventListener('touchstart', e => {{
+  const touch = e.touches[0];
+  dragging = true; dragMoved = false;
+  dragStartX = touch.clientX - panX; dragStartY = touch.clientY - panY;
+}});
+overlayEl.addEventListener('touchmove', e => {{
+  if (!dragging) return;
+  e.preventDefault();
+  dragMoved = true;
+  const touch = e.touches[0];
+  const zimg = document.getElementById('zoom-img');
+  panX = clampOffset(touch.clientX - dragStartX, overlayEl.clientWidth, zimg.naturalWidth);
+  panY = clampOffset(touch.clientY - dragStartY, overlayEl.clientHeight, zimg.naturalHeight);
+  zimg.style.transform = `translate(${{panX}}px, ${{panY}}px)`;
+}}, {{passive: false}});
+overlayEl.addEventListener('touchend', () => {{
   if (dragging && !dragMoved) closeZoom();
   dragging = false;
 }});
