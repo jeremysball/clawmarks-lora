@@ -1,9 +1,10 @@
 """
-Component 4 of the preference-classifier design: ranks every embedded image by the trained
-model's predicted P(yes), highest first, so the model's judgment can be eyeballed against the
-user's own taste before Stage 5b lets it steer anything live. Requires
-search/preference_model.py to have already produced notes/uncanny_sweep/preference_model.joblib
-(needs 50+ ratings — see search/preference_model.py's MIN_LABELS).
+Ranks every embedded image by the trained pairwise model's predicted preference score, highest
+first, so the model's judgment can be eyeballed against the user's own taste before Stage 5b
+lets it steer anything live. Requires search/preference_pairwise_model.py to have already
+produced notes/uncanny_sweep/preference_pairwise_model.joblib (needs 50+ comparisons — see
+search/preference_pairwise_model.py's MIN_COMPARISONS). See
+docs/superpowers/specs/2026-07-11-head-to-head-preference-design.md.
 
 Served live at /preference_rank.html by curation_server.py.
 """
@@ -14,7 +15,7 @@ import joblib
 
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import index_by_tag, item_summary
-from clawmarks.search.preference_model import MODEL_FILE, predict_proba
+from clawmarks.search.preference_pairwise_model import MODEL_FILE, score
 from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
@@ -41,7 +42,7 @@ def compute_data(sweep_dir):
 
     tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
     model = joblib.load(MODEL_FILE)
-    scores = predict_proba(model, embeddings)
+    scores = score(model, embeddings)
     items = build_ranked_items(by_tag, tags, scores, sweep_dir)
 
     return {"has_model": True, "items": items}
@@ -50,15 +51,15 @@ def compute_data(sweep_dir):
 def render_html(data):
     if not data["has_model"]:
         return (f"<!doctype html><html><body>no trained model at {MODEL_FILE}; run `python -m "
-                f"clawmarks.search.preference_model` first (needs 50+ ratings)</body></html>")
+                f"clawmarks.search.preference_pairwise_model` first (needs 50+ comparisons)</body></html>")
 
     items = data["items"]
 
     rank_tip = info_btn(
-        "Sorted by the trained preference model's predicted probability that you'd rate this "
-        "image 'yes,' highest first. This view exists to sanity-check the model before it's "
-        "allowed to steer the live search: does the top of this list actually look like things "
-        "you like?"
+        "Sorted by the trained preference model's predicted score, highest first: the model "
+        "learned this ranking from your head-to-head comparisons, not a yes/no judgment. This "
+        "view exists to sanity-check the model before it's allowed to steer the live search: "
+        "does the top of this list actually look like things you like?"
     )
     data_json = json.dumps(items)
 
@@ -81,7 +82,7 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 
 {nav_bar_html('preference_rank.html')}
 <h1>Predicted preference{rank_tip}</h1>
-<p class="sub">Top {len(items)} images by predicted P(yes), highest first.</p>
+<p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="grid"></div>
 <script>
 const ITEMS = {data_json};
