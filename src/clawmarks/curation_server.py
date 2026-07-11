@@ -62,7 +62,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
-from clawmarks.search import rating_sampler, preference_settings, preference_model
+from clawmarks.search import rating_sampler, preference_settings, preference_model, embed_cache
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
@@ -129,6 +129,18 @@ def _get_manifest_cached(target_name, compute_fn):
     )
 
 
+def _prediction_watched_files():
+    """Like _manifest_path() alone, but also watches the trained model so a retrain actually
+    invalidates any cached page whose rendering depends on the model's predictions (predicted
+    archive.html, preference_rank.html) instead of serving stale predictions until the manifest
+    next changes or the server restarts."""
+    files = [_manifest_path()]
+    for f in (preference_model.MODEL_FILE, preference_model.MODEL_META_FILE):
+        if os.path.exists(f):
+            files.append(str(f))
+    return files
+
+
 def _preference_status_watched_files():
     files = []
     for f in (f"{SWEEP_DIR}/user_ratings.json", preference_model.MODEL_FILE,
@@ -143,6 +155,26 @@ def _get_preference_status_data():
         "preference-status", preference_status.compute_data,
         watched_files=_preference_status_watched_files(), sweep_dir=str(SWEEP_DIR),
     )
+
+
+def _preference_retrain_gate_error():
+    """Mirrors preference_model.main()'s own gates exactly, using build_training_set so a tag
+    without a cached embedding can't make this check pass while the real training call still
+    has too few usable rows. Distinguishes "not enough ratings yet" from "ratings exist but their
+    embeddings aren't cached", since the first is fixed by rating more images and the second
+    isn't -- pointing someone at rate.html for the wrong problem wastes their time."""
+    ratings = load_store(f"{SWEEP_DIR}/user_ratings.json")
+    n_raw_labels = sum(1 for r in ratings.values() if r.get("label") in ("yes", "no"))
+    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    _, y = preference_model.build_training_set(tags, embeddings, ratings)
+    if len(y) < preference_model.MIN_LABELS:
+        if n_raw_labels >= preference_model.MIN_LABELS:
+            return (f"only {len(y)} of {n_raw_labels} rated images have a cached embedding "
+                    f"(need {preference_model.MIN_LABELS} usable); run "
+                    f"`python -m clawmarks.search.embed_cache` to refresh the embedding cache.")
+        return (f"only {len(y)} usable labels (need {preference_model.MIN_LABELS}); not training. "
+                f"Rate more images via rate.html first.")
+    return preference_model.class_balance_error(y)
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
@@ -391,9 +423,11 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/archive.html"):
             use_predicted = preference_settings.load()["use_predicted_preference"]
             target_name = "archive_predicted" if use_predicted else "archive_actual"
-            data = _get_manifest_cached(
+            watched = _prediction_watched_files() if use_predicted else [_manifest_path()]
+            data = _live_cache.get(
                 target_name,
                 lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
+                watched_files=watched, sweep_dir=str(SWEEP_DIR),
             )
             html = elite_archive.render_html(data)
             body = html.encode()
@@ -405,7 +439,11 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/preference_rank.html":
-            html = preference_rank.render_html(_get_manifest_cached("preference_rank", preference_rank.compute_data))
+            data = _live_cache.get(
+                "preference_rank", preference_rank.compute_data,
+                watched_files=_prediction_watched_files(), sweep_dir=str(SWEEP_DIR),
+            )
+            html = preference_rank.render_html(data)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -510,6 +548,23 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
                 return
             preference_settings.save(enabled)
+            self._json_response(200, _get_preference_status_data())
+            return
+
+        if self.path == "/api/preference_retrain":
+            try:
+                with _lock:
+                    gate_error = _preference_retrain_gate_error()
+                    if gate_error:
+                        self._json_response(400, {"error": gate_error})
+                        return
+                    rc = preference_model.main([])
+            except Exception as e:
+                self._json_response(500, {"error": f"preference retrain crashed: {e}"})
+                return
+            if rc != 0:
+                self._json_response(500, {"error": f"preference retrain failed with exit code {rc}"})
+                return
             self._json_response(200, _get_preference_status_data())
             return
 
