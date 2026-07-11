@@ -135,3 +135,7 @@ def test_main_writes_metadata_sidecar_on_successful_train(tmp_path, monkeypatch)
     assert 0.0 <= meta["p_value"] <= 1.0
     assert meta["n_permutations"] == preference_model.N_PERMUTATIONS
     assert "trained_at" in meta
+
+    tags_arr, embeddings_arr = embed_cache.load_cache(tmp_path / "embeddings.npz")
+    expected_fingerprint = preference_model.ratings_fingerprint(tags_arr, embeddings_arr, ratings)
+    assert meta["ratings_fingerprint"] == expected_fingerprint

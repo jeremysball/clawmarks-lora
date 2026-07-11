@@ -186,3 +186,28 @@ def test_post_preference_retrain_rejects_class_imbalance(running_server, monkeyp
     assert exc_info.value.code == 400
     assert "5-fold" in body["error"]
     assert called is False
+
+
+def test_post_preference_retrain_returns_500_on_training_crash(running_server, monkeypatch):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    _write_ratings(tmp_path, n_yes=30, n_no=30)
+    embeddings = np.random.RandomState(0).normal(size=(60, 2)).astype(np.float32)
+    tags = [f"y{i}" for i in range(30)] + [f"n{i}" for i in range(30)]
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+
+    def crashing_train(argv):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(cs.preference_model, "main", crashing_train)
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/preference_retrain", method="POST",
+        data=json.dumps({}).encode(), headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    assert exc_info.value.code == 500
+    body = json.loads(exc_info.value.read().decode())
+    assert "disk full" in body["error"]

@@ -9,7 +9,7 @@ Served live at /preference_status.html by curation_server.py.
 import json
 import os
 
-from clawmarks.search import preference_model, preference_settings
+from clawmarks.search import embed_cache, preference_model, preference_settings
 from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
@@ -37,7 +37,20 @@ def compute_data(sweep_dir):
     if has_model and os.path.exists(preference_model.MODEL_META_FILE):
         with open(preference_model.MODEL_META_FILE) as f:
             model_meta = json.load(f)
-    new_labels_since_train = max(0, n_total - model_meta["n_labels"]) if model_meta else 0
+
+    new_labels_since_train = 0
+    ratings_changed_since_train = False
+    if model_meta:
+        tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+        _, usable_y = preference_model.build_training_set(tags, embeddings, ratings)
+        new_labels_since_train = max(0, len(usable_y) - model_meta["n_labels"])
+        if "ratings_fingerprint" in model_meta:
+            current_fingerprint = preference_model.ratings_fingerprint(tags, embeddings, ratings)
+            ratings_changed_since_train = current_fingerprint != model_meta["ratings_fingerprint"]
+        else:
+            # Model trained before ratings_fingerprint existed: fall back to a plain count
+            # comparison, which misses relabels but is still better than nothing.
+            ratings_changed_since_train = new_labels_since_train > 0
 
     return {
         "n_yes": n_yes, "n_no": n_no, "n_total": n_total,
@@ -46,6 +59,7 @@ def compute_data(sweep_dir):
         "has_model": has_model,
         "model_meta": model_meta,
         "new_labels_since_train": new_labels_since_train,
+        "ratings_changed_since_train": ratings_changed_since_train,
         "use_predicted_preference": preference_settings.load()["use_predicted_preference"],
     }
 
@@ -72,10 +86,14 @@ def render_html(data):
                      f'<code>python -m clawmarks.search.preference_model</code>.</p>')
 
     staleness_html = ""
-    if data["new_labels_since_train"] > 0:
+    if data["ratings_changed_since_train"]:
         trained_at = data["model_meta"]["trained_at"]
-        staleness_html = (f'<p class="stale">{data["new_labels_since_train"]} new ratings since last train '
-                          f'({trained_at}) - retrain to include them.</p>')
+        if data["new_labels_since_train"] > 0:
+            staleness_html = (f'<p class="stale">{data["new_labels_since_train"]} new ratings since last train '
+                              f'({trained_at}) - retrain to include them.</p>')
+        else:
+            staleness_html = (f'<p class="stale">ratings have changed since last train ({trained_at}) '
+                              f'- retrain to include them.</p>')
 
     disabled_attr = "" if data["has_model"] else "disabled"
     checked_attr = "checked" if data["use_predicted_preference"] else ""

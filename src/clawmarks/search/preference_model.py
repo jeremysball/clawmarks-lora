@@ -10,6 +10,7 @@ floor is cleared.
 
 Run with: python -m clawmarks.search.preference_model
 """
+import hashlib
 import json
 import os
 import sys
@@ -29,24 +30,40 @@ MODEL_FILE = SWEEP_DIR / "preference_model.joblib"
 MODEL_META_FILE = SWEEP_DIR / "preference_model_meta.json"
 
 
-def build_training_set(tags, embeddings, ratings):
-    """`tags`/`embeddings` come from embed_cache.load_cache; `ratings` is the loaded
-    user_ratings.json dict. Returns (X, y) using only tags present in both the embedding cache
-    and the ratings file with a recognized label. Row order follows `tags`, not ratings-dict
-    iteration order, so X stays aligned with `embeddings`."""
+def _iter_usable_ratings(tags, embeddings, ratings):
+    """Yields (tag, label, embedding_row) for every rating that both has a recognized yes/no
+    label and a tag present in the embedding cache. The single filtering pass both
+    build_training_set and ratings_fingerprint rely on, so they can't drift apart."""
     tag_to_row = {t: i for i, t in enumerate(tags)}
-    X_rows, y = [], []
     for tag, rating in ratings.items():
         if tag not in tag_to_row:
             continue
         label = rating.get("label")
         if label not in ("yes", "no"):
             continue
-        X_rows.append(embeddings[tag_to_row[tag]])
+        yield tag, label, embeddings[tag_to_row[tag]]
+
+
+def build_training_set(tags, embeddings, ratings):
+    """`tags`/`embeddings` come from embed_cache.load_cache; `ratings` is the loaded
+    user_ratings.json dict. Returns (X, y) using only tags present in both the embedding cache
+    and the ratings file with a recognized label. Row order follows `tags`, not ratings-dict
+    iteration order, so X stays aligned with `embeddings`."""
+    X_rows, y = [], []
+    for _, label, row in _iter_usable_ratings(tags, embeddings, ratings):
+        X_rows.append(row)
         y.append(1 if label == "yes" else 0)
     if not X_rows:
         return np.zeros((0, 0), dtype=np.float32), np.zeros((0,), dtype=np.int64)
     return np.stack(X_rows), np.array(y, dtype=np.int64)
+
+
+def ratings_fingerprint(tags, embeddings, ratings):
+    """A hash of the exact (tag, label) pairs a train run would use. Two fingerprints matching
+    means retraining now would use identical data to last time -- unlike a bare label count,
+    this also catches a rating flipping from yes to no on a tag that was already counted."""
+    pairs = sorted((tag, label) for tag, label, _ in _iter_usable_ratings(tags, embeddings, ratings))
+    return hashlib.sha256(json.dumps(pairs).encode()).hexdigest()
 
 
 def class_balance_error(y, min_labels=MIN_LABELS):
@@ -130,12 +147,15 @@ def main(argv=None):
           f"cross-validated accuracy: {acc:.3f}", flush=True)
 
     model = train(X, y)
-    joblib.dump(model, MODEL_FILE)
+    model_tmp = f"{MODEL_FILE}.tmp"
+    joblib.dump(model, model_tmp)
+    os.replace(model_tmp, MODEL_FILE)
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_labels": len(y),
         "n_yes": int(y.sum()),
         "n_no": len(y) - int(y.sum()),
+        "ratings_fingerprint": ratings_fingerprint(tags, embeddings, ratings),
         "cv_accuracy": round(acc, 4),
         "baseline_accuracy": stats["baseline_accuracy"],
         "p_value": stats["p_value"],
