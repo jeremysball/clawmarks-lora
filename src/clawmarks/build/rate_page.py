@@ -212,6 +212,7 @@ function finishPan(dx, dy) {{
 
 imgwrapEl.addEventListener('touchstart', e => {{
   if (!current || e.touches.length !== 1) return;
+  e.preventDefault();
   dragActive = true;
   dragClassified = null;
   dragStartX = e.touches[0].clientX;
