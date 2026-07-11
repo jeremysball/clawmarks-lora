@@ -16,9 +16,8 @@ def running_server(tmp_path, monkeypatch):
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     monkeypatch.setattr(preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
     monkeypatch.setattr(cs.preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
-    monkeypatch.setattr(cs.preference_model, "MODEL_FILE", tmp_path / "preference_model.joblib")
+    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
     (tmp_path / "scored_manifest.json").write_text(json.dumps([]))
-    (tmp_path / "user_ratings.json").write_text(json.dumps({}))
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -59,7 +58,7 @@ def test_post_preference_toggle_rejects_enable_without_model(running_server):
 def test_post_preference_toggle_accepts_enable_with_model_and_persists(running_server):
     server, tmp_path = running_server
     port = server.server_address[1]
-    (tmp_path / "preference_model.joblib").write_text("fake model")
+    (tmp_path / "preference_pairwise_model.joblib").write_text("fake model")
 
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/preference_toggle", method="POST",
@@ -82,7 +81,7 @@ def test_archive_html_uses_persisted_setting_not_query_param(running_server, mon
     assert calls == [False]
 
     preference_settings.save(True)
-    (tmp_path / "preference_model.joblib").write_text("fake model")
+    (tmp_path / "preference_pairwise_model.joblib").write_text("fake model")
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/archive.html") as resp:
         resp.read()
     assert calls == [False, True]

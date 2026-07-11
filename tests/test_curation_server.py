@@ -2,40 +2,41 @@
 from clawmarks import curation_server as cs
 
 
-def test_next_rating_response_returns_item_summary_shape():
+def test_next_compare_response_returns_two_item_summaries():
     manifest = [
         {"tag": "a", "prompt_name": "p", "prompt_type": "style", "centroid_sim": 0.5,
          "novelty": 0.3, "strength": 1.0, "cfg": 7.0, "file": "a.png"},
+        {"tag": "b", "prompt_name": "p", "prompt_type": "style", "centroid_sim": 0.6,
+         "novelty": 0.4, "strength": 1.0, "cfg": 7.0, "file": "b.png"},
     ]
-    result = cs.next_rating_response(manifest, reviewed_tags=set())
-    assert result["tag"] == "a"
-    assert result["faith"] == 0.5
+    result = cs.next_compare_response(manifest, comparisons=[])
+    assert {result["img1"]["tag"], result["img2"]["tag"]} == {"a", "b"}
+    assert result["img1"]["faith"] in (0.5, 0.6)
     assert "done" not in result
 
 
-def test_next_rating_response_reports_done_when_all_reviewed():
+def test_next_compare_response_reports_done_with_one_image():
     manifest = [{"tag": "a", "centroid_sim": 0.5, "novelty": 0.3, "prompt_name": "p",
                  "prompt_type": "style", "strength": 1.0, "cfg": 7.0, "file": "a.png"}]
-    result = cs.next_rating_response(manifest, reviewed_tags={"a"})
+    result = cs.next_compare_response(manifest, comparisons=[])
     assert result == {"done": True}
 
 
-def test_record_rating_upserts_with_timestamp():
-    ratings = {}
-    updated = cs.record_rating(ratings, "a", "yes", now="2026-07-10T00:00:00Z")
-    assert updated["a"] == {"label": "yes", "rated_at": "2026-07-10T00:00:00Z"}
+def test_record_comparison_appends_with_timestamp():
+    updated = cs.record_comparison([], "a", "b", now="2026-07-10T00:00:00Z")
+    assert updated == [{"winner": "a", "loser": "b", "compared_at": "2026-07-10T00:00:00Z"}]
 
 
-def test_record_rating_overwrites_not_duplicates():
-    ratings = {"a": {"label": "no", "rated_at": "t0"}}
-    updated = cs.record_rating(ratings, "a", "yes", now="t1")
-    assert updated == {"a": {"label": "yes", "rated_at": "t1"}}
-    assert len(updated) == 1
+def test_record_comparison_preserves_existing_records():
+    comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}]
+    updated = cs.record_comparison(comparisons, "b", "a", now="t1")
+    assert updated == [
+        {"winner": "a", "loser": "b", "compared_at": "t0"},
+        {"winner": "b", "loser": "a", "compared_at": "t1"},
+    ]
 
 
-def test_record_rating_rejects_invalid_label():
-    try:
-        cs.record_rating({}, "a", "maybe", now="t0")
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
+def test_record_comparison_does_not_mutate_input():
+    comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}]
+    cs.record_comparison(comparisons, "b", "a", now="t1")
+    assert len(comparisons) == 1

@@ -1328,3 +1328,9 @@ The focused page tests passed: `uv run pytest tests/test_compare_page.py -v` rep
 ### 2026-07-11: Compare page review fixes
 
 Added touch drag support to the full-resolution compare overlay. `touchstart`, `touchmove`, and `touchend` now use the same bounded pan calculation as mouse drag. A touch with no movement closes the overlay, while a touch drag prevents page scrolling. Also made both comparison API requests reject non-success HTTP responses and show a visible connection error instead of leaving the page silent.
+
+### 2026-07-11: Server comparison API integrated
+
+Replaced the legacy yes/no rating routes with the pairwise comparison API in `curation_server.py`. `GET /api/compare/next` returns two item summaries or `{"done": true}` when fewer than two images exist. `POST /api/compare` appends `{winner, loser, compared_at}` records to `user_comparisons.json` and retrains the pairwise model every 10 comparisons after the 50-comparison floor. A successful retrain refreshes the server's in-memory model cache immediately, so the next pair selection uses it without a restart.
+
+The server now imports `comparison_sampler`, `preference_pairwise_model`, and `compare_page`; it no longer reads, writes, or deletes the legacy rating store or model. Updated status-route and helper tests to match the pairwise data shape, then added HTTP-server coverage for pair selection, completion, comparison persistence, validation, the compare page, and removed rate routes. Focused tests passed 11 of 11, and the full suite passed 160 tests. The suite still emits 35 pre-existing sklearn and UMAP warnings.

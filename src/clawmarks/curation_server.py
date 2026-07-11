@@ -1,21 +1,20 @@
 """
-Static file server + tiny ratings API for the uncanny-frontier scan gallery. Replaces the
+Static file server + tiny comparison API for the uncanny-frontier scan gallery. Replaces the
 plain `python3 -m http.server` that was serving notes/uncanny_sweep/ read-only: a plain static
-server can't accept writes, and the whole point of this is letting a human record
-yes/no judgments on each image from the browser, which needs somewhere to persist that choice.
+server can't accept writes, and the whole point of this is letting a human record head-to-head
+preference comparisons from the browser, which needs somewhere to persist that choice.
 
-Ratings are stored in notes/uncanny_sweep/user_ratings.json, keyed by image tag, with a
-"label" of "yes" or "no" and a "rated_at" timestamp. A future preference-classifier training
-run reads this file as its positive/negative labels (see
-docs/superpowers/specs/2026-07-09-preference-classifier-design.md). The selection of which
-unrated image to show next is stratified across the faithfulness x novelty grid so an early
-rating session doesn't over-sample whichever region happens to dominate the pool.
+Comparisons are stored in notes/uncanny_sweep/user_comparisons.json, a list of
+{winner, loser, compared_at} records. search/preference_pairwise_model.py trains a Bradley-
+Terry-style model on this data (see
+docs/superpowers/specs/2026-07-11-head-to-head-preference-design.md). The selection of which
+pair to compare next is stratified across the faithfulness x novelty grid below
+comparison_sampler.MIN_COMPARISONS, then model-uncertainty-guided above it; this server retrains
+the model every comparison_sampler.RETRAIN_EVERY comparisons once the floor is cleared.
 
 Favorites (notes/uncanny_sweep/user_favorites.json) are a separate store: a plain bookmark
 for images worth keeping (e.g. for the writeup) without steering where the search goes next,
-for when "I like this" and "build more like this" are different judgments. Favorites also
-count as "reviewed" for the rating UI's next-image picker so a favorited image never gets
-shown for rating.
+for when "I like this" and "build more like this" are different judgments.
 
 Counterfactuals (notes/uncanny_sweep/user_counterfactuals.json, images in
 notes/uncanny_sweep/counterfactuals/) are on-demand single generations: pick an existing image,
@@ -36,9 +35,11 @@ mid-run. Generation is synchronous (up to 5 minutes) and calls out to opencode/G
 costs real API time but no RunPod spend.
 
 API:
-  GET  /api/ratings           -> {tag: {label, rated_at}}
-  GET  /api/rate/next         -> item_summary dict for the next unreviewed image, or {"done": true}
-  POST /api/rate               body: {"tag": "...", "label": "yes"|"no"} -> upserts, returns ok
+  GET  /api/compare/next       -> {"img1": item_summary, "img2": item_summary} for the next
+                                   pair to compare, or {"done": true} if fewer than 2 images
+                                   exist in the pool
+  POST /api/compare             body: {"winner": tag, "loser": tag} -> appends a comparison
+                                 record, returns {"ok": true, "count": n}
   GET  /api/favorites          -> {tag: {...metadata, favorited_at}}
   POST /api/favorite           body: full item object (must include "tag") -> upserts, returns ok
   POST /api/unfavorite          body: {"tag": "..."}                        -> removes, returns ok
@@ -62,14 +63,15 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
-from clawmarks.search import rating_sampler, preference_settings, preference_model
+from clawmarks.search import comparison_sampler, preference_settings, preference_pairwise_model
+from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
     novelty_decay, lineage_view, elite_archive, preference_rank, uncanny_gallery, explore_hub,
-    seed_browser, rate_page, preference_status,
+    seed_browser, compare_page, preference_status,
 )
 from clawmarks.build.thumbnails import generate_thumbnail
 
@@ -131,8 +133,8 @@ def _get_manifest_cached(target_name, compute_fn):
 
 def _preference_status_watched_files():
     files = []
-    for f in (f"{SWEEP_DIR}/user_ratings.json", preference_model.MODEL_FILE,
-              preference_model.MODEL_META_FILE, preference_settings.PREFERENCE_SETTINGS_FILE):
+    for f in (COMPARISONS_FILE, preference_pairwise_model.MODEL_FILE,
+              preference_pairwise_model.MODEL_META_FILE, preference_settings.PREFERENCE_SETTINGS_FILE):
         if os.path.exists(f):
             files.append(str(f))
     return files
@@ -145,7 +147,7 @@ def _get_preference_status_data():
     )
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
-RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
+COMPARISONS_FILE = f"{SWEEP_DIR}/user_comparisons.json"
 COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
 COUNTERFACTUALS_FILE = f"{SWEEP_DIR}/user_counterfactuals.json"
 DEFAULT_PORT = 8420
@@ -222,22 +224,62 @@ def save_store(path, store):
     os.replace(tmp, path)
 
 
-def next_rating_response(manifest, reviewed_tags, rng=None):
-    """Returns an item_summary dict for the next image to rate, or {"done": True} if every
-    image in `manifest` is already in `reviewed_tags`."""
-    item = rating_sampler.pick_next(manifest, reviewed_tags, rng=rng) if rng is not None \
-        else rating_sampler.pick_next(manifest, reviewed_tags)
-    if item is None:
-        return {"done": True}
-    return item_summary(item, SWEEP_DIR)
+def load_comparisons():
+    if os.path.exists(COMPARISONS_FILE):
+        with open(COMPARISONS_FILE) as f:
+            return json.load(f)
+    return []
 
 
-def record_rating(ratings, tag, label, now):
-    if label not in ("yes", "no"):
-        raise ValueError(f"label must be 'yes' or 'no', got {label!r}")
-    updated = dict(ratings)
-    updated[tag] = {"label": label, "rated_at": now}
+def save_comparisons(comparisons):
+    tmp = f"{COMPARISONS_FILE}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(comparisons, f, indent=1)
+    os.replace(tmp, COMPARISONS_FILE)
+
+
+def record_comparison(comparisons, winner, loser, now):
+    updated = list(comparisons)
+    updated.append({"winner": winner, "loser": loser, "compared_at": now})
     return updated
+
+
+_pairwise_model_cache = {"model": None}
+
+
+def _embeddings_for(items):
+    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tag_to_row = {t: i for i, t in enumerate(tags)}
+    idx = [tag_to_row[m["tag"]] for m in items if m["tag"] in tag_to_row]
+    return embeddings[idx]
+
+
+def _maybe_retrain_pairwise_model(comparisons):
+    """Retrains and refreshes the pairwise model cache at each training interval."""
+    n = len(comparisons)
+    if n < comparison_sampler.MIN_COMPARISONS or n % comparison_sampler.RETRAIN_EVERY != 0:
+        return
+    result = preference_pairwise_model.train_and_save(comparisons)
+    if result is not None:
+        _pairwise_model_cache["model"] = result["model"]
+
+
+def next_compare_response(manifest, comparisons):
+    """Returns a pair of item summaries, or {"done": True} when fewer than two images exist."""
+    model = _pairwise_model_cache["model"]
+    candidate_manifest = manifest
+    if model is not None:
+        tags, _ = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+        embedded = set(tags)
+        candidate_manifest = [m for m in manifest if m["tag"] in embedded] or manifest
+    pair = comparison_sampler.pick_next_pair(
+        candidate_manifest, len(comparisons), model=model,
+        score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for,
+    )
+    if pair is None:
+        return {"done": True}
+    a, b = pair
+    return {"img1": item_summary(a, SWEEP_DIR), "img2": item_summary(b, SWEEP_DIR)}
 
 
 _manifest_cache = {"manifest": None, "mtime": None, "by_tag": None}
@@ -285,16 +327,10 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/api/ratings":
+        if self.path == "/api/compare/next":
             with _lock:
-                self._json_response(200, load_store(RATINGS_FILE))
-            return
-        if self.path == "/api/rate/next":
-            with _lock:
-                ratings = load_store(RATINGS_FILE)
-                favorites = load_store(FAVORITES_FILE)
-                reviewed = set(ratings) | set(favorites)
-                response = next_rating_response(load_manifest(), reviewed)
+                comparisons = load_comparisons()
+                response = next_compare_response(load_manifest(), comparisons)
             self._json_response(200, response)
             return
         if self.path == "/api/favorites":
@@ -456,8 +492,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if self.path == "/rate.html":
-            body = rate_page.render_html().encode()
+        if self.path == "/compare.html":
+            body = compare_page.render_html().encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -488,17 +524,18 @@ class Handler(SimpleHTTPRequestHandler):
             self._json_response(400, {"error": "invalid JSON body"})
             return
 
-        if self.path == "/api/rate":
-            tag = payload.get("tag")
-            label = payload.get("label")
-            if not tag or label not in ("yes", "no"):
-                self._json_response(400, {"error": "missing 'tag' or invalid 'label' (must be 'yes' or 'no')"})
+        if self.path == "/api/compare":
+            winner = payload.get("winner")
+            loser = payload.get("loser")
+            if not winner or not loser:
+                self._json_response(400, {"error": "missing 'winner' or 'loser'"})
                 return
             with _lock:
-                ratings = load_store(RATINGS_FILE)
-                ratings = record_rating(ratings, tag, label, datetime.now(timezone.utc).isoformat())
-                save_store(RATINGS_FILE, ratings)
-            self._json_response(200, {"ok": True, "count": len(ratings)})
+                comparisons = load_comparisons()
+                comparisons = record_comparison(comparisons, winner, loser, datetime.now(timezone.utc).isoformat())
+                save_comparisons(comparisons)
+                _maybe_retrain_pairwise_model(comparisons)
+            self._json_response(200, {"ok": True, "count": len(comparisons)})
             return
 
         if self.path == "/api/preference_toggle":
@@ -506,7 +543,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(enabled, bool):
                 self._json_response(400, {"error": "missing or non-boolean 'enabled'"})
                 return
-            if enabled and not os.path.exists(preference_model.MODEL_FILE):
+            if enabled and not os.path.exists(preference_pairwise_model.MODEL_FILE):
                 self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
                 return
             preference_settings.save(enabled)
