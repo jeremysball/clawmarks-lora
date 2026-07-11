@@ -31,7 +31,6 @@ from dataclasses import dataclass, field
 from clawmarks.config import SEEDS_FILE, SWEEP2_DIR, SWEEP_DIR
 from clawmarks.search.scoring import bin_edges, bin_of, novelty_from_similarity
 from clawmarks.search.seed_pool import merge as seed_pool_merge, load as seed_pool_load, save as seed_pool_save
-from clawmarks.search.manifest_index import index_by_tag
 
 TRIGGER = "trentbuckle style, "
 NEG_DEFAULT = "low quality, blurry, watermark"
@@ -265,39 +264,34 @@ def request_gpt55_subjects(cfg, existing_subjects, n=30):
     return []
 
 
-def _load_yes_rated_images():
-    """Ratings supersede picks: a human's yes/no judgment on an image, not raw novelty, decides
-    what the exploit step mutates near. user_ratings.json stores only {label, rated_at} per tag
-    (the image metadata already lives in scored_manifest.json), so yes-rated tags are joined
-    against that manifest to recover prompt/strength/cfg for mutation."""
-    ratings_path = SWEEP_DIR / "user_ratings.json"
-    manifest_path = SWEEP_DIR / "scored_manifest.json"
-    if not ratings_path.exists() or not manifest_path.exists():
+def _load_favorited_images():
+    """Favorites supersede raw novelty for what the exploit step mutates near, the same role
+    yes/no ratings used to play before head-to-head comparisons replaced them (see
+    docs/superpowers/specs/2026-07-11-head-to-head-preference-design.md). Unlike the old ratings
+    store, user_favorites.json already holds a full item object per tag (tag, prompt_name,
+    prompt, strength, cfg, ...), so favorited items can be returned directly without joining
+    against scored_manifest.json."""
+    favorites_path = SWEEP_DIR / "user_favorites.json"
+    if not favorites_path.exists():
         return []
-    with open(ratings_path) as f:
-        ratings = json.load(f)
-    yes_tags = {tag for tag, r in ratings.items() if r.get("label") == "yes"}
-    if not yes_tags:
-        return []
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-    by_tag = index_by_tag(manifest)
-    return [by_tag[t] for t in yes_tags if t in by_tag]
+    with open(favorites_path) as f:
+        favorites = json.load(f)
+    return list(favorites.values())
 
 
 def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
     """Stage 5b (opt-in via --use-predicted-preference): ranks this round's own generated
-    images by the trained preference model's P(yes) instead of yes-rating membership. Extends
-    the shared embedding cache with any new images first, so an image is never re-embedded
-    across generations. Returns [] (callers fall back to Stage 5a's yes-rated pool) if no model
-    has been trained yet or the manifest is empty."""
+    images by the trained preference model's score instead of favorite membership. Extends the
+    shared embedding cache with any new images first, so an image is never re-embedded across
+    generations. Returns [] (callers fall back to Stage 5a's favorites) if no model has been
+    trained yet or the manifest is empty."""
     if not manifest or not os.path.exists(model_path):
         return []
 
     import joblib
 
     from clawmarks.search import embed_cache
-    from clawmarks.search.preference_model import predict_proba
+    from clawmarks.search.preference_pairwise_model import score as pairwise_score
 
     by_tag = {m["tag"]: m for m in manifest}
 
@@ -306,7 +300,7 @@ def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
 
     tags, embeddings = embed_cache.sync(manifest, embed_cache.EMBEDDINGS_FILE, embed_model, image_path_for)
     model = joblib.load(model_path)
-    scores = predict_proba(model, embeddings)
+    scores = pairwise_score(model, embeddings)
     ranked = sorted(
         ((by_tag[t], s) for t, s in zip(tags, scores) if t in by_tag),
         key=lambda pair: -pair[1],
@@ -483,10 +477,10 @@ def main(argv=None):
     parser.add_argument("--round", type=int, choices=list(ROUND_CONFIGS.keys()), required=True)
     parser.add_argument(
         "--use-predicted-preference", action="store_true", default=False,
-        help="Stage 5b (opt-in, requires notes/uncanny_sweep/preference_model.joblib and "
-             "human validation via preference_rank.html first): rank the exploit pool by the "
-             "trained model's predicted preference instead of yes-rated images. Defaults off; "
-             "do not enable without having browsed preference_rank.html first.",
+        help="Stage 5b (opt-in, requires notes/uncanny_sweep/preference_pairwise_model.joblib "
+             "and human validation via preference_rank.html first): rank the exploit pool by "
+             "the trained model's predicted preference instead of favorited images. Defaults "
+             "off; do not enable without having browsed preference_rank.html first.",
     )
     args = parser.parse_args(argv)
     cfg = ROUND_CONFIGS[args.round]
@@ -594,17 +588,17 @@ def main(argv=None):
         elites = sorted(liminal_band_all, key=lambda m: -m["novelty"])[:15]
         if not elites and cfg.round == 1:
             elites = manifest[-30:] if manifest else []
-        user_picks = _load_yes_rated_images() if cfg.seed_from_start else []
+        user_picks = _load_favorited_images() if cfg.seed_from_start else []
         if args.use_predicted_preference:
             predicted_pool = _predicted_preference_pool(
-                manifest, SWEEP_DIR / "preference_model.joblib", model,
+                manifest, SWEEP_DIR / "preference_pairwise_model.joblib", model,
             )
             if predicted_pool:
                 user_picks = predicted_pool
             else:
                 print("--use-predicted-preference set but no trained model found yet "
-                      "(or nothing generated so far this round); using yes-rated images "
-                      "instead", flush=True)
+                       "(or nothing generated so far this round); using favorited images "
+                       "instead", flush=True)
 
         print(f"\n=== generation {gen} | elapsed {elapsed_h:.2f}h | spend ${abs(spent):.3f} | "
               f"stage {state['stage']} | plateau_count {state['plateau_count']} ===", flush=True)
