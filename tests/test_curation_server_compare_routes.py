@@ -4,9 +4,11 @@ from http.server import HTTPServer
 import urllib.error
 import urllib.request
 
+import numpy as np
 import pytest
 
 from clawmarks import curation_server as cs
+from clawmarks.search import comparison_sampler, embed_cache, preference_pairwise_model
 
 
 @pytest.fixture
@@ -69,6 +71,33 @@ def test_post_compare_appends_a_comparison_record(running_server):
     assert comparisons[0]["winner"] == "t0"
     assert comparisons[0]["loser"] == "t1"
     assert "compared_at" in comparisons[0]
+
+
+def test_post_compare_retrains_and_caches_model_at_retrain_interval(running_server, monkeypatch):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    embeddings_path = tmp_path / "embeddings.npz"
+    tags = [f"t{i}" for i in range(20)]
+    embeddings = np.random.RandomState(0).normal(size=(20, 2)).astype(np.float32)
+    embed_cache.save_cache(embeddings_path, tags, embeddings)
+    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", embeddings_path)
+    monkeypatch.setitem(cs._pairwise_model_cache, "model", None)
+
+    for _ in range(comparison_sampler.MIN_COMPARISONS):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/compare", method="POST",
+            data=json.dumps({"winner": "t0", "loser": "t1"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode())
+
+    assert data["count"] == comparison_sampler.MIN_COMPARISONS
+    assert cs._pairwise_model_cache["model"] is not None
+    assert preference_pairwise_model.MODEL_FILE.exists()
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/compare/next") as resp:
+        next_pair = json.loads(resp.read().decode())
+    assert next_pair["img1"]["tag"] != next_pair["img2"]["tag"]
 
 
 def test_post_compare_rejects_missing_fields(running_server):
