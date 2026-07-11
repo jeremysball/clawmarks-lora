@@ -21,6 +21,7 @@ NAV_OPTIONS = [
     ("coverage.html", "coverage / void map"),
     ("archive.html", "elite archive"),
     ("preference_rank.html", "predicted preference"),
+    ("preference_status.html", "preference status"),
     ("redundancy.html", "redundancy clusters"),
     ("novelty_decay.html", "novelty decay watchlist"),
     ("lineage.html", "lineage tree"),

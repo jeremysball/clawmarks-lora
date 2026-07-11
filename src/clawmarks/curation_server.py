@@ -62,14 +62,14 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
-from clawmarks.search import rating_sampler
+from clawmarks.search import rating_sampler, preference_settings, preference_model
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
     novelty_decay, lineage_view, elite_archive, preference_rank, uncanny_gallery, explore_hub,
-    seed_browser, rate_page,
+    seed_browser, rate_page, preference_status,
 )
 from clawmarks.build.thumbnails import generate_thumbnail
 
@@ -126,6 +126,22 @@ def _get_manifest_cached(target_name, compute_fn):
     return _live_cache.get(
         target_name, compute_fn,
         watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+    )
+
+
+def _preference_status_watched_files():
+    files = []
+    for f in (f"{SWEEP_DIR}/user_ratings.json", preference_model.MODEL_FILE,
+              preference_model.MODEL_META_FILE, preference_settings.PREFERENCE_SETTINGS_FILE):
+        if os.path.exists(f):
+            files.append(str(f))
+    return files
+
+
+def _get_preference_status_data():
+    return _live_cache.get(
+        "preference-status", preference_status.compute_data,
+        watched_files=_preference_status_watched_files(), sweep_dir=str(SWEEP_DIR),
     )
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
@@ -373,9 +389,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/archive.html"):
-            from urllib.parse import urlparse, parse_qs
-            query = parse_qs(urlparse(self.path).query)
-            use_predicted = query.get("use_predicted_preference", ["0"])[0] == "1"
+            use_predicted = preference_settings.load()["use_predicted_preference"]
             target_name = "archive_predicted" if use_predicted else "archive_actual"
             data = _get_manifest_cached(
                 target_name,
@@ -398,6 +412,20 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+
+        if self.path == "/preference_status.html":
+            html = preference_status.render_html(_get_preference_status_data())
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/api/preference_status":
+            self._json_response(200, _get_preference_status_data())
             return
 
         if self.path == "/gallery.html":
@@ -471,6 +499,18 @@ class Handler(SimpleHTTPRequestHandler):
                 ratings = record_rating(ratings, tag, label, datetime.now(timezone.utc).isoformat())
                 save_store(RATINGS_FILE, ratings)
             self._json_response(200, {"ok": True, "count": len(ratings)})
+            return
+
+        if self.path == "/api/preference_toggle":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                self._json_response(400, {"error": "missing or non-boolean 'enabled'"})
+                return
+            if enabled and not os.path.exists(preference_model.MODEL_FILE):
+                self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
+                return
+            preference_settings.save(enabled)
+            self._json_response(200, _get_preference_status_data())
             return
 
         if self.path == "/api/favorite":

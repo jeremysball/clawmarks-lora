@@ -11,7 +11,9 @@ floor is cleared.
 Run with: python -m clawmarks.search.preference_model
 """
 import json
+import os
 import sys
+from datetime import datetime, timezone
 
 import joblib
 import numpy as np
@@ -23,6 +25,7 @@ from clawmarks.search import embed_cache
 
 MIN_LABELS = 50
 MODEL_FILE = SWEEP_DIR / "preference_model.joblib"
+MODEL_META_FILE = SWEEP_DIR / "preference_model_meta.json"
 
 
 def build_training_set(tags, embeddings, ratings):
@@ -112,7 +115,18 @@ def main(argv=None):
 
     model = train(X, y)
     joblib.dump(model, MODEL_FILE)
-    print(f"wrote {MODEL_FILE}", flush=True)
+    meta = {
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "n_labels": len(y),
+        "n_yes": int(y.sum()),
+        "n_no": len(y) - int(y.sum()),
+        "cv_accuracy": round(acc, 4),
+    }
+    tmp = f"{MODEL_META_FILE}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(meta, f)
+    os.replace(tmp, MODEL_META_FILE)
+    print(f"wrote {MODEL_FILE} and {MODEL_META_FILE}", flush=True)
     return 0
 
 
