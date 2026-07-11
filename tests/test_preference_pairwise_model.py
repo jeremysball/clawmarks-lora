@@ -1,0 +1,98 @@
+import numpy as np
+
+from clawmarks.search import preference_pairwise_model as ppm
+
+
+def test_build_training_set_mirrors_each_comparison_into_two_rows():
+    tags = ["a", "b", "c"]
+    embeddings = np.array([[1.0, 0.0], [0.0, 1.0], [2.0, 2.0]], dtype=np.float32)
+    comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}]
+    X, y = ppm.build_training_set(tags, embeddings, comparisons)
+    assert X.shape == (2, 2)
+    assert list(y) == [1, 0]
+    assert np.allclose(X[0], [1.0, -1.0])
+    assert np.allclose(X[1], [-1.0, 1.0])
+
+
+def test_build_training_set_skips_comparisons_with_unknown_tags():
+    tags = ["a"]
+    embeddings = np.array([[1.0, 0.0]], dtype=np.float32)
+    comparisons = [{"winner": "a", "loser": "missing", "compared_at": "t0"}]
+    X, y = ppm.build_training_set(tags, embeddings, comparisons)
+    assert X.shape == (0, 0)
+    assert len(y) == 0
+
+
+def test_build_training_set_handles_multiple_comparisons():
+    tags = ["a", "b", "c", "d"]
+    embeddings = np.array([[1.0, 0.0], [0.0, 1.0], [2.0, 0.0], [0.0, 2.0]], dtype=np.float32)
+    comparisons = [
+        {"winner": "a", "loser": "b", "compared_at": "t0"},
+        {"winner": "c", "loser": "d", "compared_at": "t1"},
+    ]
+    X, y = ppm.build_training_set(tags, embeddings, comparisons)
+    assert X.shape == (4, 2)
+    assert list(y) == [1, 1, 0, 0]
+
+
+def test_train_and_score_orders_a_clearly_preferred_cluster_above_another():
+    rng = np.random.RandomState(0)
+    winners = rng.normal(loc=5.0, scale=0.1, size=(20, 2))
+    losers = rng.normal(loc=-5.0, scale=0.1, size=(20, 2))
+    diffs = (winners - losers).astype(np.float32)
+    X = np.concatenate([diffs, -diffs])
+    y = np.concatenate([np.ones(20), np.zeros(20)])
+    model = ppm.train(X, y)
+    scores = ppm.score(model, np.array([[5.0, 0.0], [-5.0, 0.0]], dtype=np.float32))
+    assert scores[0] > scores[1]
+
+
+def test_cross_validate_returns_a_valid_accuracy_using_leave_one_out_below_min_comparisons():
+    rng = np.random.RandomState(0)
+    X = rng.normal(size=(10, 2)).astype(np.float32)
+    y = np.array([0, 1] * 5)
+    acc = ppm.cross_validate(X, y)
+    assert 0.0 <= acc <= 1.0
+
+
+def test_train_and_save_returns_none_below_min_comparisons(tmp_path, monkeypatch):
+    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
+    comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}] * 10
+    assert ppm.train_and_save(comparisons) is None
+
+
+def test_train_and_save_writes_model_and_meta_on_success(tmp_path, monkeypatch):
+    from clawmarks.search import embed_cache
+
+    rng = np.random.RandomState(0)
+    tags = [f"t{i}" for i in range(120)]
+    embeddings = rng.normal(size=(120, 2)).astype(np.float32)
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+
+    comparisons = [
+        {"winner": tags[i], "loser": tags[i + 1], "compared_at": "t"}
+        for i in range(0, 100, 2)
+    ]
+
+    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
+    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
+    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
+
+    result = ppm.train_and_save(comparisons)
+    assert result is not None
+    assert 0.0 <= result["cv_accuracy"] <= 1.0
+    assert result["n_comparisons"] == 50
+    assert (tmp_path / "preference_pairwise_model.joblib").exists()
+
+    import json
+    meta = json.loads((tmp_path / "preference_pairwise_model_meta.json").read_text())
+    assert meta["n_comparisons"] == 50
+    assert "trained_at" in meta
+
+
+def test_main_refuses_without_comparisons_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
+    rc = ppm.main([])
+    assert rc == 1
