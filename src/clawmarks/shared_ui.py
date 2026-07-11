@@ -15,7 +15,7 @@ import os
 
 NAV_OPTIONS = [
     ("explore.html", "all tools (hub)"),
-    ("rate.html", "rate images (yes/no)"),
+    ("compare.html", "compare images (head-to-head)"),
     ("scan.html", "scan gallery"),
     ("map.html", "solution map (UMAP)"),
     ("coverage.html", "coverage / void map"),
