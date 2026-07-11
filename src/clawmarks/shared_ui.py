@@ -198,18 +198,20 @@ _LIGHTBOX_JS = r"""(function(){
 #lb-overlay .lb-close { position:absolute; top:16px; right:22px; font-size:28px; cursor:pointer; color:#9a9aa4;
   width:40px; height:40px; display:flex; align-items:center; justify-content:center; z-index:2; }
 #lb-overlay .lb-close:hover { color:#eaeaee; }
-#lb-overlay .lb-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; }
+#lb-overlay .lb-actions { position:relative; z-index:2; display:flex; gap:10px; align-items:center;
+  flex-wrap:wrap; justify-content:center; }
 #lb-overlay button { background:#1d1d22; color:#eaeaee; border:1px solid #2a2a30; border-radius:7px;
   padding:8px 16px; font-size:13px; cursor:pointer; }
 #lb-overlay button.favorited { background:rgba(224,96,150,0.16); border-color:#e0609a; color:#e0609a; }
 #lb-overlay .lb-actions .infobtn { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.3); color:#dcdce2; }
 #lb-overlay .lb-simlabel { font-size:11px; color:#6a6a74; letter-spacing:0.02em; text-transform:uppercase; }
-#lb-overlay .lb-simstrip { display:flex; gap:7px; overflow-x:auto; max-width:92vw; padding:4px 2px 8px; }
+#lb-overlay .lb-simstrip { position:relative; z-index:2; display:flex; gap:7px; overflow-x:auto;
+  max-width:92vw; padding:4px 2px 8px; }
 #lb-overlay .lb-simstrip img { width:64px; height:64px; object-fit:cover; border-radius:6px; cursor:pointer;
   flex-shrink:0; opacity:0.7; outline:2px solid transparent; }
 #lb-overlay .lb-simstrip img:hover { opacity:1; outline-color:#7c9eff; }
-#lb-overlay .lb-cf-panel { display:none; background:rgba(255,255,255,0.05); border:1px solid #2a2a30;
-  border-radius:8px; padding:12px 14px; max-width:92vw; width:520px; text-align:left; }
+#lb-overlay .lb-cf-panel { position:relative; z-index:2; display:none; background:rgba(255,255,255,0.05);
+  border:1px solid #2a2a30; border-radius:8px; padding:12px 14px; max-width:92vw; width:520px; text-align:left; }
 #lb-overlay .lb-cf-panel.open { display:block; }
 #lb-overlay .lb-cf-panel label { display:block; font-size:11px; color:#9a9aa4; margin:8px 0 3px; }
 #lb-overlay .lb-cf-panel textarea, #lb-overlay .lb-cf-panel input {
