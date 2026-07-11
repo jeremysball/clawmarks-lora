@@ -62,7 +62,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
-from clawmarks.search import rating_sampler, preference_settings, preference_model
+from clawmarks.search import rating_sampler, preference_settings, preference_model, embed_cache
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
 from clawmarks.live_cache import LiveCache
@@ -143,6 +143,19 @@ def _get_preference_status_data():
         "preference-status", preference_status.compute_data,
         watched_files=_preference_status_watched_files(), sweep_dir=str(SWEEP_DIR),
     )
+
+
+def _preference_retrain_gate_error():
+    """Mirrors preference_model.main()'s own gates exactly, using build_training_set so a tag
+    without a cached embedding can't make this check pass while the real training call still
+    has too few usable rows."""
+    ratings = load_store(f"{SWEEP_DIR}/user_ratings.json")
+    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    _, y = preference_model.build_training_set(tags, embeddings, ratings)
+    if len(y) < preference_model.MIN_LABELS:
+        return (f"only {len(y)} usable labels (need {preference_model.MIN_LABELS}); not training. "
+                f"Rate more images via rate.html first.")
+    return preference_model.class_balance_error(y)
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 RATINGS_FILE = f"{SWEEP_DIR}/user_ratings.json"
@@ -510,6 +523,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
                 return
             preference_settings.save(enabled)
+            self._json_response(200, _get_preference_status_data())
+            return
+
+        if self.path == "/api/preference_retrain":
+            with _lock:
+                gate_error = _preference_retrain_gate_error()
+                if gate_error:
+                    self._json_response(400, {"error": gate_error})
+                    return
+                rc = preference_model.main([])
+            if rc != 0:
+                self._json_response(500, {"error": f"preference retrain failed with exit code {rc}"})
+                return
             self._json_response(200, _get_preference_status_data())
             return
 

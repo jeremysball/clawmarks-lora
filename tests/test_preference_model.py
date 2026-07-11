@@ -45,6 +45,33 @@ def test_cross_validate_returns_a_valid_accuracy_using_leave_one_out_below_min_l
     assert 0.0 <= acc <= 1.0
 
 
+def test_significance_reports_low_p_value_for_separable_data():
+    rng = np.random.RandomState(0)
+    yes_cluster = rng.normal(loc=5.0, scale=0.1, size=(12, 2))
+    no_cluster = rng.normal(loc=-5.0, scale=0.1, size=(12, 2))
+    X = np.vstack([yes_cluster, no_cluster]).astype(np.float32)
+    y = np.array([1] * 12 + [0] * 12, dtype=np.int64)
+
+    stats = preference_model.significance(X, y, n_permutations=20, random_state=0)
+
+    assert stats["baseline_accuracy"] == 0.5
+    assert stats["n_permutations"] == 20
+    assert stats["p_value"] < 0.1
+
+
+def test_significance_reports_high_p_value_for_shuffled_labels():
+    rng = np.random.RandomState(1)
+    X = rng.normal(size=(24, 2)).astype(np.float32)
+    y = np.array([0, 1] * 12, dtype=np.int64)
+    rng.shuffle(y)
+
+    stats = preference_model.significance(X, y, n_permutations=20, random_state=0)
+
+    assert stats["baseline_accuracy"] == 0.5
+    assert stats["n_permutations"] == 20
+    assert stats["p_value"] > 0.3
+
+
 def test_class_balance_error_flags_an_all_yes_label_set():
     y = np.ones(60, dtype=np.int64)
     error = preference_model.class_balance_error(y)
@@ -96,7 +123,6 @@ def test_main_writes_metadata_sidecar_on_successful_train(tmp_path, monkeypatch)
     monkeypatch.setattr(preference_model.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
     monkeypatch.setattr(preference_model, "MODEL_FILE", tmp_path / "preference_model.joblib")
     monkeypatch.setattr(preference_model, "MODEL_META_FILE", tmp_path / "preference_model_meta.json")
-
     rc = preference_model.main([])
     assert rc == 0
 
@@ -105,4 +131,7 @@ def test_main_writes_metadata_sidecar_on_successful_train(tmp_path, monkeypatch)
     assert meta["n_yes"] == 30
     assert meta["n_no"] == 30
     assert 0.0 <= meta["cv_accuracy"] <= 1.0
+    assert meta["baseline_accuracy"] == 0.5
+    assert 0.0 <= meta["p_value"] <= 1.0
+    assert meta["n_permutations"] == preference_model.N_PERMUTATIONS
     assert "trained_at" in meta

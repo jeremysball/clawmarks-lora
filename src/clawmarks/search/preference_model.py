@@ -18,12 +18,13 @@ from datetime import datetime, timezone
 import joblib
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score, permutation_test_score
 
 from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 
 MIN_LABELS = 50
+N_PERMUTATIONS = 200
 MODEL_FILE = SWEEP_DIR / "preference_model.joblib"
 MODEL_META_FILE = SWEEP_DIR / "preference_model_meta.json"
 
@@ -78,6 +79,20 @@ def cross_validate(X, y):
     return float(scores.mean())
 
 
+def significance(X, y, n_permutations=N_PERMUTATIONS, random_state=0):
+    cv = LeaveOneOut() if len(y) < MIN_LABELS else StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    _, _, p_value = permutation_test_score(
+        LogisticRegression(max_iter=1000), X, y, cv=cv,
+        n_permutations=n_permutations, random_state=random_state,
+    )
+    baseline_accuracy = max(np.bincount(y)) / len(y)
+    return {
+        "baseline_accuracy": float(baseline_accuracy),
+        "p_value": float(p_value),
+        "n_permutations": n_permutations,
+    }
+
+
 def train(X, y):
     model = LogisticRegression(max_iter=1000)
     model.fit(X, y)
@@ -110,6 +125,7 @@ def main(argv=None):
         return 1
 
     acc = cross_validate(X, y)
+    stats = significance(X, y)
     print(f"{len(y)} labels ({int(y.sum())} yes / {len(y) - int(y.sum())} no), "
           f"cross-validated accuracy: {acc:.3f}", flush=True)
 
@@ -121,6 +137,9 @@ def main(argv=None):
         "n_yes": int(y.sum()),
         "n_no": len(y) - int(y.sum()),
         "cv_accuracy": round(acc, 4),
+        "baseline_accuracy": stats["baseline_accuracy"],
+        "p_value": stats["p_value"],
+        "n_permutations": stats["n_permutations"],
     }
     tmp = f"{MODEL_META_FILE}.tmp"
     with open(tmp, "w") as f:
