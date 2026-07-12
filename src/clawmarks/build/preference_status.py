@@ -9,7 +9,7 @@ Served live at /preference_status.html by curation_server.py.
 import json
 import os
 
-from clawmarks.search import preference_pairwise_model, preference_settings
+from clawmarks.search import embed_cache, preference_pairwise_model, preference_settings
 from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
@@ -35,12 +35,28 @@ def compute_data(sweep_dir):
         with open(preference_pairwise_model.MODEL_META_FILE) as f:
             model_meta = json.load(f)
 
+    new_comparisons_since_train = 0
+    comparisons_changed_since_train = False
+    if model_meta:
+        tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+        _, usable_y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
+        new_comparisons_since_train = max(0, len(usable_y) // 2 - model_meta["n_comparisons"])
+        if "comparisons_fingerprint" in model_meta:
+            current_fingerprint = preference_pairwise_model.comparisons_fingerprint(tags, embeddings, comparisons)
+            comparisons_changed_since_train = current_fingerprint != model_meta["comparisons_fingerprint"]
+        else:
+            # Model trained before comparisons_fingerprint existed: fall back to a plain count
+            # comparison, which misses a swapped comparison but is still better than nothing.
+            comparisons_changed_since_train = new_comparisons_since_train > 0
+
     return {
         "n_comparisons": n_comparisons,
         "min_comparisons": preference_pairwise_model.MIN_COMPARISONS,
         "comparisons_gate_message": gate_message,
         "has_model": has_model,
         "model_meta": model_meta,
+        "new_comparisons_since_train": new_comparisons_since_train,
+        "comparisons_changed_since_train": comparisons_changed_since_train,
         "use_predicted_preference": preference_settings.load()["use_predicted_preference"],
     }
 
@@ -51,12 +67,30 @@ def render_html(data):
 
     if data["model_meta"]:
         m = data["model_meta"]
+        stats_rows = ""
+        if "p_value" in m:
+            p_interpretation = ("p &lt; 0.05: unlikely to be chance" if m["p_value"] < 0.05
+                                else "p &gt;= 0.05: not distinguishable from chance")
+            stats_rows = (f'<tr><td>majority-class baseline accuracy</td><td>{m["baseline_accuracy"]:.1%}</td></tr>'
+                          f'<tr><td>permutation p-value</td><td>{m["p_value"]:.4f} '
+                          f'<span class="interpretation">{p_interpretation}</span></td></tr>')
         meta_html = (f'<table class="meta"><tr><td>trained</td><td>{m["trained_at"]}</td></tr>'
                      f'<tr><td>comparisons used</td><td>{m["n_comparisons"]}</td></tr>'
-                     f'<tr><td>cross-validated accuracy</td><td>{m["cv_accuracy"]}</td></tr></table>')
+                     f'<tr><td>cross-validated accuracy</td><td>{m["cv_accuracy"]}</td></tr>'
+                     f'{stats_rows}</table>')
     else:
         meta_html = (f'<p class="meta-empty">no model trained yet. Once enough comparisons exist, run '
                      f'<code>python -m clawmarks.search.preference_pairwise_model</code>.</p>')
+
+    staleness_html = ""
+    if data["comparisons_changed_since_train"]:
+        trained_at = data["model_meta"]["trained_at"]
+        if data["new_comparisons_since_train"] > 0:
+            staleness_html = (f'<p class="stale">{data["new_comparisons_since_train"]} new comparisons since last '
+                              f'train ({trained_at}) - retrain to include them.</p>')
+        else:
+            staleness_html = (f'<p class="stale">comparisons have changed since last train ({trained_at}) '
+                              f'- retrain to include them.</p>')
 
     disabled_attr = "" if data["has_model"] else "disabled"
     checked_attr = "checked" if data["use_predicted_preference"] else ""
@@ -81,11 +115,14 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 .panel {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:16px; max-width:520px; }}
 p.gate {{ color:#e0a030; }}
 p.gate.ok {{ color:#5fbf6f; }}
+p.stale {{ color:#e0a030; border:1px solid #6b4c16; border-radius:8px; padding:8px; }}
 table.meta {{ font-size:13px; border-collapse:collapse; }}
 table.meta td {{ padding:3px 10px 3px 0; color:var(--text-dim); }}
 table.meta td:first-child {{ color:var(--text); }}
+.interpretation {{ color:var(--text-dim); margin-left:6px; }}
 .toggle-row {{ margin-top:14px; display:flex; align-items:center; gap:8px; }}
-#toggle-status {{ font-size:12px; color:var(--text-dim); margin-left:8px; }}
+.secondary {{ background:#24242a; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
+#toggle-status, #retrain-status {{ font-size:12px; color:var(--text-dim); margin-left:8px; }}
 {INFOTIP_CSS}
 </style></head><body>
 
@@ -94,10 +131,13 @@ table.meta td:first-child {{ color:var(--text); }}
 <p class="sub">Comparisons: {data["n_comparisons"]} total (needs {data["min_comparisons"]}).</p>
 <div class="panel">
 {gate_html}
+{staleness_html}
 {meta_html}
 <div class="toggle-row">
 <label><input type="checkbox" id="toggle" {checked_attr} {disabled_attr} onchange="toggle(this.checked)"> use predicted preference{toggle_tip}</label>
+<button class="secondary" id="retrain" onclick="retrain()">Retrain now</button>
 <span id="toggle-status"></span>
+<span id="retrain-status"></span>
 </div>
 </div>
 <script>
@@ -114,6 +154,29 @@ function toggle(enabled) {{
     }} else {{
       status.textContent = 'saved.';
     }}
+  }});
+}}
+function retrain() {{
+  const button = document.getElementById('retrain');
+  const status = document.getElementById('retrain-status');
+  button.disabled = true;
+  button.textContent = 'Retraining…';
+  status.textContent = '';
+  fetch('/api/preference_retrain', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{}}),
+  }}).then(r => r.json()).then(data => {{
+    if (data.error) {{
+      status.textContent = data.error;
+      button.disabled = false;
+      button.textContent = 'Retrain now';
+    }} else {{
+      location.reload();
+    }}
+  }}).catch(e => {{
+    status.textContent = e.toString();
+    button.disabled = false;
+    button.textContent = 'Retrain now';
   }});
 }}
 </script>

@@ -40,6 +40,10 @@ API:
                                    exist in the pool
   POST /api/compare             body: {"winner": tag, "loser": tag} -> appends a comparison
                                  record, returns {"ok": true, "count": n}
+  POST /api/preference_retrain  body: {} -> trains the pairwise model on demand (same gates as
+                                 preference_pairwise_model.train_and_save), returns the refreshed
+                                 preference-status payload or {error} if the comparisons aren't
+                                 ready yet or training crashes
   GET  /api/favorites          -> {tag: {...metadata, favorited_at}}
   POST /api/favorite           body: full item object (must include "tag") -> upserts, returns ok
   POST /api/unfavorite          body: {"tag": "..."}                        -> removes, returns ok
@@ -131,6 +135,18 @@ def _get_manifest_cached(target_name, compute_fn):
     )
 
 
+def _prediction_watched_files():
+    """Like _manifest_path() alone, but also watches the trained pairwise model so a retrain
+    actually invalidates any cached page whose rendering depends on the model's predictions
+    (predicted archive.html, preference_rank.html) instead of serving stale predictions until
+    the manifest next changes or the server restarts."""
+    files = [_manifest_path()]
+    for f in (preference_pairwise_model.MODEL_FILE, preference_pairwise_model.MODEL_META_FILE):
+        if os.path.exists(f):
+            files.append(str(f))
+    return files
+
+
 def _preference_status_watched_files():
     files = []
     for f in (COMPARISONS_FILE, preference_pairwise_model.MODEL_FILE,
@@ -145,6 +161,29 @@ def _get_preference_status_data():
         "preference-status", preference_status.compute_data,
         watched_files=_preference_status_watched_files(), sweep_dir=str(SWEEP_DIR),
     )
+
+
+def _preference_retrain_gate_error():
+    """Mirrors preference_pairwise_model.train_and_save's own gates exactly, using
+    build_training_set so a comparison referencing a tag without a cached embedding can't make
+    this check pass while the real training call still has too few usable rows. Distinguishes
+    "not enough comparisons yet" from "comparisons exist but their embeddings aren't cached",
+    since the first is fixed by comparing more images and the second isn't, and pointing someone
+    at compare.html for the wrong problem wastes their time."""
+    comparisons = load_comparisons()
+    n_raw_comparisons = len(comparisons)
+    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    _, y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
+    n_usable = len(y) // 2
+    if n_usable < preference_pairwise_model.MIN_COMPARISONS:
+        if n_raw_comparisons >= preference_pairwise_model.MIN_COMPARISONS:
+            return (f"only {n_usable} of {n_raw_comparisons} comparisons reference images with a "
+                    f"cached embedding (need {preference_pairwise_model.MIN_COMPARISONS} usable); "
+                    f"run `python -m clawmarks.search.embed_cache` to refresh the embedding cache.")
+        return (f"only {n_usable} usable comparisons (need "
+                f"{preference_pairwise_model.MIN_COMPARISONS}); not training. Compare more images "
+                f"via compare.html first.")
+    return ""
 
 FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 COMPARISONS_FILE = f"{SWEEP_DIR}/user_comparisons.json"
@@ -427,9 +466,11 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/archive.html"):
             use_predicted = preference_settings.load()["use_predicted_preference"]
             target_name = "archive_predicted" if use_predicted else "archive_actual"
-            data = _get_manifest_cached(
+            watched = _prediction_watched_files() if use_predicted else [_manifest_path()]
+            data = _live_cache.get(
                 target_name,
                 lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
+                watched_files=watched, sweep_dir=str(SWEEP_DIR),
             )
             html = elite_archive.render_html(data)
             body = html.encode()
@@ -441,7 +482,11 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/preference_rank.html":
-            html = preference_rank.render_html(_get_manifest_cached("preference_rank", preference_rank.compute_data))
+            data = _live_cache.get(
+                "preference_rank", preference_rank.compute_data,
+                watched_files=_prediction_watched_files(), sweep_dir=str(SWEEP_DIR),
+            )
+            html = preference_rank.render_html(data)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -547,6 +592,25 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
                 return
             preference_settings.save(enabled)
+            self._json_response(200, _get_preference_status_data())
+            return
+
+        if self.path == "/api/preference_retrain":
+            try:
+                with _lock:
+                    gate_error = _preference_retrain_gate_error()
+                    if gate_error:
+                        self._json_response(400, {"error": gate_error})
+                        return
+                    comparisons = load_comparisons()
+                    result = preference_pairwise_model.train_and_save(comparisons)
+                    if result is None:
+                        self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
+                        return
+                    _pairwise_model_cache["model"] = result["model"]
+            except Exception as e:
+                self._json_response(500, {"error": f"preference retrain crashed: {e}"})
+                return
             self._json_response(200, _get_preference_status_data())
             return
 

@@ -4,10 +4,11 @@ from http.server import HTTPServer
 import urllib.request
 import urllib.error
 
+import numpy as np
 import pytest
 
 from clawmarks import curation_server as cs
-from clawmarks.search import preference_settings
+from clawmarks.search import embed_cache, preference_settings
 
 
 @pytest.fixture
@@ -17,7 +18,12 @@ def running_server(tmp_path, monkeypatch):
     monkeypatch.setattr(preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
     monkeypatch.setattr(cs.preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
     monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
+    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
+    monkeypatch.setattr(cs.preference_pairwise_model, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "COMPARISONS_FILE", str(tmp_path / "user_comparisons.json"))
+    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
     (tmp_path / "scored_manifest.json").write_text(json.dumps([]))
+    (tmp_path / "user_comparisons.json").write_text(json.dumps([]))
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -85,3 +91,115 @@ def test_archive_html_uses_persisted_setting_not_query_param(running_server, mon
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/archive.html") as resp:
         resp.read()
     assert calls == [False, True]
+
+
+def _post_json(url, payload=None):
+    req = urllib.request.Request(
+        url, method="POST",
+        data=json.dumps(payload or {}).encode(), headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _write_comparisons(tmp_path, n):
+    comparisons = [{"winner": f"w{i}", "loser": f"l{i}", "compared_at": "t"} for i in range(n)]
+    (tmp_path / "user_comparisons.json").write_text(json.dumps(comparisons))
+    return comparisons
+
+
+def test_post_preference_retrain_trains_and_returns_updated_status(running_server):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    comparisons = _write_comparisons(tmp_path, 50)
+    tags = sorted({t for c in comparisons for t in (c["winner"], c["loser"])})
+    rng = np.random.RandomState(0)
+    embeddings = rng.normal(size=(len(tags), 2)).astype(np.float32)
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+
+    data = _post_json(f"http://127.0.0.1:{port}/api/preference_retrain")
+
+    assert data["has_model"] is True
+    assert data["model_meta"]["n_comparisons"] == 50
+    assert 0.0 <= data["model_meta"]["p_value"] <= 1.0
+
+
+def test_post_preference_retrain_rejects_under_min_comparisons(running_server, monkeypatch):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    comparisons = _write_comparisons(tmp_path, 10)
+    tags = sorted({t for c in comparisons for t in (c["winner"], c["loser"])})
+    embeddings = np.random.RandomState(0).normal(size=(len(tags), 2)).astype(np.float32)
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+    called = False
+
+    def fake_train_and_save(comparisons):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(cs.preference_pairwise_model, "train_and_save", fake_train_and_save)
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/preference_retrain", method="POST",
+        data=json.dumps({}).encode(), headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    body = json.loads(exc_info.value.read().decode())
+    assert exc_info.value.code == 400
+    assert "only 10 usable comparisons" in body["error"]
+    assert called is False
+
+
+def test_post_preference_retrain_reports_uncached_embeddings_distinctly(running_server, monkeypatch):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    _write_comparisons(tmp_path, 50)
+    # No embeddings.npz written at all: every comparison references an uncached tag.
+    called = False
+
+    def fake_train_and_save(comparisons):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(cs.preference_pairwise_model, "train_and_save", fake_train_and_save)
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/preference_retrain", method="POST",
+        data=json.dumps({}).encode(), headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    body = json.loads(exc_info.value.read().decode())
+    assert exc_info.value.code == 400
+    assert "cached embedding" in body["error"]
+    assert called is False
+
+
+def test_post_preference_retrain_returns_500_on_training_crash(running_server, monkeypatch):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    comparisons = _write_comparisons(tmp_path, 50)
+    tags = sorted({t for c in comparisons for t in (c["winner"], c["loser"])})
+    embeddings = np.random.RandomState(0).normal(size=(len(tags), 2)).astype(np.float32)
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+
+    def crashing_train(comparisons):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(cs.preference_pairwise_model, "train_and_save", crashing_train)
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/preference_retrain", method="POST",
+        data=json.dumps({}).encode(), headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    assert exc_info.value.code == 500
+    body = json.loads(exc_info.value.read().decode())
+    assert "disk full" in body["error"]

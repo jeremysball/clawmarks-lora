@@ -1412,3 +1412,56 @@ no-trained-model message (referencing `preference_pairwise_model`, not the legac
 3 comparisons is below the 50-comparison floor. No browser console errors beyond a harmless
 missing-favicon 404. Deleted the `user_comparisons.json` file this smoke test wrote to
 `uncanny_seedrun1` afterward, since it was test data, not a real session.
+
+### 2026-07-11: Ported PR #9's significance testing, staleness detection, and retrain UI onto the pairwise model
+
+While this branch (head-to-head comparisons) was in progress, a concurrent automation's PR #9
+merged into `main`, adding three features to the legacy yes/no system this branch retires:
+a permutation-test significance check (`preference_model.significance()`), staleness detection
+via a fingerprint of the exact labels used to train (`preference_model.ratings_fingerprint()`),
+and a "Retrain now" button on `preference_status.html` backed by a new
+`/api/preference_retrain` endpoint. Both branches touched the same three files
+(`search/preference_model.py`, `build/preference_status.py`, `curation_server.py`), so merging
+as-is would have produced a real design collision, not a resolvable text conflict: PR #9's
+additions were written against the retired yes/no model. The user chose to port PR #9's ideas
+onto the new pairwise system rather than discard them or merge both designs unreconciled.
+
+Ported each feature onto `search/preference_pairwise_model.py` and the pairwise-based
+`build/preference_status.py` rewritten in this branch's Task 9:
+- `significance()`: a permutation test reporting a p-value and the majority-class baseline
+  accuracy (always exactly 0.5 for the pairwise model, since mirroring every comparison
+  guarantees exact class balance, unlike the legacy yes/no labels).
+- `comparisons_fingerprint()`: a hash of the exact (winner, loser) pairs a train run would use,
+  built on a new shared `_iter_usable_comparisons()` helper so `build_training_set` and the
+  fingerprint can't drift apart. `preference_status.compute_data()` compares this against the
+  fingerprint stored in the last training run's metadata to show a staleness banner ("N new
+  comparisons since last train" or a generic "comparisons have changed" message if the count
+  matches but the pairs changed, e.g. a comparison result correction).
+- Atomic model save: `train_and_save()` now writes the joblib file to a `.tmp` path and
+  `os.replace()`s it into place, matching the existing atomic pattern already used for the
+  metadata sidecar and matching this project's standing rule against fragile invalidate-by-delete
+  patterns.
+- A "Retrain now" button and `/api/preference_retrain` POST endpoint in `curation_server.py`,
+  gated by `_preference_retrain_gate_error()`, which mirrors `train_and_save()`'s own gates using
+  `build_training_set()` so the check can distinguish "not enough comparisons yet" from
+  "comparisons exist but their embeddings aren't cached" (the second needs an `embed_cache`
+  refresh, not more comparing, and pointing someone at `compare.html` for that would waste their
+  time). A successful manual retrain also refreshes the in-memory `_pairwise_model_cache` the
+  comparison sampler reads, matching the existing auto-retrain behavior in
+  `_maybe_retrain_pairwise_model`.
+- `_prediction_watched_files()`: `archive.html` (when using predicted preference) and
+  `preference_rank.html` now watch the trained model file for cache invalidation, not just the
+  scored manifest. Before this fix, a retrain (manual or the existing every-N-comparisons
+  auto-retrain) wouldn't invalidate either page's cached render until the manifest itself
+  changed or the server restarted, silently serving stale predictions.
+
+Added 13 new tests across `test_preference_pairwise_model.py`, `test_preference_status.py`, and
+`test_curation_server_preference_status_route.py` covering significance, fingerprint stability
+and sensitivity to swapped comparisons, the staleness banner's two message variants, and the
+retrain endpoint's three response paths (success, gated rejection, training crash). Full suite:
+177 of 177 passed. Manually smoke-tested `/preference_status.html` via Playwright against
+`notes/uncanny_seedrun1`: the "Retrain now" button renders, and clicking it with zero recorded
+comparisons correctly surfaces the gate message ("only 0 usable comparisons (need 50)...")
+without writing any file, confirmed via `git status` on the seed-run directory afterward. No
+console errors beyond the harmless missing-favicon 404. `archive.html`, `preference_rank.html`,
+and `compare.html` all still returned 200.

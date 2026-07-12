@@ -16,8 +16,14 @@ Refuses to train below MIN_COMPARISONS: with only a handful of comparisons, any 
 overfitting noise, not learning taste. Run compare.html (via `clawmarks serve`) until this floor
 is cleared.
 
+Each train run also records a permutation-test p-value (significance()) alongside the plain
+cross-validated accuracy, and a fingerprint of the exact comparisons used
+(comparisons_fingerprint()) so callers like build/preference_status.py can tell whether new
+comparisons have arrived since the last train without recomputing the whole training set.
+
 Run with: python -m clawmarks.search.preference_pairwise_model
 """
+import hashlib
 import json
 import os
 import sys
@@ -26,14 +32,27 @@ from datetime import datetime, timezone
 import joblib
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score, permutation_test_score
 
 from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 
 MIN_COMPARISONS = 50
+N_PERMUTATIONS = 200
 MODEL_FILE = SWEEP_DIR / "preference_pairwise_model.joblib"
 MODEL_META_FILE = SWEEP_DIR / "preference_pairwise_model_meta.json"
+
+
+def _iter_usable_comparisons(tags, embeddings, comparisons):
+    """Yields (winner, loser, winner_embedding, loser_embedding) for every comparison whose
+    winner and loser tags are both present in the embedding cache. The single filtering pass
+    both build_training_set and comparisons_fingerprint rely on, so they can't drift apart."""
+    tag_to_row = {t: i for i, t in enumerate(tags)}
+    for c in comparisons:
+        winner, loser = c.get("winner"), c.get("loser")
+        if winner not in tag_to_row or loser not in tag_to_row:
+            continue
+        yield winner, loser, embeddings[tag_to_row[winner]], embeddings[tag_to_row[loser]]
 
 
 def build_training_set(tags, embeddings, comparisons):
@@ -41,19 +60,22 @@ def build_training_set(tags, embeddings, comparisons):
     user_comparisons.json list. Returns (X, y): a mirrored pair of rows per usable comparison
     (embedding[winner] - embedding[loser] labeled 1, its negation labeled 0), skipping any
     comparison whose winner or loser tag isn't in the embedding cache."""
-    tag_to_row = {t: i for i, t in enumerate(tags)}
-    diffs = []
-    for c in comparisons:
-        winner, loser = c.get("winner"), c.get("loser")
-        if winner not in tag_to_row or loser not in tag_to_row:
-            continue
-        diffs.append(embeddings[tag_to_row[winner]] - embeddings[tag_to_row[loser]])
+    diffs = [w - l for _, _, w, l in _iter_usable_comparisons(tags, embeddings, comparisons)]
     if not diffs:
         return np.zeros((0, 0), dtype=np.float32), np.zeros((0,), dtype=np.int64)
     diffs = np.stack(diffs)
     X = np.concatenate([diffs, -diffs])
     y = np.concatenate([np.ones(len(diffs)), np.zeros(len(diffs))])
     return X.astype(np.float32), y.astype(np.int64)
+
+
+def comparisons_fingerprint(tags, embeddings, comparisons):
+    """A hash of the exact (winner, loser) pairs a train run would use. Two fingerprints matching
+    means retraining now would use identical data to last time. Unlike a bare comparison count,
+    this also catches a comparison being added and another (already-counted) one becoming
+    unusable, e.g. after an embedding cache rebuild drops a tag."""
+    pairs = sorted((w, l) for w, l, _, _ in _iter_usable_comparisons(tags, embeddings, comparisons))
+    return hashlib.sha256(json.dumps(pairs).encode()).hexdigest()
 
 
 def cross_validate(X, y):
@@ -63,6 +85,24 @@ def cross_validate(X, y):
     cv = LeaveOneOut() if len(y) < MIN_COMPARISONS else StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
     scores = cross_val_score(LogisticRegression(max_iter=1000), X, y, cv=cv)
     return float(scores.mean())
+
+
+def significance(X, y, n_permutations=N_PERMUTATIONS, random_state=0):
+    """Permutation test: how often does a model trained on randomly shuffled labels score as
+    well as the real one? A low p-value means the real accuracy is unlikely to be a fluke of
+    this particular comparison set. baseline_accuracy is always 0.5 here because mirroring
+    guarantees exact class balance, unlike preference_model.py's yes/no labels."""
+    cv = LeaveOneOut() if len(y) < MIN_COMPARISONS else StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    _, _, p_value = permutation_test_score(
+        LogisticRegression(max_iter=1000), X, y, cv=cv,
+        n_permutations=n_permutations, random_state=random_state,
+    )
+    baseline_accuracy = max(np.bincount(y)) / len(y)
+    return {
+        "baseline_accuracy": float(baseline_accuracy),
+        "p_value": float(p_value),
+        "n_permutations": n_permutations,
+    }
 
 
 def train(X, y):
@@ -92,12 +132,19 @@ def train_and_save(comparisons):
     if X.shape[0] == 0:
         return None
     acc = cross_validate(X, y)
+    stats = significance(X, y)
     model = train(X, y)
-    joblib.dump(model, MODEL_FILE)
+    model_tmp = f"{MODEL_FILE}.tmp"
+    joblib.dump(model, model_tmp)
+    os.replace(model_tmp, MODEL_FILE)
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_comparisons": len(comparisons),
+        "comparisons_fingerprint": comparisons_fingerprint(tags, embeddings, comparisons),
         "cv_accuracy": round(acc, 4),
+        "baseline_accuracy": stats["baseline_accuracy"],
+        "p_value": stats["p_value"],
+        "n_permutations": stats["n_permutations"],
     }
     tmp = f"{MODEL_META_FILE}.tmp"
     with open(tmp, "w") as f:
