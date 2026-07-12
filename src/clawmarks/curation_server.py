@@ -1,8 +1,19 @@
 """
-Static file server + tiny comparison API for the uncanny-frontier scan gallery. Replaces the
+Dynamic page server + tiny comparison API for the uncanny-frontier scan gallery. Replaces the
 plain `python3 -m http.server` that was serving notes/uncanny_sweep/ read-only: a plain static
 server can't accept writes, and the whole point of this is letting a human record head-to-head
 preference comparisons from the browser, which needs somewhere to persist that choice.
+
+Rendering model (do NOT mistake this for a static-file server, despite the file paths below):
+every .html route builds its page in-process at request time from the live manifest, via
+`<view>.render_html(<view>.compute_data(...))`, and injects the view's data straight into the
+returned HTML. There are no static .html files on disk and no per-page data .json to 404 on. The
+one companion-JSON route is /scan_data.json, which scan.html alone fetches client-side to redraw
+its grid without a full reload; every other view (map, redundancy, coverage, lineage,
+novelty_decay, archive, gallery) embeds its data inline at render, so a page that looks empty is
+either legitimately empty for this dataset (e.g. lineage on a single-generation seed run with no
+parent_tag chains) or a client-side threshold/filter issue, never a missing file. The old data
+build artifacts (solution_map_data.json, similarity.json) are gone; nothing here reads them.
 
 Comparisons are stored in notes/uncanny_sweep/user_comparisons.json, a list of
 {winner, loser, compared_at} records. search/preference_pairwise_model.py trains a Bradley-
