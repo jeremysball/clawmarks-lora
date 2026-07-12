@@ -26,6 +26,21 @@ cache-invalidate-by-`os.remove` pattern, saved only because a backup happened to
   unnecessary backup is minutes; the cost of a missing one has already been a full sweep of
   irreplaceable generation output.
 
+## `fd` and `rg` hide gitignored files: the image data is invisible to them
+
+`fd` and `rg` skip `.gitignore`d and hidden files by default, and nearly every generated image
+on this project lives under a gitignored glob (`*.png`, `*.jpg`, `notes/uncanny_sweep/*.html`,
+and more). So `fd -e png notes/uncanny_seedrun1` reports zero PNGs while `ls` shows all 100. This
+already cost real confusion once: a directory of 100 full-resolution 1024x1024 PNGs looked empty
+and got mistaken for missing data.
+
+- To find generation output, disable the filtering: `fd -I` (include ignored), `fd -HI` (also
+  hidden), or `rg -uu`. Plain `ls`, `find`, and `grep` never filter, so they always see the
+  images.
+- Before concluding an image directory is empty or a sweep lost its output, confirm with `ls` or
+  `fd -I`, not a bare `fd`/`rg`. An absent result from the default tools means "not tracked by
+  git," not "not on disk."
+
 ## Your role
 
 Act as a lab assistant helping a non-academic, undergraduate-level researcher turn a
