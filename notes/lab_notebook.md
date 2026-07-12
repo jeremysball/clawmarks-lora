@@ -1366,3 +1366,14 @@ scores learned from head-to-head comparisons, rather than probabilities from yes
 focused preference-rank suite passed 4 of 4 tests before and after the change. `uv run` emitted the
 known environment-path warning because `VIRTUAL_ENV` points to the parent workspace, but pytest
 used this worktree's `.venv`.
+
+### 2026-07-11: Preference status page now reports comparison counts, not yes/no label counts
+
+Rewrote `build/preference_status.py` so it reports `n_comparisons`/`min_comparisons` against
+`user_comparisons.json` and the pairwise model's `MIN_COMPARISONS` gate, instead of the retired
+`n_yes`/`n_no`/`n_total` label counts. The trained-model panel and the predicted-preference toggle
+now read from `preference_pairwise_model.py`'s `MODEL_FILE`/`MODEL_META_FILE`. Task 4 had already
+updated the server's watched-files list for the new comparison and model files, so no
+`curation_server.py` change was needed here. The focused suite passed 6 of 6 tests, the
+`curation_server` preference-status route regression check passed 5 of 5, and the full suite
+passed 161 of 161.
