@@ -326,9 +326,14 @@ def next_compare_response(manifest, comparisons):
             # embeddings were rebuilt with new tags). The uncertainty path can score nothing,
             # so drop to stratified-random over the full manifest instead of returning done.
             model = None
+    seen = {}
+    for c in comparisons:
+        for tag in (c.get("winner"), c.get("loser")):
+            if tag:
+                seen[tag] = seen.get(tag, 0) + 1
     pair = comparison_sampler.pick_next_pair(
         candidate_manifest, len(comparisons), model=model,
-        score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for,
+        score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for, seen=seen,
     )
     if pair is None:
         return {"done": True}

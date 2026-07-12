@@ -29,6 +29,38 @@ def test_stratified_random_pair_returns_none_with_fewer_than_two_images():
     assert cs.stratified_random_pair(_manifest(0)) is None
 
 
+def test_stratified_random_pair_avoids_already_shown_images():
+    # An image shown far more than the rest must not be re-picked while less-shown images exist:
+    # this is the "same pig ten times" bug. Every image except t0 has been shown 5 times; t0
+    # never. Across many draws t0 should appear (it's the unique frontier) and the over-shown
+    # images should not, until coverage evens out.
+    manifest = _manifest(20)
+    seen = {f"t{i}": 5 for i in range(20)}
+    seen["t0"] = 0
+    rng = random.Random(0)
+    picked = set()
+    for _ in range(10):
+        a, b = cs.stratified_random_pair(manifest, seen=seen, rng=rng)
+        picked.add(a["tag"]); picked.add(b["tag"])
+    assert "t0" in picked
+
+
+def test_stratified_random_pair_spreads_coverage_evenly():
+    # Simulate a real session: track appearance counts and feed them back each draw. No image
+    # should run away from the pack the way the old uniform-bin sampler let sparse-bin images.
+    manifest = _manifest(20)
+    seen = {}
+    rng = random.Random(1)
+    for _ in range(60):
+        a, b = cs.stratified_random_pair(manifest, seen=seen, rng=rng)
+        for it in (a, b):
+            seen[it["tag"]] = seen.get(it["tag"], 0) + 1
+    counts = [seen.get(f"t{i}", 0) for i in range(20)]
+    # Coverage-balanced sampling keeps every image within one appearance of the min; the old
+    # sampler would let a lone-bin image reach double digits while others stayed near zero.
+    assert max(counts) - min(counts) <= 1
+
+
 def test_most_uncertain_pair_picks_the_closest_scored_candidates():
     manifest = _manifest(10)
     scores_by_tag = {f"t{i}": float(i) for i in range(10)}
