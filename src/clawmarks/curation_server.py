@@ -294,11 +294,19 @@ def _embeddings_for(items):
 
 
 def _maybe_retrain_pairwise_model(comparisons):
-    """Retrains and refreshes the pairwise model cache at each training interval."""
+    """Retrains and refreshes the pairwise model cache at each training interval. Training is
+    best-effort: the comparison has already been saved by the caller, so a training failure (e.g.
+    a corrupt embedding cache) must not fail the comparison write. On failure the old cached model
+    stays in place and the next interval retries."""
     n = len(comparisons)
     if n < comparison_sampler.MIN_COMPARISONS or n % comparison_sampler.RETRAIN_EVERY != 0:
         return
-    result = preference_pairwise_model.train_and_save(comparisons)
+    try:
+        result = preference_pairwise_model.train_and_save(comparisons)
+    except Exception as e:
+        print(f"pairwise model auto-retrain failed at n={n}, keeping previous model: {e}",
+              file=sys.stderr, flush=True)
+        return
     if result is not None:
         _pairwise_model_cache["model"] = result["model"]
 
@@ -310,7 +318,14 @@ def next_compare_response(manifest, comparisons):
     if model is not None:
         tags, _ = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
         embedded = set(tags)
-        candidate_manifest = [m for m in manifest if m["tag"] in embedded] or manifest
+        embedded_manifest = [m for m in manifest if m["tag"] in embedded]
+        if embedded_manifest:
+            candidate_manifest = embedded_manifest
+        else:
+            # A model exists but no current manifest image has a cached embedding (e.g.
+            # embeddings were rebuilt with new tags). The uncertainty path can score nothing,
+            # so drop to stratified-random over the full manifest instead of returning done.
+            model = None
     pair = comparison_sampler.pick_next_pair(
         candidate_manifest, len(comparisons), model=model,
         score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for,
@@ -574,6 +589,9 @@ class Handler(SimpleHTTPRequestHandler):
             loser = payload.get("loser")
             if not winner or not loser:
                 self._json_response(400, {"error": "missing 'winner' or 'loser'"})
+                return
+            if winner == loser:
+                self._json_response(400, {"error": "'winner' and 'loser' must be different images"})
                 return
             with _lock:
                 comparisons = load_comparisons()

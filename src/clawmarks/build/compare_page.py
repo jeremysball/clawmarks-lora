@@ -68,7 +68,7 @@ a corner to inspect that image at full resolution; tap again to close.</p>
     </div>
   </div>
   <div id="meta"></div>
-  <div id="done" style="display:none;">Nothing left to compare right now &mdash; the pool doesn't have enough images left to form a new pair.</div>
+  <div id="done" style="display:none;">Nothing left to compare right now. The pool doesn't have enough images left to form a new pair.</div>
 </div>
 <div id="count"></div>
 
@@ -79,6 +79,12 @@ a corner to inspect that image at full resolution; tap again to close.</p>
 <script>
 let current = null;
 let comparedThisSession = 0;
+
+function esc(s) {{
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}}
 
 function loadNext() {{
   fetch('/api/compare/next').then(r => {{
@@ -99,8 +105,8 @@ function loadNext() {{
     img1.src = d.img1.file; img1.style.display = 'block';
     img2.src = d.img2.file; img2.style.display = 'block';
     document.getElementById('meta').innerHTML =
-      `<span>${{d.img1.prompt_name}} | faith=${{d.img1.faith}} novelty=${{d.img1.novelty}}</span>` +
-      `<span>${{d.img2.prompt_name}} | faith=${{d.img2.faith}} novelty=${{d.img2.novelty}}</span>`;
+      `<span>${{esc(d.img1.prompt_name)}} | faith=${{d.img1.faith}} novelty=${{d.img1.novelty}}</span>` +
+      `<span>${{esc(d.img2.prompt_name)}} | faith=${{d.img2.faith}} novelty=${{d.img2.novelty}}</span>`;
   }}).catch(() => {{
     document.getElementById('done').textContent =
       "Couldn't reach the server. Check your connection and try again.";
@@ -186,10 +192,15 @@ document.addEventListener('mouseup', () => {{
   dragging = false;
 }});
 overlayEl.addEventListener('touchstart', e => {{
+  // Cancel the touch default so the browser doesn't emit the compatibility
+  // mousedown/mouseup/click after touchend. Without this, tapping the overlay to
+  // close zoom fires a synthetic click on the pane beneath it, recording an
+  // unintended comparison. Registered {{passive: false}} so preventDefault applies.
+  e.preventDefault();
   const touch = e.touches[0];
   dragging = true; dragMoved = false;
   dragStartX = touch.clientX - panX; dragStartY = touch.clientY - panY;
-}});
+}}, {{passive: false}});
 overlayEl.addEventListener('touchmove', e => {{
   if (!dragging) return;
   e.preventDefault();

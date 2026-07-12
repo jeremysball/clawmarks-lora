@@ -113,6 +113,39 @@ def test_post_compare_rejects_missing_fields(running_server):
     assert exc_info.value.code == 400
 
 
+def test_post_compare_rejects_self_comparison(running_server):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/compare", method="POST",
+        data=json.dumps({"winner": "t0", "loser": "t0"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == 400
+    assert not (tmp_path / "user_comparisons.json").exists()
+
+
+def test_compare_next_falls_back_to_random_when_model_has_no_embedded_tags(running_server, monkeypatch):
+    # A trained model is cached, but the embedding cache covers only tags absent from the current
+    # manifest (e.g. embeddings were rebuilt with new tags). The uncertainty path can score
+    # nothing; the response must still offer a random pair rather than a false {"done": True}.
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    embeddings_path = tmp_path / "embeddings.npz"
+    stale_tags = [f"gone{i}" for i in range(5)]
+    embeddings = np.random.RandomState(0).normal(size=(5, 2)).astype(np.float32)
+    embed_cache.save_cache(embeddings_path, stale_tags, embeddings)
+    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", embeddings_path)
+    monkeypatch.setitem(cs._pairwise_model_cache, "model", object())
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/compare/next") as resp:
+        data = json.loads(resp.read().decode())
+    assert "done" not in data
+    assert data["img1"]["tag"] != data["img2"]["tag"]
+
+
 def test_compare_html_route_serves_page(running_server):
     server, tmp_path = running_server
     port = server.server_address[1]
