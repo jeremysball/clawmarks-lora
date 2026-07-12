@@ -10,6 +10,7 @@ floor is cleared.
 
 Run with: python -m clawmarks.search.preference_model
 """
+import hashlib
 import json
 import os
 import sys
@@ -18,14 +19,29 @@ from datetime import datetime, timezone
 import joblib
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score, permutation_test_score
 
 from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 
 MIN_LABELS = 50
+N_PERMUTATIONS = 200
 MODEL_FILE = SWEEP_DIR / "preference_model.joblib"
 MODEL_META_FILE = SWEEP_DIR / "preference_model_meta.json"
+
+
+def _iter_usable_ratings(tags, embeddings, ratings):
+    """Yields (tag, label, embedding_row) for every rating that both has a recognized yes/no
+    label and a tag present in the embedding cache. The single filtering pass both
+    build_training_set and ratings_fingerprint rely on, so they can't drift apart."""
+    tag_to_row = {t: i for i, t in enumerate(tags)}
+    for tag, rating in ratings.items():
+        if tag not in tag_to_row:
+            continue
+        label = rating.get("label")
+        if label not in ("yes", "no"):
+            continue
+        yield tag, label, embeddings[tag_to_row[tag]]
 
 
 def build_training_set(tags, embeddings, ratings):
@@ -33,19 +49,21 @@ def build_training_set(tags, embeddings, ratings):
     user_ratings.json dict. Returns (X, y) using only tags present in both the embedding cache
     and the ratings file with a recognized label. Row order follows `tags`, not ratings-dict
     iteration order, so X stays aligned with `embeddings`."""
-    tag_to_row = {t: i for i, t in enumerate(tags)}
     X_rows, y = [], []
-    for tag, rating in ratings.items():
-        if tag not in tag_to_row:
-            continue
-        label = rating.get("label")
-        if label not in ("yes", "no"):
-            continue
-        X_rows.append(embeddings[tag_to_row[tag]])
+    for _, label, row in _iter_usable_ratings(tags, embeddings, ratings):
+        X_rows.append(row)
         y.append(1 if label == "yes" else 0)
     if not X_rows:
         return np.zeros((0, 0), dtype=np.float32), np.zeros((0,), dtype=np.int64)
     return np.stack(X_rows), np.array(y, dtype=np.int64)
+
+
+def ratings_fingerprint(tags, embeddings, ratings):
+    """A hash of the exact (tag, label) pairs a train run would use. Two fingerprints matching
+    means retraining now would use identical data to last time -- unlike a bare label count,
+    this also catches a rating flipping from yes to no on a tag that was already counted."""
+    pairs = sorted((tag, label) for tag, label, _ in _iter_usable_ratings(tags, embeddings, ratings))
+    return hashlib.sha256(json.dumps(pairs).encode()).hexdigest()
 
 
 def class_balance_error(y, min_labels=MIN_LABELS):
@@ -76,6 +94,20 @@ def cross_validate(X, y):
     cv = LeaveOneOut() if len(y) < MIN_LABELS else StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
     scores = cross_val_score(LogisticRegression(max_iter=1000), X, y, cv=cv)
     return float(scores.mean())
+
+
+def significance(X, y, n_permutations=N_PERMUTATIONS, random_state=0):
+    cv = LeaveOneOut() if len(y) < MIN_LABELS else StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    _, _, p_value = permutation_test_score(
+        LogisticRegression(max_iter=1000), X, y, cv=cv,
+        n_permutations=n_permutations, random_state=random_state,
+    )
+    baseline_accuracy = max(np.bincount(y)) / len(y)
+    return {
+        "baseline_accuracy": float(baseline_accuracy),
+        "p_value": float(p_value),
+        "n_permutations": n_permutations,
+    }
 
 
 def train(X, y):
@@ -110,17 +142,24 @@ def main(argv=None):
         return 1
 
     acc = cross_validate(X, y)
+    stats = significance(X, y)
     print(f"{len(y)} labels ({int(y.sum())} yes / {len(y) - int(y.sum())} no), "
           f"cross-validated accuracy: {acc:.3f}", flush=True)
 
     model = train(X, y)
-    joblib.dump(model, MODEL_FILE)
+    model_tmp = f"{MODEL_FILE}.tmp"
+    joblib.dump(model, model_tmp)
+    os.replace(model_tmp, MODEL_FILE)
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_labels": len(y),
         "n_yes": int(y.sum()),
         "n_no": len(y) - int(y.sum()),
+        "ratings_fingerprint": ratings_fingerprint(tags, embeddings, ratings),
         "cv_accuracy": round(acc, 4),
+        "baseline_accuracy": stats["baseline_accuracy"],
+        "p_value": stats["p_value"],
+        "n_permutations": stats["n_permutations"],
     }
     tmp = f"{MODEL_META_FILE}.tmp"
     with open(tmp, "w") as f:

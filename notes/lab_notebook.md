@@ -1507,3 +1507,38 @@ test that hadn't isolated it.
 Full suite after all fixes: 180 of 180 passed (3 new tests; the earlier 177 all still pass,
 including the staleness-banner tests, whose lowercase "retrain to include them" assertions were
 updated to match the corrected sentence's capitalized "Retrain to include them").
+
+### 2026-07-11: Preference classifier significance, retraining, and staleness status (PR #9, legacy model)
+
+The following entry is PR #9's own log of its work, merged in unchanged for the historical
+record. PR #9 targeted `search/preference_model.py`, the legacy yes/no rating model this
+branch's migration retires; its ideas were subsequently ported onto the pairwise model in the
+two entries above, since both branches touched overlapping files with incompatible designs.
+
+Added a 200-shuffle permutation test to preference-model training. A permutation test repeatedly
+shuffles the yes/no labels and measures how often random labels score at least as well as the real
+labels. The model metadata now records that test's p-value, the majority-class baseline accuracy,
+and the shuffle count alongside cross-validation accuracy.
+
+The preference status page now shows those statistics for newly trained models, explains whether
+the p-value clears the 0.05 significance threshold, reports ratings added since the last training
+run, and offers an inline retrain button. The server rejects retraining until the ratings clear the
+existing total-count and class-balance gates, then trains under the write lock and returns fresh
+status data. Old metadata remains readable and omits the new statistical rows.
+
+Verification covered the model statistics, old and new status metadata, stale and current models,
+the retrain UI, and successful and rejected POST requests. The successful route test runs the real
+trainer against temporary separable embeddings rather than mocking training. The full suite passes:
+149 tests, with no failures.
+
+This was implemented by an autonomous `opencode`/gpt-5.6-sol run against a task brief in an
+isolated worktree, then reviewed and fixed by hand before merge. Two issues surfaced in review.
+First, the retrain route's gate check counted any yes/no-labeled rating as usable, but the actual
+trainer only uses ratings whose tag also has a cached embedding; a rated tag missing from the
+embedding cache could pass the gate and still fail training. Fixed by having the gate call the same
+`build_training_set` the trainer uses, so the two can't disagree. Second, the retrain button's JS
+disabled itself via `button['dis' + 'abled'] = true` instead of `button.disabled = true` for no
+apparent reason; simplified to the plain form. The implementer's own environment also lacked a
+project venv, and it worked around that by adding a `sys.path`-patching `tests/conftest.py` instead
+of running `uv sync`; that file was deleted rather than merged, since a normal `uv sync --extra dev`
+in a fresh worktree is the correct fix and this repo already relies on an editable install elsewhere.
