@@ -1632,3 +1632,107 @@ silently drops hard-won fixes that lived only in the old file. The touch `preven
 once already on 2026-07-10; the rewrite lost it because nothing tied the fix to a test. The new
 regression tests cover the two server-side behaviors, but a touch-device gesture check still isn't
 automated in the suite.
+
+### 2026-07-12: Curation-UI polish (compare, elite archive, hub) and a data-safety near-miss
+
+Ran the live curation server against `notes/uncanny_seedrun1/` (100 real 1024x1024 PNGs, the only
+sweep with images still on disk after the Task 12 loss) to try out the head-to-head page, and made
+three UI improvements from that session, each its own commit with a regression test.
+
+**Compare page.** On a phone the two images stack vertically, but both captions had rendered on one
+shared row below both images, disconnected from the image each described. Moved each caption inside
+its own pane so it tracks its image when the panes stack; desktop keeps them side by side. Added a
+training-progress bar with two phases: below the 50-comparison floor it fills toward "Model unlocks
+in N votes"; at or above it, it shows the model's real cross-validated accuracy ("Model reads your
+taste: X%") mapped from the 0.5 coin-flip baseline to 1.0, and pulses on each tenth-comparison
+retrain. The accuracy is the genuine `cv_accuracy` from `preference_pairwise_model_meta.json` read
+via `/api/preference_status`, not a cosmetic animation, so the bar reflects the model actually
+learning. Verified headlessly on desktop (side-by-side) and mobile (stacked) viewports, plus a live
+vote that advanced the bar and loaded a fresh pair.
+
+**Elite archive.** Each cell now labels the faithfulness and novelty range its bin covers (e.g.
+`bin faith 2/4 (0.20-0.50) - novelty 4/4 (0.70-0.90)`), computed from the same quartile edges the
+binning already used but never surfaced. The four bins per axis are population quartiles, so each
+holds a similar share of images rather than an equal slice of the value range; the page now says so.
+
+**Home page vs. nav dropdown drift.** The `explore.html` hub was missing three tools the jump-to
+dropdown already listed: compare (head-to-head), predicted preference, and preference status, the
+entire head-to-head feature. Added all three and reordered the hub to mirror `shared_ui.NAV_OPTIONS`,
+with a test that fails if the two lists ever diverge again.
+
+**Data-safety near-miss (record in full, per Section 1's standing rule).** Before serving I took a
+complete-mirror backup of `notes/uncanny_seedrun1/` and verified it (208 files, 100 PNGs, `diff -rq`
+identical). While serving, the user cast 46 real comparisons, which the server wrote to a
+`user_comparisons.json` that did not exist when the backup was taken. Restoring that verified backup
+would therefore have destroyed all 46 votes: the exact partial-backup-then-full-restore shape that
+caused the Task 12 loss, one step from repeating. Caught it by checking backup-vs-current comparison
+counts (backup: no file; current: 46) before any restore, snapshotted the 46 votes to scratchpad
+immediately, and ran the write-path verification against a throwaway copy on a second port so no
+automated vote ever touched the real data. The live 46 votes stayed intact. Lesson reinforced: a
+backup only protects what existed when it was taken; re-verify before trusting it against live-mutated
+data, never assume a mirror is still complete.
+
+**Tooling gotcha, now in CLAUDE.md.** `fd` and `rg` skip `.gitignore`d files by default, and almost
+every image on this project sits under a gitignored glob, so `fd -e png notes/uncanny_seedrun1`
+reported zero PNGs while `ls` showed 100. A directory of real generation output looked empty and was
+briefly mistaken for lost data. Use `fd -I` / `rg -uu` (or plain `ls`/`find`) to see ignored image
+output; an empty default-tool result means "not tracked by git," not "not on disk."
+
+**Concept for the whitepaper: how Stage 5b (predicted preference) composes with MAP-Elites.** They
+are orthogonal. MAP-Elites owns diversity through its faithfulness x novelty archive; the trained
+preference model never becomes an archive axis or changes the bins. Each generation splits into
+explore jobs (fresh random subjects, which fill the archive across the whole grid) and exploit jobs
+(mutations near a pool of good parents). Stage 5b changes only the exploit pool: instead of mutating
+near favorited images or novelty-ranked elites (Stage 5a), it mutates near the top-N images the
+preference model scores highest (`driver._predicted_preference_pool`). So preference is a
+parent-selection signal for the exploit half only. Explore keeps mapping the frontier and the archive
+still keeps one novelty-champion per bin; preference just biases where refinement concentrates toward
+the user's taste. The tension to name in the paper: MAP-Elites deliberately preserves diversity
+(including low-preference bins) while the preference model is a narrowing pressure, so they coexist
+only because 5b steers exploitation, not exploration. Cranking the exploit fraction up with 5b on
+would risk collapsing the archive's diversity toward the user's taste. This is why 5b is opt-in and
+gated behind validating the model on `preference_rank.html` first.
+
+**Repeated-image bug in the compare sampler ("I've seen this pig ten times").** Below the
+50-comparison floor the sampler picked a grid bin uniformly at random, then a random image in it. A
+bin holding one image drew that image with probability 1/n_bins; an image sharing a dense bin with
+twenty others drew at 1/n_bins/20. So a lone-bin image reappeared far more often than a person reads
+as random, and one kept recurring. Rewrote `stratified_random_pair` to be coverage-aware: it now
+tracks how many past comparisons each image appears in (a `seen` tag->count map the server builds
+from the comparison history) and restricts each draw to the least-covered frontier (the bins whose
+least-shown image has the lowest seen-count), then the least-shown image in that bin. An image never
+recurs until every other bin's least-shown image has been shown as often, spreading coverage evenly
+across the archive while keeping the grid stratification. Two regression tests: an over-shown image
+does not reappear while less-shown ones exist, and across a simulated 60-draw session every image
+stays within one appearance of the minimum. Verified live: the previously over-shown tags did not
+recur across 25 fresh pairs.
+
+**"None of the pages do anything" was three separate things, none of them static files.** The user
+reported the non-compare pages looked broken and expected them "all served from the Python web
+server." I first mis-diagnosed this as missing static-JSON routes (`solution_map_data.json`,
+`similarity.json`) 404ing. That was wrong, and I had asserted it without testing. Every page is
+already rendered dynamically in-process (`view.render_html(view.compute_data(...))`); those old
+build-artifact JSONs are gone and nothing reads them. The real causes, found by rendering each page
+in a headless browser instead of theorizing:
+- **lineage.html and novelty_decay.html are legitimately empty for this dataset.** seedrun1 is a
+  single-generation seed run: all 100 images have `parent_tag: None` and `generation: None`, so there
+  are no exploit chains to draw. Both pages already show an explanatory placeholder. They will
+  populate on a real multi-round search, not a seed run.
+- **redundancy.html rendered blank because its slider range was hardcoded.** The similarity-threshold
+  slider ran 0.80 to 0.99 (default 0.93), tuned for near-duplicate detection in a tight
+  multi-generation sweep. seedrun1's closest pair sits at cosine 0.776, below even the slider's
+  minimum, so every slider position produced zero edges and an empty graph. Fixed
+  `redundancy_view.render_html` to size the slider to the actual edge distribution (span the real
+  min-to-max padded to a 0.05 grid, default where only the tightest ~5% of edges survive). seedrun1
+  now spans 0.15-0.80, defaults to 0.60, and renders 4 real clusters (largest 17 images) out of 73
+  effective clusters. Screenshot-verified.
+- **map.html was never broken.** Its UMAP scatter paints 100 points onto a `<canvas>`; my first probe
+  counted DOM `<circle>` elements and found none, a probe artifact, not an empty page. A second check
+  confirmed 3033 painted pixels.
+
+Root cause of the mis-diagnosis, now fixed in documentation: `curation_server.py`'s module docstring
+still opened with "Static file server," legacy language from when it wrapped `python3 -m
+http.server`. Rewrote the docstring to state the dynamic rendering model explicitly (every .html
+builds in-process at request time; `/scan_data.json` is the one client-fetched companion; a
+blank-looking page is empty-for-this-dataset or a client-side filter, never a missing file) so this
+mistake can't recur.
