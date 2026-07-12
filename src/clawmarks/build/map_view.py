@@ -139,9 +139,9 @@ const REAL = {real_json};
 const ANCHOR_COUNTS = {real_anchor_json};
 const MAX_GEN = {max_gen};
 let picks = {{}};
-fetch('/api/ratings').then(r => r.json()).then(ratings => {{
+fetch('/api/favorites').then(r => r.json()).then(favorites => {{
   picks = {{}};
-  Object.entries(ratings).forEach(([tag, r]) => {{ if (r.label === 'yes') picks[tag] = true; }});
+  Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
   draw();
 }}).catch(() => {{ draw(); }});
 

@@ -239,13 +239,11 @@ let view = DATA.slice();
 let picks = {{}};
 let favorites = {{}};
 
-Promise.all([
-  fetch('/api/ratings').then(r => r.json()).then(ratings => {{
-    picks = {{}};
-    Object.entries(ratings).forEach(([tag, r]) => {{ if (r.label === 'yes') picks[tag] = true; }});
-  }}).catch(() => {{}}),
-  fetch('/api/favorites').then(r => r.json()).then(f => {{ favorites = f; }}).catch(() => {{}}),
-]).then(render);
+fetch('/api/favorites').then(r => r.json()).then(f => {{
+  favorites = f;
+  picks = {{}};
+  Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
+}}).catch(() => {{}}).then(render);
 
 (function populatePromptFilter() {{
   const names = Array.from(new Set(DATA.map(d => d.prompt_name))).sort();

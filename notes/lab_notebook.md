@@ -1377,3 +1377,38 @@ updated the server's watched-files list for the new comparison and model files, 
 `curation_server.py` change was needed here. The focused suite passed 6 of 6 tests, the
 `curation_server` preference-status route regression check passed 5 of 5, and the full suite
 passed 161 of 161.
+
+### 2026-07-11: Head-to-head comparison migration complete; verification sweep found two missed call sites
+
+The yes/no rating system (`search/preference_model.py`, `rate.html`, `user_ratings.json`) is
+fully replaced by head-to-head comparisons across every live code path: comparison sampling,
+the compare UI, the server's compare endpoints, the elite archive, the search driver's exploit
+pool, the preference-rank page, and the preference-status page. See
+`docs/superpowers/specs/2026-07-11-head-to-head-preference-design.md` and
+`docs/superpowers/plans/2026-07-11-head-to-head-preference.md`. The old `search/preference_model.py`
+module, `user_ratings.json`, and any existing `preference_model.joblib` remain on disk wherever
+they already existed, untouched and unused by any code after this migration.
+
+The Task 10 verification sweep's grep check (`rg` for `preference_model\b|rating_sampler|rate_page|
+rate\.html|predict_proba|/api/rate\b|/api/ratings\b` under `src/`) found two call sites the plan's
+ten tasks didn't cover: `build/map_view.py` and `build/scan_gallery.py` both still fetched the
+retired `/api/ratings` endpoint to highlight "picked" (formerly yes-rated) images. Because both
+calls were wrapped in a silent `.catch()`, the pages didn't crash. Instead, the "picked" highlight
+and the "picked only" filter quietly stopped working the moment Task 4 removed the endpoint,
+a real regression missed by the plan's task list. Fixed both to read `/api/favorites` instead,
+matching the same favorites-as-override-signal pattern used in Tasks 6 and 7. Neither file had
+existing test coverage for this behavior, so no tests needed updating; both files' existing test
+suites (4 and 6 tests) still pass. Full suite: 161 of 161 passed after the fix.
+
+Manually smoke-tested the live server via Playwright against `notes/uncanny_seedrun1` (the only
+directory in this checkout with `embeddings.npz` and `scored_manifest.json`), served on a
+non-default port so as not to collide with another automation's server already running on the
+project's default port 8420. Confirmed on `/compare.html`: click-to-pick and the ←/→ keyboard
+picks both record a comparison and load a fresh pair; the zoom overlay opens on the magnifier
+tap with the correct full-resolution image and closes on a second tap. Confirmed
+`/preference_status.html` reflects the session's 3 new comparisons and the correct
+comparisons-based gate message. Confirmed `/preference_rank.html` shows the expected
+no-trained-model message (referencing `preference_pairwise_model`, not the legacy module) since
+3 comparisons is below the 50-comparison floor. No browser console errors beyond a harmless
+missing-favicon 404. Deleted the `user_comparisons.json` file this smoke test wrote to
+`uncanny_seedrun1` afterward, since it was test data, not a real session.
