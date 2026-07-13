@@ -18,7 +18,7 @@ def embed_images(paths, batch_size=16):
             batch_paths = paths[i:i+batch_size]
             imgs = [Image.open(p).convert("RGB") for p in batch_paths]
             inputs = processor(images=imgs, return_tensors="pt")
-            feats = model.get_image_features(**inputs).pooler_output
+            feats = model.get_image_features(**inputs)
             feats = feats / feats.norm(dim=-1, keepdim=True)
             embs.append(feats)
             print(f"  embedded {i+len(batch_paths)}/{len(paths)}", flush=True)
