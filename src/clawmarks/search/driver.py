@@ -203,7 +203,12 @@ def _out_dir(cfg):
 
 
 def _state_file(cfg):
-    return _out_dir(cfg) / f"allnight{cfg.round}_state.json"
+    """Round 1's original script (notes/run_uncanny_allnight.py) wrote its state to
+    allnight_state.json with no round-number suffix; round 2's (run_uncanny_allnight2.py) wrote
+    allnight2_state.json. Preserve those exact names so this merged driver resumes from the
+    state files that already exist on disk instead of silently starting over at generation 0."""
+    suffix = "" if cfg.round == 1 else str(cfg.round)
+    return _out_dir(cfg) / f"allnight{suffix}_state.json"
 
 
 def load_state(cfg):
@@ -221,6 +226,30 @@ def load_state(cfg):
 def save_state(cfg, state):
     with open(_state_file(cfg), "w") as f:
         json.dump(state, f, indent=1)
+
+
+def _load_resumable_manifest(out_dir):
+    """Loads this round's own already-persisted scored_manifest.json, if any, so restarting the
+    search resumes on top of prior generations instead of discarding them: the main loop used to
+    always start from an empty manifest and then overwrite scored_manifest.json with only the
+    new run's images, permanently losing every previously persisted record on every restart.
+    Falls back to an empty manifest (rather than crashing) if the file is truncated/corrupt, e.g.
+    from a process kill mid-write in an older build before the write became atomic (see the
+    tmp+os.replace pattern below): the prior run's images are still on disk even if this one
+    record of them is unreadable, so refusing to start is worse than losing the resume."""
+    manifest_path = out_dir / "scored_manifest.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"WARNING: {manifest_path} is corrupt ({e}); starting this restart with an empty "
+              f"manifest instead of crashing. The file itself is left untouched for manual "
+              f"recovery.", flush=True)
+        return []
+    print(f"resuming with {len(manifest)} already-persisted images from {manifest_path}", flush=True)
+    return manifest
 
 
 def request_gpt55_subjects(cfg, existing_subjects, n=30):
@@ -309,7 +338,7 @@ def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
 
 
 def _load_prev_round_state(cfg):
-    """Round 1's body still reads its own state file (allnight_state.json) and the
+    """Round 1's body still reads its own state file (see _state_file) and the
     first-run fixed-sweep manifest. Round 2 reads round 1's manifest as the exclusion set.
     Returns (manifest, prev_embs_or_None) tuple."""
     if cfg.exclude_prev_round:
@@ -408,6 +437,14 @@ def cell_html(items, faith_edges, novelty_edges, fb, nb):
 
 
 def build_gallery(cfg, manifest, real_ref):
+    # A resumed manifest (see _load_resumable_manifest) can reference a PNG that no longer
+    # exists on disk; thumb_data_uri would crash the whole generation loop trying to open it.
+    # Filter here, mirroring score_batch's identical guard for the same reason. bin_edges
+    # indexes into an empty list if every entry got filtered out, so bail out the same way the
+    # caller already does for an empty manifest.
+    manifest = [m for m in manifest if os.path.exists(m["file"])]
+    if not manifest:
+        return 0.0
     faith_vals = sorted(m["centroid_sim"] for m in manifest)
     novelty_vals = sorted(m["novelty"] for m in manifest)
 
@@ -560,7 +597,7 @@ def main(argv=None):
     # style_subject_count=5 below.
     style_subject_count = 5 if cfg.round == 1 else 4
 
-    manifest = []
+    manifest = _load_resumable_manifest(out_dir)
 
     while True:
         elapsed_h = (time.time() - start_time) / 3600
@@ -609,8 +646,14 @@ def main(argv=None):
         new_manifest = submit_and_collect(cfg, jobs, out_dir, f"gen{gen}")
         new_scored = score_batch(model, real_embs, real_centroid, new_manifest, prev_embs=prev_embs)
         manifest.extend(new_scored)
-        with open(out_dir / "scored_manifest.json", "w") as f:
+        # tmp+os.replace so a kill mid-write can never leave a truncated/corrupt
+        # scored_manifest.json behind for the next restart's _load_resumable_manifest to trip
+        # over -- matches preference_pairwise_model.train_and_save's existing atomic-write pattern.
+        manifest_path = out_dir / "scored_manifest.json"
+        manifest_tmp = f"{manifest_path}.tmp"
+        with open(manifest_tmp, "w") as f:
             json.dump(manifest, f, indent=1)
+        os.replace(manifest_tmp, manifest_path)
 
         best_novelty = build_gallery(cfg, manifest, real_ref) if manifest else 0.0
         state["novelty_history"].append(best_novelty)
