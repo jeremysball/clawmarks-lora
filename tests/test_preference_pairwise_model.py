@@ -199,6 +199,19 @@ def test_cross_validate_does_not_leak_mirrored_pairs_across_folds():
     assert acc < 0.65
 
 
+def test_significance_does_not_report_false_significance_on_leaked_mirrored_noise():
+    """Regression test for issue #12's second half: the permutation test built on top of the
+    leaky CV also reported significance on pure noise. Grouping by pair must fix that too, not
+    just the plain accuracy in test_cross_validate_does_not_leak_mirrored_pairs_across_folds."""
+    rng = np.random.RandomState(0)
+    n_pairs = 30
+    diffs = rng.normal(size=(n_pairs, 32)).astype(np.float32)
+    X = np.concatenate([diffs, -diffs]).astype(np.float32)
+    y = np.concatenate([np.ones(n_pairs), np.zeros(n_pairs)]).astype(np.int64)
+    stats = ppm.significance(X, y, n_permutations=30, random_state=0)
+    assert stats["p_value"] > 0.2
+
+
 def test_train_and_save_refuses_when_usable_comparisons_fall_below_raw_count(tmp_path, monkeypatch):
     """Regression test for a bug where train_and_save only checked the raw comparisons count
     against MIN_COMPARISONS, not the usable (embedding-cached) count. Here the raw count clears

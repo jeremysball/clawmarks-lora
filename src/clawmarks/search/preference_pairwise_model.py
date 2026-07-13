@@ -84,7 +84,12 @@ def _pair_groups(n_rows):
     and its negation) together in one fold. build_training_set always lays rows out as
     [diffs..., -diffs...], so row i and row i + n_rows//2 share a pair index of i % (n_rows//2).
     Without this, a fold can see one mirrored row at train time and its exact negation at test
-    time, letting the model "predict" by sign alone instead of learning real signal."""
+    time, letting the model "predict" by sign alone instead of learning real signal. Only valid
+    for rows produced by build_training_set's own layout; every current caller (cross_validate,
+    significance, both only ever called by train_and_save on build_training_set's output)
+    satisfies that, but a future caller passing some other row order/subset would get silently
+    wrong groups rather than an error."""
+    assert n_rows % 2 == 0, f"expected an even, mirrored row count from build_training_set, got {n_rows}"
     n_pairs = n_rows // 2
     return np.concatenate([np.arange(n_pairs), np.arange(n_pairs)])
 
@@ -94,7 +99,11 @@ def cross_validate(X, y, groups=None):
     Grouped by underlying pair so both mirrored rows of a comparison always land in the same
     fold; otherwise the model can exploit the leaked mirror rather than learning real signal.
     Leave-one-group-out below MIN_COMPARISONS pairs, since every pair matters at that scale;
-    5-fold GroupKFold at or above it."""
+    5-fold GroupKFold at or above it. Note this threshold is now counted in underlying pairs
+    (n_groups), not raw rows as it was before grouping: a comparison set with, say, 30 usable
+    pairs (60 rows) now gets LeaveOneGroupOut, whereas the pre-fix code would have already
+    switched such a set to 5-fold at 50 rows. This matches train_and_save's own MIN_COMPARISONS
+    gate, which was already counted in pairs."""
     if groups is None:
         groups = _pair_groups(len(y))
     n_groups = len(np.unique(groups))
