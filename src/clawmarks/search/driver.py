@@ -378,7 +378,7 @@ def score_batch(model, real_embs, real_centroid, manifest_batch, prev_embs=None)
     nn_real = (embs @ real_embs.T).max(dim=1).values
     if prev_embs is not None and prev_embs.shape[0] > 0:
         nn_prev = (embs @ prev_embs.T).max(dim=1).values
-        nn_combined = torch_maximum(nn_real, nn_prev).tolist()
+        nn_combined = _torch_maximum(nn_real, nn_prev).tolist()
     else:
         nn_combined = nn_real.tolist()
     for m, cs, ns in zip(manifest_batch, centroid_sim, nn_combined):
