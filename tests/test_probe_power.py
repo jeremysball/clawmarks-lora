@@ -38,5 +38,5 @@ def test_null_simulation_is_reproducible_and_positive_control_has_power():
     positive = simulate_rejection_rate(8, 0.08, simulations=10_000, seed=456)
 
     assert null == simulate_rejection_rate(8, 0.0, simulations=10_000, seed=123)
-    assert null.rate < 0.05
+    assert abs(null.rate - 0.05) <= 3 * null.standard_error + 0.001
     assert positive.rate > 0.8

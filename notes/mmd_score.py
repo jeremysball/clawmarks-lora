@@ -1,6 +1,6 @@
 import json
-import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -9,9 +9,9 @@ from transformers import AutoModel
 
 
 MODEL_ID = "facebook/dinov2-base"
-SC = "/workspace/trent-with-smart-prompts"
-REAL_DIR = f"{SC}/corrected_dataset_extract"
-GEN_DIR = sys.argv[1] if len(sys.argv) > 1 else f"{SC}/art_batch"
+ROOT = Path(__file__).resolve().parents[1]
+REAL_DIR = ROOT / "corrected_dataset_extract"
+GEN_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "art_batch"
 N_PERMUTATIONS = 2000
 
 IMAGE_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -80,18 +80,10 @@ def main():
     model.eval()
 
     real_paths = sorted(
-        [
-            os.path.join(REAL_DIR, f)
-            for f in os.listdir(REAL_DIR)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
-        ]
+        p for p in REAL_DIR.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png")
     )
     gen_paths = sorted(
-        [
-            os.path.join(GEN_DIR, f)
-            for f in os.listdir(GEN_DIR)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
-        ]
+        p for p in GEN_DIR.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png")
     )
     print(f"real images: {len(real_paths)}, generated images: {len(gen_paths)} (from {GEN_DIR})")
 
@@ -152,7 +144,7 @@ def main():
     if self_mmd2.mean() > 0:
         print(f"  observed real-vs-generated MMD^2 ({mmd2:.4f}) is {mmd2 / self_mmd2.mean():.1f}x the self-split mean")
 
-    with open(f"{SC}/notes/mmd_result.json", "w") as f:
+    with (ROOT / "notes" / "mmd_result.json").open("w") as f:
         json.dump(
             {
                 "gen_dir": GEN_DIR,

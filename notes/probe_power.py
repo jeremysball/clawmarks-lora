@@ -31,9 +31,9 @@ N_SIMULATIONS = 10_000
 ALPHA = 0.05
 EFFECTS = (0.05, 0.08)
 CHECKPOINT_MEAN_SD = 0.0354
-# The available calibration batch was unpaired.  Its delta SD is therefore
-# sqrt(2) times the checkpoint-mean SD; paired round-one data can replace this
-# planning assumption without changing the test itself.
+# The available calibration batch was unpaired.  Use sqrt(2) times its
+# checkpoint-mean SD as an unverified planning proxy until paired round-one
+# data can replace it; the test itself does not change.
 DELTA_SD = float(np.sqrt(2.0) * CHECKPOINT_MEAN_SD)
 
 

@@ -191,12 +191,12 @@ step exists because of that review, it says so.
 
    **Corrected, 2026-07-13** (see the lab log entry below for the reproducible results): the
    exact sign-flip test makes rejection impossible at alpha=0.05 for n=3 and n=4 because their
-   one-sided p-value floors are 0.125 and 0.0625. With the conservative calibration-noise
-   assumption, n=8 gives 79.90% power at a 0.05 effect, not the previously reported 84%, and
+    one-sided p-value floors are 0.125 and 0.0625. With the calibration-noise proxy, n=8 gives
+    79.90% power at a 0.05 effect, not the previously reported 84%, and
    99.20% at 0.08. Round 1 therefore keeps the **eight canonical paired training seeds**, uses
-   0.05 as an exploratory practical threshold, and prespecifies 0.08 as the effect size for an
-   80%-power planning claim. A 0.05 result cannot be presented as confirmatory evidence under
-   this planning model.
+    0.05 as an exploratory practical threshold, and prespecifies 0.08 as the effect size for an
+    80%-power per-direction screening claim. A 0.05 result cannot be presented as confirmatory
+    evidence under this planning model.
 
    **Note added 2026-07-09: paired seeds make a separately-measured noise floor optional, not
    required.** A sign-flip permutation test builds its null distribution from the very deltas
@@ -269,9 +269,9 @@ the earlier 3-4 guess) across roughly 10 directions per round, that's ~80 probes
 6-10 minutes each, 8-13 hours of probing alone, plus one 34-minute commit run scored at 5
 checkpoints. Call it **9-14 hours per round**, not 2.2-2.5. Five rounds plus the one-time
 calibration check: **45-70 hours of GPU time**, a large jump from the original 11-13 hour
-   estimate, and worth running two pods in parallel (as calibration already did) rather than
+estimate, and worth running two pods in parallel (as calibration already did) rather than
    serially. The corrected analysis does not claim 80% power at the exploratory 0.05 threshold;
-   it uses 0.08 as the prespecified 80%-power planning effect while retaining 0.05 as a practical
+    it uses 0.08 as the prespecified 80%-power per-direction screening effect while retaining 0.05 as a practical
    screen (see the 2026-07-13 log entry).
 
 **Candidate direction slate for round 1, proposed 2026-07-09, not yet approved.** Baseline
@@ -1874,8 +1874,8 @@ sample is the eight canonical seeds from `notes/train_probe.py`. Prompt rows and
 are measurements within a seed and do not increase n. For n=3, 4, 6, and 8, the program enumerates
 all `2^n` sign flips instead of sampling duplicate patterns, prints the exact one-sided p-value
 floor, and runs 10,000 deterministic simulations for the null and positive controls. The planning
-model uses the old unpaired checkpoint-mean SD of 0.0354 and assumes delta SD `sqrt(2) * 0.0354 =
-0.050063`; this is a conservative proxy until paired round-one deltas are measured.
+    model uses the old unpaired checkpoint-mean SD of 0.0354 and an unverified delta-SD planning
+    proxy `sqrt(2) * 0.0354 = 0.050063`; paired round-one deltas may differ.
 
 | quantity | n=3 | n=4 | n=6 | n=8 |
 |---|---:|---:|---:|---:|
@@ -1887,7 +1887,7 @@ model uses the old unpaired checkpoint-mean SD of 0.0354 and assumes delta SD `s
 Impact: the old n=3 and n=4 significance entries were impossible and are retracted. The old
 claim of 84% power at n=8 and effect 0.05 was also wrong under the corrected program. Round 1
 retains the eight canonical paired seeds, treats 0.05 as an exploratory practical threshold, and
-uses 0.08 as the prespecified effect for an 80%-power planning claim. The null rates for n=6 and
+    uses 0.08 as the prespecified effect for an 80%-power per-direction screening claim. The null rates for n=6 and
 n=8 are close to alpha=0.05; n=3 and n=4 cannot reject at that alpha because their exact floors
 are too large.
 
