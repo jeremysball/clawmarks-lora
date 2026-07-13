@@ -173,16 +173,30 @@ def test_comparisons_fingerprint_changes_when_winner_and_loser_are_swapped():
             != ppm.comparisons_fingerprint(tags, embeddings, swapped))
 
 
-def test_comparisons_fingerprint_changes_when_a_comparison_is_duplicated():
-    """A duplicate comparison adds another usable training row even though the set of distinct
-    pairs is unchanged, so the fingerprint (which tracks the exact rows a train run would use)
-    must reflect the duplicate rather than silently deduping it."""
+def test_comparisons_fingerprint_is_unchanged_when_a_judgment_is_repeated():
+    """Regression test for issue #13: repeating the same judgment on a pair must not add another
+    independent training row, since that inflates apparent accuracy/significance on what is
+    really the same evidence submitted twice. The fingerprint (and the training set it tracks)
+    must consolidate repeated judgments into a single verdict."""
     tags = ["a", "b"]
     embeddings = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
     single = [{"winner": "a", "loser": "b", "compared_at": "t0"}]
     duplicated = single + [{"winner": "a", "loser": "b", "compared_at": "t1"}]
     assert (ppm.comparisons_fingerprint(tags, embeddings, single)
-            != ppm.comparisons_fingerprint(tags, embeddings, duplicated))
+            == ppm.comparisons_fingerprint(tags, embeddings, duplicated))
+    X, y = ppm.build_training_set(tags, embeddings, duplicated)
+    assert X.shape == (2, 2)
+
+
+def test_consolidate_pairs_uses_majority_vote_and_drops_ties():
+    comparisons = (
+        [{"winner": "a", "loser": "b", "compared_at": "t0"}] * 3
+        + [{"winner": "b", "loser": "a", "compared_at": "t1"}]
+        + [{"winner": "c", "loser": "d", "compared_at": "t2"}]
+        + [{"winner": "d", "loser": "c", "compared_at": "t3"}]
+    )
+    consolidated = ppm._consolidate_pairs(comparisons)
+    assert set(consolidated) == {("a", "b")}
 
 
 def test_cross_validate_does_not_leak_mirrored_pairs_across_folds():

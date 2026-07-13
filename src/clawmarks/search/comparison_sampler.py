@@ -34,54 +34,75 @@ def bin_manifest(manifest):
     return grid
 
 
-def stratified_random_pair(manifest, rng=random):
+def _excluded(item_a, item_b, exclude):
+    return frozenset((item_a["tag"], item_b["tag"])) in exclude
+
+
+def stratified_random_pair(manifest, rng=random, exclude=None):
     """Returns two distinct manifest items from randomly chosen bins (can be the same bin), or
-    None if the manifest has fewer than 2 images."""
+    None if fewer than two not-already-compared images remain. `exclude` is a set of
+    frozenset({tag_a, tag_b}) pairs to skip, so an already-judged pair is never resampled and
+    double-counted as independent evidence."""
     if len(manifest) < 2:
         return None
+    exclude = exclude or set()
     grid = bin_manifest(manifest)
     nonempty = [items for items in grid.values() if items]
     if not nonempty:
         return None
-    bin_a = rng.choice(nonempty)
-    item_a = rng.choice(bin_a)
     for _ in range(20):
-        bin_b = rng.choice(nonempty)
-        item_b = rng.choice(bin_b)
-        if item_b["tag"] != item_a["tag"]:
-            return (item_a, item_b)
-    # Every random draw collided with item_a (bad luck, or every other bin happens to be
-    # empty of anything but item_a's own bin with item_a as its only member) - fall back to a
-    # linear scan for any other image, which always succeeds given len(manifest) >= 2.
-    for m in manifest:
-        if m["tag"] != item_a["tag"]:
-            return (item_a, m)
+        bin_a = rng.choice(nonempty)
+        item_a = rng.choice(bin_a)
+        for _ in range(20):
+            bin_b = rng.choice(nonempty)
+            item_b = rng.choice(bin_b)
+            if item_b["tag"] != item_a["tag"] and not _excluded(item_a, item_b, exclude):
+                return (item_a, item_b)
+    # Random sampling exhausted its budget (small manifest, or most pairs already compared) -
+    # fall back to an exhaustive scan for any remaining uncompared pair.
+    for i, item_a in enumerate(manifest):
+        for item_b in manifest[i + 1:]:
+            if not _excluded(item_a, item_b, exclude):
+                return (item_a, item_b)
     return None
 
 
-def most_uncertain_pair(manifest, model, score_fn, embeddings_for, rng=random):
+def most_uncertain_pair(manifest, model, score_fn, embeddings_for, rng=random, exclude=None):
     """Returns the two manifest items whose model scores are closest together, out of a random
     candidate set of up to CANDIDATE_POOL_SIZE images. `score_fn(model, embeddings) -> sequence`
     and `embeddings_for(items) -> sequence` let callers plug in
     preference_pairwise_model.score and an embedding lookup without this module importing the
-    embedding cache directly. Returns None if fewer than 2 candidates are available."""
+    embedding cache directly. `exclude` is a set of frozenset({tag_a, tag_b}) pairs to skip, so
+    an already-judged pair is never resampled. Returns None if fewer than 2 candidates are
+    available, or every candidate gap is excluded."""
     if len(manifest) < 2:
         return None
+    exclude = exclude or set()
     candidates = rng.sample(manifest, min(CANDIDATE_POOL_SIZE, len(manifest)))
     scores = score_fn(model, embeddings_for(candidates))
     ranked = sorted(zip(candidates, scores), key=lambda pair: pair[1])
-    best_gap, best_pair = None, None
+    gaps = []
     for i in range(len(ranked) - 1):
-        gap = abs(ranked[i][1] - ranked[i + 1][1])
-        if best_gap is None or gap < best_gap:
-            best_gap, best_pair = gap, (ranked[i][0], ranked[i + 1][0])
-    return best_pair
+        item_a, item_b = ranked[i][0], ranked[i + 1][0]
+        if _excluded(item_a, item_b, exclude):
+            continue
+        gaps.append((abs(ranked[i][1] - ranked[i + 1][1]), item_a, item_b))
+    if not gaps:
+        return None
+    gaps.sort(key=lambda g: g[0])
+    return (gaps[0][1], gaps[0][2])
 
 
-def pick_next_pair(manifest, n_comparisons, model=None, score_fn=None, embeddings_for=None, rng=random):
+def pick_next_pair(manifest, n_comparisons, model=None, score_fn=None, embeddings_for=None, rng=random,
+                    exclude=None):
     """Top-level entry point used by curation_server.py. Below MIN_COMPARISONS, or when no model
     is available yet, falls back to stratified_random_pair. At/above the floor with a model
-    available, uses most_uncertain_pair."""
+    available, uses most_uncertain_pair, falling back to stratified_random_pair if every
+    candidate gap it found is excluded. `exclude` is a set of frozenset({tag_a, tag_b}) pairs
+    already judged, so a pair is never shown to the user twice."""
     if n_comparisons < MIN_COMPARISONS or model is None:
-        return stratified_random_pair(manifest, rng=rng)
-    return most_uncertain_pair(manifest, model, score_fn, embeddings_for, rng=rng)
+        return stratified_random_pair(manifest, rng=rng, exclude=exclude)
+    pair = most_uncertain_pair(manifest, model, score_fn, embeddings_for, rng=rng, exclude=exclude)
+    if pair is None:
+        return stratified_random_pair(manifest, rng=rng, exclude=exclude)
+    return pair

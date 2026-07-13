@@ -12,6 +12,10 @@ never directly compared: it only depends on the image's own embedding, not a per
 tally. Mirroring every row also guarantees exact class balance automatically, unlike the old
 yes/no labels, so there's no balance-gate check needed here.
 
+Repeated judgments on the same underlying pair (whether resubmitted or resampled) are
+consolidated into a single majority-vote verdict before training (_consolidate_pairs), so
+resampling the same pair never counts as independent evidence.
+
 Refuses to train below MIN_COMPARISONS: with only a handful of comparisons, any model would be
 overfitting noise, not learning taste. Run compare.html (via `clawmarks serve`) until this floor
 is cleared.
@@ -43,13 +47,37 @@ MODEL_FILE = SWEEP_DIR / "preference_pairwise_model.joblib"
 MODEL_META_FILE = SWEEP_DIR / "preference_pairwise_model_meta.json"
 
 
-def _iter_usable_comparisons(tags, embeddings, comparisons):
-    """Yields (winner, loser, winner_embedding, loser_embedding) for every comparison whose
-    winner and loser tags are both present in the embedding cache. The single filtering pass
-    both build_training_set and comparisons_fingerprint rely on, so they can't drift apart."""
-    tag_to_row = {t: i for i, t in enumerate(tags)}
+def _consolidate_pairs(comparisons):
+    """Collapses every judgment on the same underlying (unordered) pair into a single verdict by
+    majority vote, so a pair judged N times counts as one piece of evidence instead of N
+    independent training rows. Without this, resubmitting (or resampling) the same pair inflates
+    apparent model accuracy and permutation-test significance on what is really repeated, not
+    independent, evidence. A tied pair (equal wins each way) is dropped as ambiguous."""
+    tally = {}
     for c in comparisons:
         winner, loser = c.get("winner"), c.get("loser")
+        if not winner or not loser or winner == loser:
+            continue
+        votes = tally.setdefault(frozenset((winner, loser)), {})
+        votes[winner] = votes.get(winner, 0) + 1
+    consolidated = []
+    for key, votes in tally.items():
+        a, b = sorted(key)
+        wins_a, wins_b = votes.get(a, 0), votes.get(b, 0)
+        if wins_a == wins_b:
+            continue
+        winner, loser = (a, b) if wins_a > wins_b else (b, a)
+        consolidated.append((winner, loser))
+    return consolidated
+
+
+def _iter_usable_comparisons(tags, embeddings, comparisons):
+    """Yields (winner, loser, winner_embedding, loser_embedding) for every consolidated pair
+    (see _consolidate_pairs) whose winner and loser tags are both present in the embedding cache.
+    The single filtering pass both build_training_set and comparisons_fingerprint rely on, so
+    they can't drift apart."""
+    tag_to_row = {t: i for i, t in enumerate(tags)}
+    for winner, loser in _consolidate_pairs(comparisons):
         if winner not in tag_to_row or loser not in tag_to_row:
             continue
         yield winner, loser, embeddings[tag_to_row[winner]], embeddings[tag_to_row[loser]]
@@ -57,9 +85,11 @@ def _iter_usable_comparisons(tags, embeddings, comparisons):
 
 def build_training_set(tags, embeddings, comparisons):
     """`tags`/`embeddings` come from embed_cache.load_cache; `comparisons` is the loaded
-    user_comparisons.json list. Returns (X, y): a mirrored pair of rows per usable comparison
-    (embedding[winner] - embedding[loser] labeled 1, its negation labeled 0), skipping any
-    comparison whose winner or loser tag isn't in the embedding cache."""
+    user_comparisons.json list. Returns (X, y): a mirrored pair of rows per usable, consolidated
+    pair (embedding[winner] - embedding[loser] labeled 1, its negation labeled 0), skipping any
+    pair whose winner or loser tag isn't in the embedding cache. Repeated judgments on the same
+    pair are consolidated first (see _consolidate_pairs), so they contribute one row, not one
+    row per judgment."""
     diffs = [w - l for _, _, w, l in _iter_usable_comparisons(tags, embeddings, comparisons)]
     if not diffs:
         return np.zeros((0, 0), dtype=np.float32), np.zeros((0,), dtype=np.int64)
@@ -70,10 +100,12 @@ def build_training_set(tags, embeddings, comparisons):
 
 
 def comparisons_fingerprint(tags, embeddings, comparisons):
-    """A hash of the exact (winner, loser) pairs a train run would use. Two fingerprints matching
-    means retraining now would use identical data to last time. Unlike a bare comparison count,
-    this also catches a comparison being added and another (already-counted) one becoming
-    unusable, e.g. after an embedding cache rebuild drops a tag."""
+    """A hash of the exact consolidated (winner, loser) pairs a train run would use. Two
+    fingerprints matching means retraining now would use identical data to last time. Unlike a
+    bare comparison count, this also catches a comparison being added and another
+    (already-counted) one becoming unusable, e.g. after an embedding cache rebuild drops a tag.
+    Repeating an already-judged pair does not change the fingerprint, since it's consolidated
+    into the same single verdict rather than counted as a new row."""
     pairs = sorted((w, l) for w, l, _, _ in _iter_usable_comparisons(tags, embeddings, comparisons))
     return hashlib.sha256(json.dumps(pairs).encode()).hexdigest()
 

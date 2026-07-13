@@ -311,6 +311,11 @@ def _maybe_retrain_pairwise_model(comparisons):
         _pairwise_model_cache["model"] = result["model"]
 
 
+def _compared_pair_keys(comparisons):
+    return {frozenset((c["winner"], c["loser"])) for c in comparisons
+            if c.get("winner") and c.get("loser")}
+
+
 def next_compare_response(manifest, comparisons):
     """Returns a pair of item summaries, or {"done": True} when fewer than two images exist."""
     model = _pairwise_model_cache["model"]
@@ -329,6 +334,7 @@ def next_compare_response(manifest, comparisons):
     pair = comparison_sampler.pick_next_pair(
         candidate_manifest, len(comparisons), model=model,
         score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for,
+        exclude=_compared_pair_keys(comparisons),
     )
     if pair is None:
         return {"done": True}

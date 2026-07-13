@@ -1,3 +1,4 @@
+import itertools
 import json
 import threading
 from http.server import HTTPServer
@@ -83,10 +84,14 @@ def test_post_compare_retrains_and_caches_model_at_retrain_interval(running_serv
     monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", embeddings_path)
     monkeypatch.setitem(cs._pairwise_model_cache, "model", None)
 
-    for _ in range(comparison_sampler.MIN_COMPARISONS):
+    # Distinct pairs, not the same pair repeated: repeated judgments on one pair now consolidate
+    # into a single piece of evidence (issue #13), so they'd never clear MIN_COMPARISONS usable
+    # pairs and this test would never observe a retrain.
+    pairs = list(itertools.combinations(tags, 2))[:comparison_sampler.MIN_COMPARISONS]
+    for winner, loser in pairs:
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/compare", method="POST",
-            data=json.dumps({"winner": "t0", "loser": "t1"}).encode(),
+            data=json.dumps({"winner": winner, "loser": loser}).encode(),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req) as resp:
