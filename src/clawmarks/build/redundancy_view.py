@@ -19,7 +19,7 @@ import json
 import math
 import os
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def compute_data(sweep_dir, deps):
@@ -72,9 +72,9 @@ def render_html(data):
     else:
         slider_min, slider_max, default_thresh = 0.80, 0.99, 0.93
 
-    edges_json = json.dumps(sim_scored)
-    thumbs_json = json.dumps(thumbs)
-    meta_json = json.dumps(meta)
+    edges_json = json_script(sim_scored)
+    thumbs_json = json_script(thumbs)
+    meta_json = json_script(meta)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS redundancy clusters</title>

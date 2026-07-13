@@ -17,7 +17,7 @@ import json
 import os
 import re
 
-from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def generation_of(tag):
@@ -66,7 +66,7 @@ def compute_data(sweep_dir, deps):
 
 
 def render_html(items):
-    data_json = json.dumps(items)
+    data_json = json_script(items)
 
     faith_tip = info_btn(
         "Faithfulness measures how close an image stays to the original training photos, on a scale "

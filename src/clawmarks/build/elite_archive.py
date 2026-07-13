@@ -21,7 +21,7 @@ import os
 
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.search.preference_pairwise_model import MODEL_FILE as PREFERENCE_MODEL_FILE
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 N_BINS = 4  # matches gallery.html's display grid
 
@@ -121,9 +121,9 @@ def compute_data(sweep_dir, use_predicted_preference=False):
 
 def render_html(data):
     cells = data["cells"]
-    data_json = json.dumps(cells)
-    faith_bins_json = json.dumps(data.get("faith_bins", []))
-    novelty_bins_json = json.dumps(data.get("novelty_bins", []))
+    data_json = json_script(cells)
+    faith_bins_json = json_script(data.get("faith_bins", []))
+    novelty_bins_json = json_script(data.get("novelty_bins", []))
 
     elite_tip = info_btn(
         "MAP-Elites is a search strategy that keeps a grid of bins (here, faithfulness x novelty) "

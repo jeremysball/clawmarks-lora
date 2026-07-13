@@ -12,10 +12,9 @@ fit; this module only lays out the already-computed points. compute_data(sweep_d
 solution_map's result via `deps["solution-map"]`, served live by curation_server.py through
 LiveCache's depends_on=["solution-map"] mechanism, not a standalone build step.
 """
-import json
 from collections import Counter
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def compute_data(sweep_dir, deps):
@@ -52,10 +51,10 @@ def render_html(data):
         "to it as their closest match."
     )
 
-    real_anchor_json = json.dumps(data["real_anchor_counts"])
+    real_anchor_json = json_script(data["real_anchor_counts"])
 
-    points_json = json.dumps(points)
-    real_json = json.dumps(real_points)
+    points_json = json_script(points)
+    real_json = json_script(real_points)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS solution map</title>

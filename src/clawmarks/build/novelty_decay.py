@@ -11,7 +11,7 @@ import json
 import re
 from collections import defaultdict
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def compute_data(sweep_dir):
@@ -73,7 +73,7 @@ run has nothing to compare across.</p>
 sparkline per prompt family that has appeared more than once, sorted worst-trending first.</p>
 </body></html>"""
 
-    data_json = json.dumps(series)
+    data_json = json_script(series)
 
     trend_tip = info_btn(
         "The trend is the average novelty of a prompt's last 3 generations minus the average of its "

@@ -28,6 +28,19 @@ def test_render_html_embeds_data_and_infobtn_tips():
     assert "infobtn" in html
 
 
+def test_render_html_escapes_close_script_in_model_generated_prompt_text():
+    """Regression test for issue #17 (stored XSS): a prompt/tag field containing a literal
+    "</script>" used to close the page's own <script> tag early, letting whatever followed
+    execute as HTML/JS. render_html must not leak that sequence into the page."""
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0, "category": "seedrun1",
+              "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "a cat </script><script>alert(1)</script>", "strength": 1.0,
+              "cfg": 5.0, "seed": 1, "steps": 28, "sampler": "ddim", "negative": "n",
+              "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "</script><script>alert(1)" not in html
+
+
 def test_render_html_includes_view_transition_helper():
     items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0, "category": "seedrun1",
               "prompt_name": "fox", "prompt_type": "conflict", "prompt": "p", "strength": 1.0,

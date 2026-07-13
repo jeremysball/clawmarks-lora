@@ -11,6 +11,18 @@ with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(t
 `window.open('scan.html?open=...')`: no new tab, no page load, works from any page because the
 module fetches scan_data.json itself.
 """
+import json
+
+
+def json_script(data):
+    """json.dumps() output embedded raw inside a <script> tag is a stored-XSS vector: it does
+    not escape the literal substring "</script>", so any string field containing
+    "</script><script>...injected..." closes the intended script block early and lets whatever
+    follows execute as HTML/JS. Escaping "<" as its JSON/JS-safe unicode form (which every JSON
+    and JS parser reads back as a plain "<") neutralizes that and every other tag-opening
+    sequence without changing the decoded value."""
+    return json.dumps(data).replace("<", "\\u003c")
+
 
 NAV_OPTIONS = [
     ("explore.html", "all tools (hub)"),

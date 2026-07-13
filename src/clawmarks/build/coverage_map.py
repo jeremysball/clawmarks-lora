@@ -14,7 +14,7 @@ Run after scored_manifest.json exists: python3 -m clawmarks.build.coverage_map
 import json
 import os
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 N_BINS = 8
 
@@ -154,7 +154,7 @@ def neighbor_tags(data, fb, nb):
 def render_html(data):
     cells_json = data["cells"]
     max_count = data["max_count"]
-    data_json = json.dumps(cells_json)
+    data_json = json_script(cells_json)
 
     axes_tip = info_btn(
         "Faithfulness (x-axis) measures how close an image stays to the original training photos, "

@@ -16,7 +16,7 @@ import joblib
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import index_by_tag, item_summary
 from clawmarks.search.preference_pairwise_model import MODEL_FILE, score
-from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
+from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html, json_script
 
 
 def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
@@ -61,7 +61,7 @@ def render_html(data):
         "view exists to sanity-check the model before it's allowed to steer the live search: "
         "does the top of this list actually look like things you like?"
     )
-    data_json = json.dumps(items)
+    data_json = json_script(items)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS predicted preference</title>
