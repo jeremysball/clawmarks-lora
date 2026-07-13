@@ -270,9 +270,9 @@ the earlier 3-4 guess) across roughly 10 directions per round, that's ~80 probes
 checkpoints. Call it **9-14 hours per round**, not 2.2-2.5. Five rounds plus the one-time
 calibration check: **45-70 hours of GPU time**, a large jump from the original 11-13 hour
 estimate, and worth running two pods in parallel (as calibration already did) rather than
-   serially. The corrected analysis does not claim 80% power at the exploratory 0.05 threshold;
-    it uses 0.08 as the prespecified 80%-power per-direction screening effect while retaining 0.05 as a practical
-   screen (see the 2026-07-13 log entry).
+serially. The corrected analysis does not claim 80% power at the exploratory 0.05 threshold;
+it uses 0.08 as the prespecified 80%-power per-direction screening effect while retaining 0.05 as a practical
+screen (see the 2026-07-13 log entry).
 
 **Candidate direction slate for round 1, proposed 2026-07-09, not yet approved.** Baseline
 config: `network_dim=32, network_alpha=16, unet_lr=1e-4, text_encoder_lr=5e-5, min_snr_gamma=5,
