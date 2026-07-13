@@ -14,6 +14,7 @@ module fetches scan_data.json itself.
 
 NAV_OPTIONS = [
     ("explore.html", "all tools (hub)"),
+    ("cockpit.html", "generation cockpit"),
     ("compare.html", "compare images (head-to-head)"),
     ("scan.html", "scan gallery"),
     ("map.html", "solution map (UMAP)"),

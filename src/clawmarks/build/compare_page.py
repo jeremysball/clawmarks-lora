@@ -17,6 +17,17 @@ def render_html():
         "the faithfulness/novelty grid; once 50+ comparisons exist, the model itself starts "
         "picking which pairs are most useful to compare next."
     )
+    accuracy_tip = info_btn(
+        "This is a Bradley-Terry-style classifier: logistic regression on the *difference* "
+        "between two images' DINOv2 embeddings, trained on your head-to-head picks. It doesn't "
+        "rate one image alone, it learns a direction in embedding space where 'further this "
+        "way' means 'more preferred', so it can score any image, even one it never compared. "
+        "The percentage is cross-validated accuracy: how often it names the actual winner on "
+        "comparisons held out of training (leave-one-out below 50 comparisons, 5-fold beyond "
+        "that), not accuracy on data it already saw. 50% is a coin flip, 100% is perfect. Tap "
+        "\"show the work\" below for the exact numbers, including a permutation-test p-value "
+        "that checks whether this accuracy could plausibly be noise."
+    )
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS compare</title>
@@ -54,6 +65,13 @@ p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6
   box-shadow .3s ease; }}
 #prog-fill.bump {{ box-shadow:0 0 12px 2px rgba(124,158,255,0.75); }}
 #prog-sub {{ font-size:11.5px; color:var(--text-dim); margin-top:6px; }}
+#prog-work {{ margin-top:8px; }}
+#prog-work summary {{ font-size:11.5px; color:var(--text-dim); cursor:pointer; user-select:none; }}
+#prog-work summary:hover {{ color:var(--text); }}
+table.work-table {{ font-size:12px; border-collapse:collapse; margin-top:8px; }}
+table.work-table td {{ padding:2px 10px 2px 0; color:var(--text-dim); }}
+table.work-table td:first-child {{ color:var(--text); }}
+.work-note {{ color:var(--text-dim); }}
 @media (max-width: 640px) {{
   #pair {{ flex-direction:column; align-items:center; }}
   .pane {{ flex:1 1 auto; width:100%; max-width:none; }}
@@ -73,9 +91,13 @@ p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6
 a corner to inspect that image at full resolution; tap again to close.</p>
 
 <div id="progress">
-  <div id="prog-label">&nbsp;</div>
+  <div id="prog-label"><span id="prog-label-text">&nbsp;</span>{accuracy_tip}</div>
   <div id="prog-track"><div id="prog-fill"></div></div>
   <div id="prog-sub"></div>
+  <details id="prog-work" style="display:none;">
+    <summary>show the work</summary>
+    <table class="work-table" id="work-table"></table>
+  </details>
 </div>
 
 <div id="stage">
@@ -104,6 +126,7 @@ let current = null;
 let comparedThisSession = 0;
 let totalCount = 0;
 let lastAccuracy = null;
+let modelMeta = null;
 
 const MIN_COMPARISONS = 50;
 const RETRAIN_EVERY = 10;
@@ -120,35 +143,62 @@ function bumpBar() {{
 }}
 
 function renderProgress() {{
-  const label = document.getElementById('prog-label');
+  const labelText = document.getElementById('prog-label-text');
   const fill = document.getElementById('prog-fill');
   const sub = document.getElementById('prog-sub');
+  const work = document.getElementById('prog-work');
+  work.style.display = 'none';
   if (totalCount < MIN_COMPARISONS) {{
     const left = MIN_COMPARISONS - totalCount;
-    label.textContent = `Model unlocks in ${{left}} vote${{left === 1 ? '' : 's'}}`;
+    labelText.textContent = `Model unlocks in ${{left}} vote${{left === 1 ? '' : 's'}}`;
     fill.style.width = (totalCount / MIN_COMPARISONS * 100) + '%';
     sub.textContent = `${{totalCount}} / ${{MIN_COMPARISONS}} comparisons`;
   }} else if (lastAccuracy == null) {{
-    label.textContent = 'Model unlocked. Training on your picks…';
+    labelText.textContent = 'Model unlocked. Training on your picks…';
     fill.style.width = '0%';
     sub.textContent = `${{totalCount}} comparisons`;
   }} else {{
     const pct = Math.round(lastAccuracy * 100);
-    label.textContent = `Model reads your taste: ${{pct}}%`;
+    labelText.textContent = `Model reads your taste: ${{pct}}%`;
     // Map cross-validated accuracy (0.5 = coin flip, 1.0 = perfect) onto the bar.
     fill.style.width = Math.max(0, Math.min(100, (lastAccuracy - 0.5) / 0.5 * 100)) + '%';
     const toRefresh = RETRAIN_EVERY - (totalCount % RETRAIN_EVERY);
     const n = toRefresh === RETRAIN_EVERY ? 0 : toRefresh;
     const refresh = n === 0 ? 'just refreshed' : `refreshes in ${{n}} vote${{n === 1 ? '' : 's'}}`;
     sub.textContent = `${{refresh}} · coin-flip 50% → 100%`;
+    if (modelMeta) renderWork(work);
   }}
+}}
+
+function renderWork(work) {{
+  const m = modelMeta;
+  const table = document.getElementById('work-table');
+  const rows = [
+    ['comparisons used', m.n_comparisons],
+    ['cross-validated accuracy', (m.cv_accuracy * 100).toFixed(1) + '%'],
+  ];
+  if (typeof m.baseline_accuracy === 'number') {{
+    rows.push(['majority-class baseline', (m.baseline_accuracy * 100).toFixed(1) + '%']);
+  }}
+  if (typeof m.p_value === 'number') {{
+    const interp = m.p_value < 0.05 ? 'unlikely to be chance' : 'not distinguishable from chance';
+    rows.push(['permutation p-value', `${{m.p_value.toFixed(4)}} (${{interp}}, ${{m.n_permutations}} shuffles)`]);
+  }}
+  rows.push(['trained', m.trained_at]);
+  table.innerHTML = rows.map(([k, v]) => `<tr><td>${{k}}</td><td>${{v}}</td></tr>`).join('')
+    + '<tr><td colspan="2" class="work-note">full breakdown + retrain: '
+    + '<a href="preference_status.html" style="color:inherit;">preference_status.html</a></td></tr>';
+  work.style.display = 'block';
 }}
 
 function fetchStatus(after) {{
   fetch('/api/preference_status').then(r => r.ok ? r.json() : null).then(d => {{
     if (d) {{
       if (typeof d.n_comparisons === 'number') totalCount = d.n_comparisons;
-      if (d.model_meta && typeof d.model_meta.cv_accuracy === 'number') lastAccuracy = d.model_meta.cv_accuracy;
+      if (d.model_meta && typeof d.model_meta.cv_accuracy === 'number') {{
+        lastAccuracy = d.model_meta.cv_accuracy;
+        modelMeta = d.model_meta;
+      }}
     }}
     renderProgress();
     if (after) after();

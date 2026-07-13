@@ -16,6 +16,7 @@ QUALITY = 78
 
 
 def generate_thumbnail(src_path, dst_path):
+    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     img = Image.open(src_path).convert("RGB")
     img.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.BICUBIC)
     tmp_path = f"{dst_path}.tmp-{os.getpid()}-{threading.get_ident()}"

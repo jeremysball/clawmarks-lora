@@ -115,14 +115,17 @@ def top_frontier_cells(data, n=3):
         if not neighbors:
             continue
         adjacent = sum(nb_cell["count"] for nb_cell in neighbors)
-        best_neighbor = max(neighbors, key=lambda nb_cell: nb_cell["count"])
-        best_item = best_neighbor["items"][0] if best_neighbor["items"] else None
+        # Each cell's "items" is already sorted descending by novelty (see compute_data), so
+        # items[0] is that cell's own best; the single best across all neighbors is the max of
+        # those per-cell bests, not just the item from the most populous neighbor.
+        neighbor_bests = [nb_cell["items"][0] for nb_cell in neighbors if nb_cell["items"]]
+        best_item = max(neighbor_bests, key=lambda item: item["novelty"]) if neighbor_bests else None
         shaped.append({
             "fb": fb, "nb": nb,
             "range": f"Faith {_fmt_range(c['faith_lo'], c['faith_hi'])}, "
                      f"novelty {_fmt_range(c['novelty_lo'], c['novelty_hi'])}",
             "adjacent": adjacent,
-            "thumb": best_neighbor["thumb"],
+            "thumb": best_item["thumb"] if best_item else None,
             "near_faith": best_item["faith"] if best_item else None,
             "near_novelty": best_item["novelty"] if best_item else None,
             "faith_lo": c["faith_lo"], "faith_hi": c["faith_hi"],
@@ -131,6 +134,21 @@ def top_frontier_cells(data, n=3):
 
     shaped.sort(key=lambda s: -s["adjacent"])
     return shaped[:n]
+
+
+def neighbor_tags(data, fb, nb):
+    """Tags of every item in the occupied 4-neighbors of cell (fb, nb). A frontier/gap cell is
+    empty by definition (see top_frontier_cells), so its own items are always []; the 4-neighbor
+    territory is the closest 'nearby work' the cockpit's evidence panel can show for a gap-mission
+    target cell."""
+    by_coord = {(c["fb"], c["nb"]): c for c in data["cells"]}
+    neighbor_coords = [(fb + 1, nb), (fb - 1, nb), (fb, nb + 1), (fb, nb - 1)]
+    tags = set()
+    for nc in neighbor_coords:
+        cell = by_coord.get(nc)
+        if cell and cell["count"] > 0:
+            tags.update(item["tag"] for item in cell["items"])
+    return tags
 
 
 def render_html(data):

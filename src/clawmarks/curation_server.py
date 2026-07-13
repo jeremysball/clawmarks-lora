@@ -75,12 +75,14 @@ import base64
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
@@ -95,7 +97,7 @@ from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
     novelty_decay, lineage_view, elite_archive, preference_rank, explore_hub,
-    seed_browser, compare_page, preference_status,
+    seed_browser, compare_page, preference_status, cockpit,
 )
 from clawmarks.build.thumbnails import generate_thumbnail
 
@@ -212,6 +214,7 @@ FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
 COMPARISONS_FILE = f"{SWEEP_DIR}/user_comparisons.json"
 COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
 COUNTERFACTUALS_FILE = f"{SWEEP_DIR}/user_counterfactuals.json"
+COCKPIT_QUEUE_FILE = f"{SWEEP_DIR}/cockpit_queue.json"
 DEFAULT_PORT = 8420
 
 COMFY_ENDPOINT_ID = "uix4vdb2cec7sb"  # same serverless endpoint the search uses
@@ -364,6 +367,283 @@ def next_compare_response(manifest, comparisons):
     return {"img1": item_summary(a, SWEEP_DIR), "img2": item_summary(b, SWEEP_DIR)}
 
 
+SAMPLERS = ("ddim", "dpmpp_2m", "euler")
+
+
+def build_trial(payload, now, trial_id):
+    """Validates and shapes a draft trial for cockpit_queue.json. Raises ValueError with a
+    user-facing message on any invalid field, so the POST handler can turn it straight into a
+    400 without duplicating validation logic."""
+    prompt = (payload.get("prompt") or "").strip()
+    if not prompt:
+        raise ValueError("missing 'prompt'")
+    seed_strategy = payload.get("seed_strategy") or "random"
+    if seed_strategy not in ("random", "fixed"):
+        raise ValueError("seed_strategy must be 'random' or 'fixed'")
+    sampler = payload.get("sampler") or "ddim"
+    if sampler not in SAMPLERS:
+        raise ValueError(f"sampler must be one of {SAMPLERS}")
+    try:
+        n = max(1, min(int(payload.get("n", 4)), 6))
+        strength = float(payload.get("strength", 1.0))
+        steps = int(payload.get("steps", 28))
+        cfg = float(payload.get("cfg", 7.5))
+    except (TypeError, ValueError):
+        raise ValueError("n/strength/steps/cfg must be numbers")
+    mission = payload.get("mission") or "freeform"
+    queue_title = cockpit.MISSIONS.get(mission, {}).get("queue", mission)
+    return {
+        "id": trial_id, "status": "draft", "mission": mission, "queue_title": queue_title,
+        "prompt": prompt, "hypothesis": (payload.get("hypothesis") or "").strip(),
+        "target": payload.get("target") or "", "target_cell": payload.get("target_cell"),
+        "seed_strategy": seed_strategy, "n": n, "strength": strength,
+        "sampler": sampler, "steps": steps, "cfg": cfg,
+        "negative": payload.get("negative") or NEG_DEFAULT,
+        "created_at": now, "result_tags": [], "error": None,
+    }
+
+
+def build_generation_jobs(trial):
+    """Builds one ComfyUI job per requested image. "random" draws a fresh seed per job; "fixed"
+    reuses one seed across the whole batch, so a user can isolate the effect of strength/cfg
+    without seed noise."""
+    base_seed = trial.get("seed") or random.randint(1, 999999)
+    prompt_name = f"cockpit_{trial['mission']}_{trial['id']}"
+    jobs = []
+    for i in range(trial["n"]):
+        seed = base_seed if trial["seed_strategy"] == "fixed" else random.randint(1, 999999)
+        jobs.append({
+            "tag": f"{trial['id']}_{i}_{seed}", "prompt_name": prompt_name,
+            "prompt": trial["prompt"], "seed": seed, "strength": trial["strength"],
+            "cfg": trial["cfg"], "steps": trial["steps"], "sampler": trial["sampler"],
+            "negative": trial["negative"],
+        })
+    return jobs
+
+
+_cockpit_scoring_state = {"model": None, "real_embs": None, "real_centroid": None}
+_cockpit_scoring_lock = threading.Lock()
+
+
+def _cockpit_scoring_context():
+    """Lazily loads DINOv2 and embeds every real training image once per server process, then
+    reuses both for every later cockpit trial run. search/driver.py recomputes this fresh per
+    offline sweep invocation; here that cost would otherwise repeat on every single trial run
+    within a live server session, which is wasteful since the real image set doesn't change."""
+    with _cockpit_scoring_lock:
+        if _cockpit_scoring_state["model"] is None:
+            from transformers import AutoModel
+            from clawmarks.search.score_manifest import MODEL_ID, embed_images
+
+            model = AutoModel.from_pretrained(MODEL_ID)
+            model.eval()
+            real_paths = sorted(
+                os.path.join(REAL_DIR, f) for f in os.listdir(REAL_DIR)
+                if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            )
+            real_embs = embed_images(real_paths, model=model)
+            real_centroid = real_embs.mean(dim=0)
+            real_centroid = real_centroid / real_centroid.norm()
+            _cockpit_scoring_state["model"] = model
+            _cockpit_scoring_state["real_embs"] = real_embs
+            _cockpit_scoring_state["real_centroid"] = real_centroid
+        return (_cockpit_scoring_state["model"], _cockpit_scoring_state["real_embs"],
+                _cockpit_scoring_state["real_centroid"])
+
+
+def score_cockpit_batch(results, trial):
+    from clawmarks.search.driver import score_batch
+
+    model, real_embs, real_centroid = _cockpit_scoring_context()
+    scored = score_batch(model, real_embs, real_centroid, results, prev_embs=None)
+    for m in scored:
+        m["prompt_type"] = "cockpit"
+        m["category"] = "cockpit"
+        m["round"] = 0
+        m["trial_id"] = trial["id"]
+        m["mission"] = trial["mission"]
+    return scored
+
+
+def _load_scored_manifest():
+    path = f"{SWEEP_DIR}/scored_manifest.json"
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return []
+
+
+def _save_scored_manifest(manifest):
+    path = f"{SWEEP_DIR}/scored_manifest.json"
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(manifest, f, indent=1)
+    os.replace(tmp, path)
+
+
+def _run_cockpit_trial(trial_id, api_key):
+    """Runs entirely in a background thread, spawned by _handle_cockpit_run after that request
+    already returned a "running" response: submits every job, polls until each completes or the
+    batch times out, scores and thumbnails the results, appends them to scored_manifest.json,
+    and marks the trial completed or failed. Any exception here becomes the trial's stored
+    error string rather than an unhandled thread crash, since nothing is left to catch it."""
+    with _lock:
+        trials = load_store(COCKPIT_QUEUE_FILE)
+        trial = trials[trial_id]
+
+    try:
+        jobs = build_generation_jobs(trial)
+        for job in jobs:
+            wf = build_workflow(job["prompt"], job["seed"], job["strength"], job["cfg"],
+                                 job["steps"], job["sampler"], job["negative"])
+            res = comfy_post("/run", wf, api_key)
+            jid = res.get("id")
+            if not jid:
+                raise RuntimeError(f"submit failed for {job['tag']}: {res}")
+            job["job_id"] = jid
+
+        pending = {j["tag"]: j for j in jobs}
+        results = []
+        t0 = time.time()
+        while pending and time.time() - t0 < GENERATION_TIMEOUT_S:
+            for tag, job in list(pending.items()):
+                try:
+                    res = comfy_get(f"/status/{job['job_id']}", api_key)
+                except Exception:
+                    continue
+                status = res.get("status")
+                if status == "COMPLETED":
+                    images = res.get("output", {}).get("images", [])
+                    if not images:
+                        raise RuntimeError(f"job {tag} completed with no image output")
+                    fname = f"{SWEEP_DIR}/{tag}.png"
+                    with open(fname, "wb") as f:
+                        f.write(base64.b64decode(images[0]["data"]))
+                    job["file"] = fname
+                    results.append(job)
+                    del pending[tag]
+                elif status in ("FAILED", "CANCELLED"):
+                    raise RuntimeError(f"job {tag} {status.lower()}: {res}")
+            if pending:
+                time.sleep(2)
+        if pending:
+            raise RuntimeError(f"{len(pending)} job(s) timed out after {GENERATION_TIMEOUT_S}s")
+
+        scored = score_cockpit_batch(results, trial)
+        for m in scored:
+            generate_thumbnail(m["file"], f"{SWEEP_DIR}/thumbs/{m['tag']}.jpg")
+
+        with _lock:
+            manifest = _load_scored_manifest()
+            manifest.extend(scored)
+            _save_scored_manifest(manifest)
+
+            trials = load_store(COCKPIT_QUEUE_FILE)
+            trials[trial_id]["status"] = "completed"
+            trials[trial_id]["result_tags"] = [m["tag"] for m in scored]
+            save_store(COCKPIT_QUEUE_FILE, trials)
+    except Exception as e:
+        with _lock:
+            trials = load_store(COCKPIT_QUEUE_FILE)
+            trials[trial_id]["status"] = "failed"
+            trials[trial_id]["error"] = str(e)
+            save_store(COCKPIT_QUEUE_FILE, trials)
+
+
+def build_autopilot_context(coverage_data, manifest, favorites, comparisons, n_cells=3):
+    """Gathers grounding data for the Autopilot subprocess call: the most attractive frontier
+    cells and a handful of recent kept/rejected prompts, so the model proposes trials grounded
+    in real coverage gaps and real preference signal instead of inventing plausible ideas from
+    nothing."""
+    cells = coverage_map.top_frontier_cells(coverage_data, n=n_cells)
+    kept_prompts = [m["prompt"] for m in manifest if m["tag"] in favorites][-5:]
+    winners, losers = set(), set()
+    for c in comparisons:
+        if c.get("winner"):
+            winners.add(c["winner"])
+        if c.get("loser"):
+            losers.add(c["loser"])
+    rejected_tags = [t for t in losers if t not in winners]
+    by_tag = {m["tag"]: m for m in manifest}
+    rejected_prompts = [by_tag[t]["prompt"] for t in rejected_tags if t in by_tag][-5:]
+    return {"cells": cells, "kept_prompts": kept_prompts, "rejected_prompts": rejected_prompts}
+
+
+_NUMERIC_FORECAST_RE = re.compile(r"\d+(\.\d+)?\s*%|\bscore\b|\bconfidence\b|\bprobability\b", re.IGNORECASE)
+
+
+def suggestion_has_numeric_forecast(rationale):
+    return bool(_NUMERIC_FORECAST_RE.search(rationale or ""))
+
+
+def filter_autopilot_suggestions(suggestions):
+    """Drops any suggestion missing a required field, whose mission isn't one the cockpit UI
+    actually knows about, or whose rationale smuggles in a numeric score/confidence/percentage:
+    a cheap guard against the model ignoring the "no numeric forecast" instruction (or inventing
+    a mission name) in its own prompt."""
+    out = []
+    for s in suggestions:
+        if not isinstance(s, dict):
+            continue
+        if not s.get("title") or not s.get("prompt") or not isinstance(s.get("rationale"), str):
+            continue
+        if s.get("mission") not in cockpit.MISSIONS:
+            continue
+        if suggestion_has_numeric_forecast(s["rationale"]):
+            continue
+        out.append(s)
+    return out
+
+
+def cockpit_evidence(manifest, prompt, favorites, comparisons, top_n=3, cell_tags=None):
+    """Ranks manifest entries by how much their prompt text overlaps with `prompt` (a plain
+    difflib.SequenceMatcher ratio, since this repo has no text-embedding model, only DINOv2 image
+    embeddings), and attaches an honest status: "kept" if the tag is in `favorites`, "rejected" if
+    it appeared in at least one head-to-head comparison and never won one, else "unrated". Never
+    fabricates a numeric preference score.
+
+    `cell_tags`, if given, restricts the search to that set of tags (the gap mission's selected
+    target cell's neighboring items, from coverage_map.neighbor_tags), so "nearby work" is
+    spatially relevant to the frontier cell the curator is aiming for, not just wording-similar
+    prompts from anywhere in the manifest."""
+    import difflib
+
+    wins, appearances = {}, {}
+    for c in comparisons:
+        winner, loser = c.get("winner"), c.get("loser")
+        if winner:
+            appearances[winner] = appearances.get(winner, 0) + 1
+            wins[winner] = wins.get(winner, 0) + 1
+        if loser:
+            appearances[loser] = appearances.get(loser, 0) + 1
+
+    def status_of(tag):
+        if tag in favorites:
+            return "kept"
+        if appearances.get(tag, 0) > 0 and wins.get(tag, 0) == 0:
+            return "rejected"
+        return "unrated"
+
+    prompt_lower = (prompt or "").lower().strip()
+    if not prompt_lower:
+        return []
+    pool = manifest if cell_tags is None else [m for m in manifest if m["tag"] in cell_tags]
+    scored = []
+    for m in pool:
+        ratio = difflib.SequenceMatcher(None, prompt_lower, m["prompt"].lower()).ratio()
+        if ratio <= 0:
+            continue
+        scored.append((ratio, m))
+    scored.sort(key=lambda pair: -pair[0])
+    out = []
+    for ratio, m in scored[:top_n]:
+        summary = item_summary(m, SWEEP_DIR)
+        summary["similarity"] = round(ratio, 4)
+        summary["status"] = status_of(m["tag"])
+        out.append(summary)
+    return out
+
+
 _manifest_cache = {"manifest": None, "mtime": None, "by_tag": None}
 _manifest_cache_lock = threading.Lock()
 
@@ -426,6 +706,19 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/seeds":
             with _lock:
                 self._json_response(200, load_store(SEEDS_FILE))
+            return
+        if self.path == "/api/cockpit/target_cells":
+            coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
+            cells = coverage_map.top_frontier_cells(coverage_data, n=3)
+            self._json_response(200, {"cells": cells})
+            return
+        if self.path.startswith("/api/cockpit/evidence"):
+            self._handle_cockpit_evidence()
+            return
+        if self.path == "/api/cockpit/queue":
+            with _lock:
+                trials = load_store(COCKPIT_QUEUE_FILE)
+            self._json_response(200, {"trials": sorted(trials.values(), key=lambda t: t["created_at"])})
             return
         if self.path == "/":
             self.send_response(302)
@@ -587,6 +880,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if self.path == "/cockpit.html":
+            body = cockpit.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if self.path.startswith("/real/"):
             # basename() strips any path components a malicious/malformed request tried to smuggle
             # in (e.g. /real/../../etc/passwd), so this can only ever resolve to a direct child of
@@ -699,6 +1001,29 @@ class Handler(SimpleHTTPRequestHandler):
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
+        if self.path == "/api/cockpit/queue":
+            trial_id = f"trial_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            try:
+                trial = build_trial(payload, datetime.now(timezone.utc).isoformat(), trial_id)
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
+                return
+            with _lock:
+                trials = load_store(COCKPIT_QUEUE_FILE)
+                trials[trial_id] = trial
+                save_store(COCKPIT_QUEUE_FILE, trials)
+            self._json_response(200, {"ok": True, "id": trial_id})
+            return
+
+        if self.path.startswith("/api/cockpit/queue/") and self.path.endswith("/run"):
+            trial_id = self.path[len("/api/cockpit/queue/"):-len("/run")]
+            self._handle_cockpit_run(trial_id)
+            return
+
+        if self.path == "/api/cockpit/autopilot":
+            self._handle_cockpit_autopilot()
+            return
+
         if self.path == "/api/counterfactual":
             self._handle_counterfactual(payload)
             return
@@ -708,6 +1033,72 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         self._json_response(404, {"error": "unknown endpoint"})
+
+    def _handle_cockpit_evidence(self):
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        prompt = (query.get("prompt") or [""])[0]
+        cell = (query.get("cell") or [""])[0]
+        cell_tags = None
+        if cell:
+            try:
+                fb, nb = (int(x) for x in cell.split(","))
+            except ValueError:
+                fb = nb = None
+            if fb is not None:
+                coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
+                cell_tags = coverage_map.neighbor_tags(coverage_data, fb, nb)
+        with _lock:
+            favorites = load_store(FAVORITES_FILE)
+            comparisons = load_comparisons()
+        nearest = cockpit_evidence(load_manifest(), prompt, favorites, comparisons, cell_tags=cell_tags)
+        self._json_response(200, {"nearest": nearest})
+
+    def _handle_cockpit_run(self, trial_id):
+        api_key = os.environ.get("RUNPOD_API_KEY")
+        if not api_key:
+            self._json_response(400, {"error": "RUNPOD_API_KEY not set in server environment"})
+            return
+
+        with _lock:
+            trials = load_store(COCKPIT_QUEUE_FILE)
+            trial = trials.get(trial_id)
+            if trial is None:
+                self._json_response(404, {"error": f"no such trial {trial_id!r}"})
+                return
+            if trial["status"] == "running":
+                self._json_response(409, {"error": "trial is already running"})
+                return
+            prev_status = trial["status"]
+            trial["status"] = "running"
+            trial["error"] = None
+            save_store(COCKPIT_QUEUE_FILE, trials)
+
+        def _revert(error):
+            with _lock:
+                trials = load_store(COCKPIT_QUEUE_FILE)
+                trials[trial_id]["status"] = prev_status
+                trials[trial_id]["error"] = error
+                save_store(COCKPIT_QUEUE_FILE, trials)
+
+        try:
+            balance = runpod_balance(api_key)
+        except Exception as e:
+            _revert(f"balance check failed: {e}")
+            self._json_response(502, {"error": f"balance check failed: {e}"})
+            return
+        if balance < BALANCE_FLOOR_USD:
+            error = (
+                f"RunPod balance ${balance:.4f} is below the ${BALANCE_FLOOR_USD:.2f} safety "
+                "floor. Add funds before generating (a negative/near-zero balance has "
+                "previously caused jobs to silently stall in queue instead of erroring)."
+            )
+            _revert(error)
+            self._json_response(402, {"error": error})
+            return
+
+        self._json_response(200, {"ok": True, "status": "running"})
+
+        threading.Thread(target=_run_cockpit_trial, args=(trial_id, api_key), daemon=True).start()
 
     def _handle_counterfactual(self, payload):
         api_key = os.environ.get("RUNPOD_API_KEY")
@@ -852,9 +1243,101 @@ class Handler(SimpleHTTPRequestHandler):
             save_store(SEEDS_FILE, updated)
         self._json_response(200, {"ok": True, "added": added, "count": len(updated)})
 
+    def _handle_cockpit_autopilot(self):
+        with _lock:
+            favorites = load_store(FAVORITES_FILE)
+            comparisons = load_comparisons()
+        manifest = load_manifest()
+        coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
+        context = build_autopilot_context(coverage_data, manifest, favorites, comparisons)
+
+        tmp_path = f"{SWEEP_DIR}/cockpit_autopilot_{int(time.time())}.json"
+        prompt = (
+            "You are proposing 2-3 next generation trials for a LoRA style-transfer search tool "
+            "called CLAWMARKS. Ground every suggestion ONLY in the data below; do not invent "
+            "scores, confidences, or percentages anywhere in your response.\n\n"
+            f"Frontier coverage gaps (empty regions of the faithfulness x novelty grid, bordering "
+            f"populated territory): {json.dumps(context['cells'])}\n\n"
+            f"Recently kept (favorited) prompts: {json.dumps(context['kept_prompts'])}\n\n"
+            "Recently rejected prompts (lost every head-to-head comparison they appeared in): "
+            f"{json.dumps(context['rejected_prompts'])}\n\n"
+            f"Write ONLY a JSON array of 2-3 objects to the file {tmp_path}, each shaped exactly "
+            'as {"title": short label, "mission": one of "gap"/"candidate"/"lineage"/"freeform", '
+            '"target_cell": [fb, nb] or null, "prompt": a full trentbuckle-style prompt string, '
+            '"rationale": 1-2 sentences explaining why, with NO numbers, percentages, scores, or '
+            "confidence levels}. Nothing else in that file. When done, print exactly: === DONE ==="
+        )
+        try:
+            result = subprocess.run(
+                ["opencode", "run", "--dir", str(ROOT), "--dangerously-skip-permissions",
+                 "-m", "openai/gpt-5.5", "--", prompt],
+                capture_output=True, text=True, timeout=SEED_GEN_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            self._json_response(504, {"error": f"opencode call timed out after {SEED_GEN_TIMEOUT_S}s"})
+            return
+        except Exception as e:
+            self._json_response(502, {"error": f"failed to invoke opencode: {e}"})
+            return
+
+        if not os.path.exists(tmp_path):
+            self._json_response(502, {
+                "error": f"opencode exit={result.returncode}, no output file produced: "
+                         f"{result.stdout[-300:]!r}"
+            })
+            return
+        try:
+            with open(tmp_path) as f:
+                raw_suggestions = json.load(f)
+        except Exception as e:
+            self._json_response(502, {"error": f"couldn't parse opencode output: {e}"})
+            return
+        finally:
+            os.remove(tmp_path)
+
+        if not isinstance(raw_suggestions, list):
+            self._json_response(502, {
+                "error": f"opencode returned no usable suggestions: {raw_suggestions!r}"
+            })
+            return
+
+        self._json_response(200, {"suggestions": filter_autopilot_suggestions(raw_suggestions)})
+
     def log_message(self, fmt, *args):
         if "/api/" in (self.path or ""):
             print(f"{self.address_string()} - {fmt % args}", flush=True)
+
+
+def tailscale_ip():
+    """Reads the tailscale0 interface's IPv4 address so the server binds to the tailnet instead
+    of every interface. Falls back to 0.0.0.0 if tailscale isn't up, so a laptop without
+    tailscale running can still serve locally."""
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show", "tailscale0"],
+                              capture_output=True, text=True, timeout=5)
+        match = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out.stdout)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return "0.0.0.0"
+
+
+def _reconcile_stuck_trials():
+    """A trial's status=running is persisted before its generation thread starts (see
+    _handle_cockpit_run), so a server crash or restart mid-generation leaves it stuck: no thread
+    is running to ever move it to completed/failed, and the UI's 409 "already running" check
+    blocks every retry forever. Called once at startup to fail those out so they're retriable."""
+    with _lock:
+        trials = load_store(COCKPIT_QUEUE_FILE)
+        changed = False
+        for trial in trials.values():
+            if trial.get("status") == "running":
+                trial["status"] = "failed"
+                trial["error"] = "interrupted by a server restart"
+                changed = True
+        if changed:
+            save_store(COCKPIT_QUEUE_FILE, trials)
 
 
 def main(argv=None):
@@ -863,8 +1346,10 @@ def main(argv=None):
         argv = sys.argv[1:]
     if argv:
         port = int(argv[0])
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"serving {SWEEP_DIR} + ratings API on 0.0.0.0:{port}", flush=True)
+    _reconcile_stuck_trials()
+    host = tailscale_ip()
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"serving {SWEEP_DIR} + ratings API on {host}:{port}", flush=True)
     server.serve_forever()
 
 
