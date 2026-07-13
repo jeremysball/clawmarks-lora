@@ -166,8 +166,8 @@ step exists because of that review, it says so.
    same fixed prompt/seed slots so each direction's replicates and the pooled controls can be
    compared as paired deltas. Run a permutation test (or bootstrap a confidence interval over
    the paired deltas) rather than just checking "average beats the noise floor." Require both a
-   real effect (most of the bootstrap mass positive) and a practically meaningful size (roughly
-   >0.02 DINOv2 cosine, not just statistically nonzero). With ~10 probes tested per round, apply
+   real effect (most of the bootstrap mass positive) and a practically meaningful size (at least
+   0.05 DINOv2 cosine, not just statistically nonzero). With ~10 probes tested per round, apply
    a multiple-comparisons correction (Benjamini-Hochberg) or the equivalent discipline of
    ranking every direction and only ever advancing the single best one, not the first to clear a
    bar. Taking the first direction that clears a loose bar, with this many tested per round,
@@ -180,7 +180,7 @@ step exists because of that review, it says so.
    spread of those deltas, which should average to zero since they're all the same config, is
    the noise floor's empirical standard deviation. Every direction's delta against control has
    to clear this floor, both statistically (permutation test or bootstrap CI, above) and in
-   practical size (>0.02 cosine).
+   practical size (at least 0.05 cosine).
 
    This same number also decides how many replicates (n) round 1 actually needs, which the
    "3-4 replicates" starting assumption above was a guess at, not a derived figure. Once the
@@ -189,14 +189,14 @@ step exists because of that review, it says so.
    test at a few candidate n values (3, 4, 6, 8), and see which n detects the injected effect
    at least 80% of the time. That n, not the guess, is what round 1 should use.
 
-   **Done, 2026-07-09** (see the lab log entry below for the full numbers): the noise floor
-   measured from 3 control_156 replicates turned out bigger than the original 0.02-cosine
-   effect floor could ever clear: at n=8 replicates, a true 0.02 effect is only detected 24%
-   of the time, no matter how many more replicates get added within a practical budget. The
-   effect-size floor that step 3 actually enforces is revised to **0.05 cosine, not 0.02**,
-   and round 1's replicate count is set to **n=8** (84% power at 0.05, 98%+ at 0.08, the
-   scale of gaps actually seen in the calibration table, e.g. dim64's ~0.06 gap from the other
-   three directions, constlr's ~0.10 probe-to-full swing).
+   **Corrected, 2026-07-13** (see the lab log entry below for the reproducible results): the
+   exact sign-flip test makes rejection impossible at alpha=0.05 for n=3 and n=4 because their
+   one-sided p-value floors are 0.125 and 0.0625. With the conservative calibration-noise
+   assumption, n=8 gives 79.90% power at a 0.05 effect, not the previously reported 84%, and
+   99.20% at 0.08. Round 1 therefore keeps the **eight canonical paired training seeds**, uses
+   0.05 as an exploratory practical threshold, and prespecifies 0.08 as the effect size for an
+   80%-power planning claim. A 0.05 result cannot be presented as confirmatory evidence under
+   this planning model.
 
    **Note added 2026-07-09: paired seeds make a separately-measured noise floor optional, not
    required.** A sign-flip permutation test builds its null distribution from the very deltas
@@ -204,10 +204,10 @@ step exists because of that review, it says so.
    control_score[seed_i]`, same seed on both sides via `CANONICAL_SEEDS`), the test asks how
    often random sign-flips of those same 8 numbers would produce a mean this large. It never
    needs an externally-measured floor constant to run. That constant was only ever a stand-in for
-   two side calculations: the practical effect-size floor (still worth a working number, 0.05
-   cosine, but it can come from round 1's own paired deltas rather than a dedicated batch) and
-   the replicate count n (n=8 was derived from unpaired noise; pairing can only shrink variance,
-   never grow it, so n=8 is if anything safer than that derivation implied). Practical
+   two side calculations: the practical exploratory effect-size floor (0.05 cosine, but it can
+   come from round 1's own paired deltas rather than a dedicated batch) and the replicate count n
+   (n=8 was derived from unpaired noise; pairing may shrink variance, but that reduction has not
+   yet been measured). Practical
    consequence: the `control260A`-`H` unpaired batch is a useful reference, not a gate. Round 1's
    real probe phase does not need to wait on a fresh unpaired-floor measurement first.
 
@@ -264,16 +264,15 @@ DINOv2 score. Then, per Section 1's lesson (and per both external reviews), have
 panel review the top few**, not DINOv2 alone. The metric has already been shown to disagree with
 human preference (Section 2), so the final call belongs to human eyes.
 
-**Budget, revised 2026-07-09 after the noise-floor derivation:** with n=8 replicates (up from
+**Budget, revised 2026-07-13 after the corrected power analysis:** with n=8 replicates (up from
 the earlier 3-4 guess) across roughly 10 directions per round, that's ~80 probes per round at
 6-10 minutes each, 8-13 hours of probing alone, plus one 34-minute commit run scored at 5
 checkpoints. Call it **9-14 hours per round**, not 2.2-2.5. Five rounds plus the one-time
 calibration check: **45-70 hours of GPU time**, a large jump from the original 11-13 hour
-estimate, and worth running two pods in parallel (as calibration already did) rather than
-serially. This is the direct, unavoidable cost of the effect-size floor moving from 0.02 to
-0.05 cosine: a smaller detectable effect needs proportionally more replicates to see reliably,
-and 0.02 was never achievable at any practical n given the measured noise (see step 3's note
-above and the 2026-07-09 log entry).
+   estimate, and worth running two pods in parallel (as calibration already did) rather than
+   serially. The corrected analysis does not claim 80% power at the exploratory 0.05 threshold;
+   it uses 0.08 as the prespecified 80%-power planning effect while retaining 0.05 as a practical
+   screen (see the 2026-07-13 log entry).
 
 **Candidate direction slate for round 1, proposed 2026-07-09, not yet approved.** Baseline
 config: `network_dim=32, network_alpha=16, unet_lr=1e-4, text_encoder_lr=5e-5, min_snr_gamma=5,
@@ -400,16 +399,17 @@ steps (0.827 -> 0.836 -> 0.840) right after they entered the pool, but the gain 
 no further escalation exists past stage 2, so the remaining ~1900 images generated after generation
 26 explored the same plateaued region without finding anything past it.
 
-**Honest read for the whitepaper:** the novelty gain from creative reinforcement was real, not
-noise, but small and short-lived. Two candidate explanations, neither confirmed: (1) this specific
-style, at these settings, may simply have a fairly low novelty ceiling under the current LoRA, the
-liminal band it can support without breaking faithfulness is narrower than the original proposal's
-illustrative numbers assumed; or (2) the exploit/explore split (half of every batch mutates near
-existing high scorers) may have been too exploit-heavy once the pool filled with similar winners,
-starving exploration of the room it needed to find a genuinely different region rather than a
-refinement of the same one. Distinguishing these needs a follow-up run with a more explore-heavy
-mix and no comparison to this run's already-explored region, not yet done, worth doing before
-citing a novelty ceiling as a real finding rather than an artifact of this run's search bias.
+**Honest read for the whitepaper:** the novelty trajectory is exploratory and selection-biased, not
+evidence that reinforcement was real rather than noise. The cumulative best can rise under pure
+noise because each generation gets another chance to find a favorable fluctuation, and the exploit
+pool repeatedly reuses selected images. Two candidate explanations, neither confirmed: (1) this
+specific style, at these settings, may simply have a fairly low novelty ceiling under the current
+LoRA, the liminal band it can support without breaking faithfulness is narrower than the original
+proposal's illustrative numbers assumed; or (2) the exploit/explore split (half of every batch
+mutates near existing high scorers) may have been too exploit-heavy once the pool filled with
+similar winners, starving exploration of the room it needed to find a genuinely different region
+rather than a refinement of the same one. A per-generation cohort statistic or an untouched replay
+comparison is required before making a reinforcement claim. Neither has been run.
 
 **Deliverables:** `notes/uncanny_sweep/gallery.html` (3392 images across the faithfulness x novelty
 descriptor grid, served locally over the tailnet during the run), plus `notes/uncanny_sweep/
@@ -736,7 +736,7 @@ large relative to the score range in this table. Measuring the real noise floor 
 progress, needs pooled control-only replicates) would let the control/lr2e4 swap specifically be
 called noise or real, rather than shrugged at.
 
-### 2026-07-09: Noise floor measured, replicate count (n) derived, effect-size floor revised from 0.02 to 0.05
+### 2026-07-09: Initial noise-floor estimate recorded, later superseded by paired-seed analysis
 
 Trained two more `control_156` replicates (`controlB_156`, `controlC_156`), identical config to
 `control_156`, different random seed only (`train_probe.py` never pins a training seed, so
@@ -767,24 +767,13 @@ is bigger than the 0.02-cosine effect-size floor the methodology had assumed**, 
 threshold was never something a real probe-phase comparison could reliably clear, at any
 practical replicate count.
 
-Derived the actual replicate count via simulation (sign-flip permutation test, 4000 simulated
-trials x 2000 permutations each, per-prompt noise variance from the table above, delta variance
-= 2x single-run variance since a direction-vs-control delta carries noise from both sides):
+The initial planning simulation used 4000 trials and 2000 sampled sign patterns per trial. It did
+not enumerate the finite sign-flip space, did not expose the attainable p-value floor, and treated
+the old unpaired noise estimate as if it were the final paired design. Its table is superseded by
+the deterministic correction recorded on 2026-07-13 below.
 
-| true effect (cosine) | n=3 | n=4 | n=6 | n=8 |
-|---|---|---|---|---|
-| 0.02 | 11% | 15% | 19% | 24% |
-| 0.05 | 44% | 54% | 74% | 84% |
-| 0.08 | 78% | 89% | 98% | 100% |
-
-0.02 is undetectable at any practical n (24% power even at n=8; adding more replicates helps
-only slowly). **Decision: raise the effect-size floor from 0.02 to 0.05 cosine, and set round
-1's replicate count to n=8** (84% power at 0.05, 98%+ at the scale of gaps actually seen in the
-calibration table: dim64's ~0.06 gap, constlr's ~0.10 swing). Updated Section 3 steps 2-3 and
-the budget estimate accordingly: n=8 x ~10 directions per round raises probing alone to 8-13
-GPU-hours per round, not the earlier 80-110 minutes, so total budget across 5 rounds plus
-calibration moves from an estimated 11-13 hours to **45-70 hours**, worth running on two pods in
-parallel as calibration already did.
+No design decision should use that table. The current decision and reproducible replacement are
+recorded in the 2026-07-13 correction entry below.
 
 Also worth flagging for later interpretation: this noise-floor estimate itself comes from only
 3 replicates (2 degrees of freedom), so it is a rough estimate with real uncertainty of its
@@ -1872,3 +1861,39 @@ on GitHub, which needs this branch pushed/merged first) and an actual `docker bu
 touching `Dockerfile`/`docker-compose.yml`). Also unresolved: whether "explain in hearth's
 readme why docker compose uses watchtower" survived the "CLAWMARKS only" scope-down (answered in
 chat, not written into `hearth/README.md`), and what "what is the real key" referred to.
+
+### 2026-07-13: Corrected finite permutation p-values and paired-seed power analysis
+
+Corrected two statistical record errors before round 1. `notes/mmd_score.py` now reports the
+finite Monte Carlo p-value `(b + 1) / (B + 1)`, where `b` counts shuffled MMD statistics at least
+as extreme as observed. The minimum with 2000 shuffles is therefore `1/2001`, never zero. The
+focused test proves the floor with ten shuffles.
+
+Added `notes/probe_power.py`. Its independent unit is one paired training seed, so the planned
+sample is the eight canonical seeds from `notes/train_probe.py`. Prompt rows and mirrored deltas
+are measurements within a seed and do not increase n. For n=3, 4, 6, and 8, the program enumerates
+all `2^n` sign flips instead of sampling duplicate patterns, prints the exact one-sided p-value
+floor, and runs 10,000 deterministic simulations for the null and positive controls. The planning
+model uses the old unpaired checkpoint-mean SD of 0.0354 and assumes delta SD `sqrt(2) * 0.0354 =
+0.050063`; this is a conservative proxy until paired round-one deltas are measured.
+
+| quantity | n=3 | n=4 | n=6 | n=8 |
+|---|---:|---:|---:|---:|
+| one-sided p-value floor | 0.125000 | 0.062500 | 0.015625 | 0.003906 |
+| null rejection rate | 0.0000 | 0.0000 | 0.0434 +/- 0.0020 | 0.0484 +/- 0.0021 |
+| power at effect 0.05 | 0.0000 | 0.0000 | 0.6485 +/- 0.0048 | 0.7990 +/- 0.0040 |
+| power at effect 0.08 | 0.0000 | 0.0000 | 0.9381 +/- 0.0024 | 0.9920 +/- 0.0009 |
+
+Impact: the old n=3 and n=4 significance entries were impossible and are retracted. The old
+claim of 84% power at n=8 and effect 0.05 was also wrong under the corrected program. Round 1
+retains the eight canonical paired seeds, treats 0.05 as an exploratory practical threshold, and
+uses 0.08 as the prespecified effect for an 80%-power planning claim. The null rates for n=6 and
+n=8 are close to alpha=0.05; n=3 and n=4 cannot reject at that alpha because their exact floors
+are too large.
+
+The power numbers are simulation results from code, not measurements from new training runs. They
+remain limited by the unpaired-to-paired noise assumption, the small planned n, the normal-delta
+model, and the lack of a multiplicity correction for the full set of directions. The MMD correction
+fixes finite-sample arithmetic but does not make MMD a style verdict. The overnight novelty
+trajectory remains descriptive and selection-biased until a per-generation cohort statistic or an
+untouched replay comparison is run.
