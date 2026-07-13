@@ -334,6 +334,11 @@ def _load_resumable_manifest(out_dir):
 _GENERATION_TAG = re.compile(r"^gen([1-9][0-9]*)_")
 
 
+def _current_driver_generation(tag):
+    match = _GENERATION_TAG.match(tag)
+    return int(match.group(1)) if match else None
+
+
 def _validate_manifest(manifest, manifest_path):
     if not isinstance(manifest, list):
         raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} is not a list")
@@ -346,7 +351,7 @@ def _validate_manifest(manifest, manifest_path):
         if not isinstance(entry, dict) or not required.issubset(entry):
             raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has malformed entry")
         tag = entry["tag"]
-        if not isinstance(tag, str) or tag in tags or _GENERATION_TAG.match(tag) is None:
+        if not isinstance(tag, str) or not tag or tag in tags:
             raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid tag")
         tags.add(tag)
         if not isinstance(entry["file"], str) or not entry["file"]:
@@ -366,10 +371,22 @@ def _validate_manifest(manifest, manifest_path):
 def _validate_resume_agreement(state, manifest, state_file, manifest_path):
     _validate_state(state, state_file)
     _validate_manifest(manifest, manifest_path)
-    generations = [int(_GENERATION_TAG.match(entry["tag"]).group(1)) for entry in manifest]
-    if generations and max(generations) > state["generation"]:
+    generations = [
+        generation for entry in manifest
+        if (generation := _current_driver_generation(entry["tag"])) is not None
+    ]
+    state_generation = state["generation"]
+    if state_generation == 0 and generations:
         raise RuntimeError(
             f"cannot resume: persisted state {state_file} is behind manifest {manifest_path}"
+        )
+    if state_generation > 0 and (not generations or max(generations) != state_generation):
+        if generations and max(generations) > state_generation:
+            raise RuntimeError(
+                f"cannot resume: persisted state {state_file} is behind manifest {manifest_path}"
+            )
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} is ahead of manifest {manifest_path}"
         )
 
 

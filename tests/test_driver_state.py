@@ -7,6 +7,24 @@ from clawmarks.compute import comfyui
 from clawmarks.search import driver
 
 
+def _manifest_entry(tag):
+    return {
+        "tag": tag,
+        "centroid_sim": 0.5,
+        "novelty": 0.3,
+        "file": "a.png",
+        "prompt_name": "p",
+        "prompt": "a prompt",
+        "seed": 1,
+        "strength": 1.0,
+        "cfg": 7.0,
+        "steps": 28,
+        "sampler": "ddim",
+        "negative": "bad",
+        "prompt_type": "style",
+    }
+
+
 def test_state_file_round_one_has_no_round_suffix(tmp_path, monkeypatch):
     """Regression test for issue #15: round 1's original script wrote allnight_state.json (no
     round-number suffix). The merged driver must keep reading/writing that same filename, or
@@ -57,12 +75,12 @@ def test_load_resumable_manifest_resumes_prior_persisted_images(tmp_path):
     The fixture carries every field a real persisted entry has (see score_batch/submit_and_collect
     in driver.py), not just the three fields build_gallery reads, so this also proves the shape
     survives round-tripping intact."""
-    prior = [{
-        "tag": "gen1_explore_0_seed1", "centroid_sim": 0.5, "novelty": 0.3,
-        "file": "a.png", "prompt_name": "p", "prompt": "a prompt", "seed": 1,
-        "strength": 1.0, "cfg": 7.0, "steps": 28, "sampler": "ddim", "negative": "bad",
-        "prompt_type": "style",
-    }]
+    prior = [
+        _manifest_entry("grid_0"),
+        _manifest_entry("truncated_0"),
+        _manifest_entry("r2_gen1_explore_0_seed1"),
+        _manifest_entry("gen1_explore_0_seed1"),
+    ]
     (tmp_path / "scored_manifest.json").write_text(json.dumps(prior))
     assert driver._load_resumable_manifest(tmp_path) == prior
 
@@ -81,18 +99,51 @@ def test_resume_fails_closed_when_manifest_is_ahead_of_state(tmp_path, monkeypat
         "gpt55_subjects": [], "start_balance": 1.0, "start_time": 100.0,
     }
     driver.save_state(driver.ROUND_CONFIGS[1], state)
-    manifest = [{
-        "tag": "gen2_explore_0_seed1", "centroid_sim": 0.5, "novelty": 0.3,
-        "file": "a.png", "prompt_name": "p", "prompt": "a prompt", "seed": 1,
-        "strength": 1.0, "cfg": 7.0, "steps": 28, "sampler": "ddim", "negative": "bad",
-        "prompt_type": "style",
-    }]
+    manifest = [_manifest_entry("grid_0"), _manifest_entry("truncated_0"),
+                _manifest_entry("r2_gen1_explore_0_seed1"), _manifest_entry("gen2_explore_0_seed1")]
     (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(RuntimeError, match="behind manifest"):
         driver._validate_resume_agreement(
             state, driver._load_resumable_manifest(tmp_path),
             tmp_path / "allnight_state.json", tmp_path / "scored_manifest.json",
         )
+
+
+def test_resume_fails_closed_when_state_is_ahead_of_manifest(tmp_path):
+    state = {
+        "generation": 2, "stage": 0, "plateau_count": 0, "novelty_history": [0.1, 0.2],
+        "gpt55_subjects": [], "start_balance": 1.0, "start_time": 100.0,
+    }
+    manifest = [_manifest_entry("grid_0"), _manifest_entry("truncated_0"),
+                _manifest_entry("r2_gen1_explore_0_seed1"), _manifest_entry("gen1_explore_0_seed1")]
+    with pytest.raises(RuntimeError, match="ahead of manifest"):
+        driver._validate_resume_agreement(
+            state, manifest, tmp_path / "allnight_state.json", tmp_path / "scored_manifest.json",
+        )
+
+
+def test_resume_allows_historical_manifest_at_generation_zero(tmp_path):
+    state = {
+        "generation": 0, "stage": 0, "plateau_count": 0, "novelty_history": [],
+        "gpt55_subjects": [], "start_balance": None, "start_time": 100.0,
+    }
+    manifest = [_manifest_entry("grid_0"), _manifest_entry("truncated_0"),
+                _manifest_entry("r2_gen1_explore_0_seed1")]
+    driver._validate_resume_agreement(
+        state, manifest, tmp_path / "allnight_state.json", tmp_path / "scored_manifest.json",
+    )
+
+
+@pytest.mark.parametrize("tag", ["", 42])
+def test_manifest_rejects_empty_or_non_string_tags(tmp_path, tag):
+    with pytest.raises(RuntimeError, match="invalid tag"):
+        driver._validate_manifest([_manifest_entry(tag)], tmp_path / "scored_manifest.json")
+
+
+def test_manifest_rejects_duplicate_tags(tmp_path):
+    entries = [_manifest_entry("grid_0"), _manifest_entry("grid_0")]
+    with pytest.raises(RuntimeError, match="invalid tag"):
+        driver._validate_manifest(entries, tmp_path / "scored_manifest.json")
 
 
 def test_state_and_manifest_writes_replace_sibling_temporary_files(tmp_path, monkeypatch):
