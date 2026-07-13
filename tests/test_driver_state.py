@@ -1,5 +1,6 @@
 import json
 
+from clawmarks.compute import comfyui
 from clawmarks.search import driver
 
 
@@ -91,6 +92,21 @@ def test_build_gallery_skips_manifest_entries_whose_file_no_longer_exists(tmp_pa
     assert (tmp_path / "gallery.html").exists()
 
 
+def test_spent_or_none_returns_spend_when_balance_check_succeeds(monkeypatch):
+    monkeypatch.setattr(driver, "get_balance", lambda: 7.0)
+    assert driver._spent_or_none(10.0) == 3.0
+
+
+def test_spent_or_none_fails_closed_when_balance_check_raises(monkeypatch):
+    """Regression test for issue #16: a balance-check failure used to be treated as $0 spent
+    (fail-open), letting further paid batches start unchecked. It must instead signal the caller
+    to stop."""
+    def _raise():
+        raise RuntimeError("network blip")
+    monkeypatch.setattr(driver, "get_balance", _raise)
+    assert driver._spent_or_none(10.0) is None
+
+
 def test_build_gallery_returns_zero_when_every_file_is_missing(tmp_path, monkeypatch):
     """bin_edges indexes into the sorted centroid_sim/novelty lists, which would raise
     IndexError on an empty list if every manifest entry's file were missing. Must bail out the
@@ -99,3 +115,39 @@ def test_build_gallery_returns_zero_when_every_file_is_missing(tmp_path, monkeyp
     manifest = [{"tag": "gone", "file": str(tmp_path / "missing.png"), "centroid_sim": 0.5,
                  "novelty": 0.3, "prompt_name": "p", "prompt_type": "style"}]
     assert driver.build_gallery(driver.ROUND_CONFIGS[1], manifest, real_ref=(0.5, 0.0, 1.0)) == 0.0
+
+
+def test_submit_and_collect_cancels_jobs_still_pending_at_timeout(tmp_path, monkeypatch):
+    """Regression test for issue #16: a job still pending when submit_and_collect gives up used
+    to be abandoned client-side only, so it kept running (and billing) on the provider side.
+    It must be actively cancelled instead."""
+    monkeypatch.setattr(comfyui, "api_post", lambda path, payload: {"id": "job-1"} if path == "/run" else {})
+    monkeypatch.setattr(comfyui, "api_get", lambda path: {"status": "IN_PROGRESS"})
+    cancelled = []
+    monkeypatch.setattr(comfyui, "cancel_job", lambda job_id: cancelled.append(job_id))
+
+    jobs = [{"tag": "t0", "prompt": "p", "seed": 1, "strength": 1.0, "cfg": 7.0, "steps": 28,
+             "sampler": "ddim", "negative": "bad"}]
+    driver.submit_and_collect(driver.ROUND_CONFIGS[1], jobs, tmp_path, "gen1", timeout_s=0)
+
+    assert cancelled == ["job-1"]
+
+
+def test_submit_and_collect_does_not_cancel_completed_jobs(tmp_path, monkeypatch):
+    monkeypatch.setattr(comfyui, "api_post", lambda path, payload: {"id": "job-1"} if path == "/run" else {})
+    from PIL import Image
+    from io import BytesIO
+    import base64
+    buf = BytesIO()
+    Image.new("RGB", (4, 4)).save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode()
+    monkeypatch.setattr(comfyui, "api_get", lambda path: {"status": "COMPLETED", "output": {"images": [{"data": encoded}]}})
+    cancelled = []
+    monkeypatch.setattr(comfyui, "cancel_job", lambda job_id: cancelled.append(job_id))
+
+    jobs = [{"tag": "t0", "prompt": "p", "seed": 1, "strength": 1.0, "cfg": 7.0, "steps": 28,
+             "sampler": "ddim", "negative": "bad"}]
+    manifest = driver.submit_and_collect(driver.ROUND_CONFIGS[1], jobs, tmp_path, "gen1", timeout_s=5)
+
+    assert len(manifest) == 1
+    assert cancelled == []

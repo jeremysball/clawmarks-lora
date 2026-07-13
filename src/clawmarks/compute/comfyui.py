@@ -50,3 +50,10 @@ def api_get(path):
     req = urllib.request.Request(f"{BASE}{path}", headers={"Authorization": f"Bearer {API_KEY}"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
+
+
+def cancel_job(job_id):
+    """Cancels a still-running RunPod serverless job. Used when a driver gives up polling a job
+    (see search/driver.py's submit_and_collect): the job keeps running and billing on the
+    provider side if it's merely abandoned client-side instead of actually cancelled."""
+    return api_post(f"/cancel/{job_id}", {})

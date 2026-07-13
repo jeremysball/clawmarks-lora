@@ -198,6 +198,18 @@ def get_balance():
     return _gql("query { myself { clientBalance } }")["myself"]["clientBalance"]
 
 
+def _spent_or_none(start_balance):
+    """Returns spend-so-far, or None if the balance check itself failed. Fails closed: a caller
+    that can't verify how much has been spent must stop, not assume $0 spent and let further
+    paid batches start unchecked (the original bug this guards against)."""
+    try:
+        return start_balance - get_balance()
+    except Exception as e:
+        print(f"STOPPING: balance check failed ({e}); failing closed instead of assuming "
+              f"$0 spent, which would let further paid batches start unchecked", flush=True)
+        return None
+
+
 def _out_dir(cfg):
     return SWEEP_DIR if cfg.out_dir_name == "uncanny_sweep" else SWEEP2_DIR
 
@@ -351,7 +363,7 @@ def _load_prev_round_state(cfg):
 
 def submit_and_collect(cfg, jobs, out_dir, label, timeout_s=600):
     """Submit jobs to the ComfyUI serverless endpoint and poll for results."""
-    from clawmarks.compute.comfyui import api_post, api_get, build_workflow
+    from clawmarks.compute.comfyui import api_post, api_get, build_workflow, cancel_job
     job_ids = {}
     for j in jobs:
         wf = build_workflow(j["prompt"], j["seed"], j["strength"], j["cfg"], j["steps"], j["sampler"], j["negative"])
@@ -388,7 +400,13 @@ def submit_and_collect(cfg, jobs, out_dir, label, timeout_s=600):
         if pending:
             time.sleep(8)
     if pending:
-        print(f"[{label}] {len(pending)} jobs still pending after {timeout_s}s, giving up on them", flush=True)
+        print(f"[{label}] {len(pending)} jobs still pending after {timeout_s}s, cancelling them "
+              f"so they stop billing on the provider side", flush=True)
+        for jid in pending:
+            try:
+                cancel_job(jid)
+            except Exception as e:
+                print(f"CANCEL_FAIL {jid}: {e}", flush=True)
     print(f"[{label}] completed={completed} failed={failed} timed_out={len(pending)}", flush=True)
     return manifest
 
@@ -607,12 +625,9 @@ def main(argv=None):
         if state["generation"] >= cfg.max_generations:
             print(f"STOPPING: hit MAX_GENERATIONS sanity ceiling ({cfg.max_generations})", flush=True)
             break
-        try:
-            balance_now = get_balance()
-            spent = state["start_balance"] - balance_now
-        except Exception as e:
-            print(f"balance check failed ({e})", flush=True)
-            spent = 0
+        spent = _spent_or_none(state["start_balance"])
+        if spent is None:
+            break
         if abs(spent) > (cfg.budget_usd_cap - cfg.budget_safety_margin):
             print(f"STOPPING: projected spend ${abs(spent):.2f} crossed the "
                   f"${cfg.budget_usd_cap - cfg.budget_safety_margin:.2f} safety threshold "
