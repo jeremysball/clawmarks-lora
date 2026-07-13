@@ -115,7 +115,7 @@ def test_build_trial_rejects_bad_seed_strategy():
 
 def test_build_trial_clamps_batch_size():
     trial = cs.build_trial({"prompt": "p", "n": 99}, now="t0", trial_id="x")
-    assert trial["n"] == 8
+    assert trial["n"] == 6
     trial = cs.build_trial({"prompt": "p", "n": 0}, now="t0", trial_id="x")
     assert trial["n"] == 1
 

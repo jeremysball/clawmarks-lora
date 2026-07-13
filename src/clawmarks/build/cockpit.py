@@ -173,9 +173,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 .target-adjacent{{margin-top:3px;color:var(--muted);font-size:10.5px}}
 .target-empty{{color:var(--muted);font-size:12px;padding:10px 2px}}
 
-.refs{{display:flex;gap:14px;margin:0 0 14px}}
-.ref{{display:flex;align-items:center;gap:10px;color:var(--muted);font:11px var(--mono)}}
-.ref b,.nearest b{{color:var(--ink);font-weight:700}}
+.nearest b{{color:var(--ink);font-weight:700}}
 .thumb{{position:relative;display:inline-block;flex:none;width:34px;height:34px;
   background-size:cover;background-position:center;background-color:var(--sheet-deep)}}
 .thumb:before{{content:"";position:absolute;inset:3px -3px -3px 3px;z-index:-1;
@@ -222,9 +220,6 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 .status-kept{{color:var(--teal)}}
 .status-rejected{{color:var(--red)}}
 .status-unrated{{color:var(--muted)}}
-.badges{{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}}
-.badge{{padding:3px 7px;color:var(--muted);border:1px solid var(--line);font:10px var(--mono)}}
-.badge.gold{{color:var(--ballpoint);border-color:color-mix(in srgb, var(--ballpoint) 40%, transparent)}}
 .coverage{{display:grid;grid-template-columns:76px 1fr;gap:12px;align-items:center}}
 .mini-grid-wrap{{position:relative}}
 .grid-axis{{position:absolute;color:var(--muted);font:8px var(--mono);white-space:nowrap}}
@@ -232,8 +227,6 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 .grid-axis.side{{top:28px;left:-13px;transform:rotate(-90deg)}}
 .mini-grid{{display:grid;grid-template-columns:repeat(4,16px);gap:2px}}
 .cell{{width:16px;height:16px;background:var(--paper);border:1px solid var(--line)}}
-.cell.live{{background:var(--ballpoint);border-color:var(--ballpoint)}}
-.cell.target{{background:var(--paper);outline:2px solid var(--teal);outline-offset:-1px}}
 .coverage p{{margin:0;color:var(--muted);font-size:11.5px;line-height:1.5}}
 .coverage b{{color:var(--ink)}}
 
@@ -310,7 +303,6 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
     border-top:0}}
   .recipe .generate{{min-height:52px;padding:13px 16px;font-size:14px}}
   .recipe .brief{{order:6;margin-top:20px}}
-  .recipe .refs{{order:7}}
   .recipe .controls{{order:8}}
   .recipe .advanced-toggle{{order:9}}
   .recipe .advanced-body{{order:10}}
@@ -365,7 +357,6 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 <input id="hypothesis" value="">
 <input id="target" value="" readonly>
 </div>
-<div class="refs" id="refs" style="display:none"></div>
 <div class="prompt-row"><label class="prompt-label" for="prompt">Prompt</label>
 <select class="seed-picker" id="seedPicker" aria-label="Insert from candidate seed pool">
 <option value="">Insert from seed pool&hellip;</option></select></div>
@@ -433,7 +424,7 @@ function updateEstimate(){{
 function renderTargetCards(){{
   const wrap=$('targetCards');
   if(!frontierCells.length){{wrap.innerHTML='<div class="target-empty">No frontier cells found (need scored images first).</div>';return}}
-  wrap.innerHTML=frontierCells.map((c,i)=>`<button class="target-card ${{i===selectedCell?'selected':''}}" data-cell="${{i}}" aria-pressed="${{i===selectedCell}}"><span class="thumb" style="background-image:url('${{c.thumb||''}}')"></span><span><span class="target-range">${{escapeHtml(c.range)}}</span><span class="target-adjacent">adjacent to ${{c.adjacent}} images</span></span><span class="target-check" aria-hidden="true">&#10003;</span></button>`).join('');
+  wrap.innerHTML=frontierCells.map((c,i)=>`<button class="target-card ${{i===selectedCell?'selected':''}}" data-cell="${{i}}" aria-pressed="${{i===selectedCell}}"><span class="thumb" style="background-image:url('${{escapeHtml(c.thumb||'')}}')"></span><span><span class="target-range">${{escapeHtml(c.range)}}</span><span class="target-adjacent">adjacent to ${{c.adjacent}} images</span></span><span class="target-check" aria-hidden="true">&#10003;</span></button>`).join('');
   wrap.querySelectorAll('[data-cell]').forEach(button=>button.onclick=()=>{{selectedCell=Number(button.dataset.cell);applySelectedCell();renderTargetCards()}});
 }}
 
@@ -474,7 +465,7 @@ function fetchEvidence(){{
   fetch('/api/cockpit/evidence?'+params.toString()).then(r=>r.json()).then(d=>{{
     if(myReq!==evidenceReqId)return;
     const items=d.nearest||[];
-    list.innerHTML = items.length ? items.map(it=>`<div class="nearest"><span class="thumb" style="background-image:url('${{it.thumb||''}}')"></span><div><b>${{escapeHtml(it.prompt_name)}}</b>
+    list.innerHTML = items.length ? items.map(it=>`<div class="nearest"><span class="thumb" style="background-image:url('${{escapeHtml(it.thumb||'')}}')"></span><div><b>${{escapeHtml(it.prompt_name)}}</b>
       <div class="meta">word overlap ${{Math.round(it.similarity*100)}}% &middot; faith ${{it.faith}} &middot; novelty ${{it.novelty}} &middot; <span class="status-${{it.status}}">${{it.status}}</span></div></div></div>`).join('')
       : '<div class="empty-note">No manifest prompts share meaningful wording with this draft yet.</div>';
   }}).catch(()=>{{if(myReq===evidenceReqId)list.innerHTML='<div class="empty-note">Could not load evidence.</div>'}});
@@ -532,7 +523,7 @@ function holdRepeat(id, fn){{
   ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=>el.addEventListener(evt,stop));
 }}
 holdRepeat('minusN',()=>{{n=Math.max(1,n-1);$('batchN').textContent=n;updateEstimate()}});
-holdRepeat('plusN',()=>{{n=Math.min(8,n+1);$('batchN').textContent=n;updateEstimate()}});
+holdRepeat('plusN',()=>{{n=Math.min(6,n+1);$('batchN').textContent=n;updateEstimate()}});
 holdRepeat('minusS',()=>{{strength=Math.max(0.3,Math.round((strength-0.05)*100)/100);$('strengthN').textContent=strength.toFixed(2)}});
 holdRepeat('plusS',()=>{{strength=Math.min(2.2,Math.round((strength+0.05)*100)/100);$('strengthN').textContent=strength.toFixed(2)}});
 document.querySelectorAll('[data-seed]').forEach(button=>button.onclick=()=>{{seed=button.dataset.seed;document.querySelectorAll('[data-seed]').forEach(x=>x.classList.toggle('active',x===button))}});
@@ -583,7 +574,7 @@ function renderQueue(){{
 
   const completed=queue.filter(t=>t.status==='completed');
   $('resultsPane').innerHTML = completed.length ? completed.map(t=>
-    (t.result_tags||[]).map(tag=>`<span class="result-card" data-tag="${{tag}}"><span class="thumb" style="background-image:url('thumbs/${{tag}}.jpg')"></span><span>${{tag}}</span></span>`).join('')
+    (t.result_tags||[]).map(tag=>`<span class="result-card" data-tag="${{escapeHtml(tag)}}"><span class="thumb" style="background-image:url('thumbs/${{escapeHtml(tag)}}.jpg')"></span><span>${{escapeHtml(tag)}}</span></span>`).join('')
   ).join('') : '<div class="empty-note">No completed trials yet.</div>';
   $('resultsPane').querySelectorAll('[data-tag]').forEach(el=>el.onclick=()=>{{if(window.Lightbox)Lightbox.open(el.dataset.tag)}});
 
@@ -626,15 +617,18 @@ function loadAutopilot(){{
       const cellJson=card.dataset.cell;
       selectedCell=null;
       if(cellJson){{
-        const [fb,nb]=JSON.parse(cellJson);
-        const idx=frontierCells.findIndex(c=>c.fb===fb&&c.nb===nb);
-        if(idx!==-1)selectedCell=idx;
+        const parsed=JSON.parse(cellJson);
+        if(Array.isArray(parsed)&&parsed.length===2){{
+          const [fb,nb]=parsed;
+          const idx=frontierCells.findIndex(c=>c.fb===fb&&c.nb===nb);
+          if(idx!==-1)selectedCell=idx;
+        }}
       }}
       renderTargetCards();
-      if(current==='gap')applySelectedCell();
       $('prompt').value=card.querySelector('textarea').value;
       $('hypothesis').value=card.querySelector('h3').textContent;
-      fetchEvidence();
+      if(current==='gap')applySelectedCell();
+      else fetchEvidence();
       selectTab('queue');
     }});
   }}).catch(()=>{{wrap.innerHTML='<div class="empty-note">Could not reach the server.</div>'}});

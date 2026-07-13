@@ -82,6 +82,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
@@ -383,7 +384,7 @@ def build_trial(payload, now, trial_id):
     if sampler not in SAMPLERS:
         raise ValueError(f"sampler must be one of {SAMPLERS}")
     try:
-        n = max(1, min(int(payload.get("n", 4)), 8))
+        n = max(1, min(int(payload.get("n", 4)), 6))
         strength = float(payload.get("strength", 1.0))
         steps = int(payload.get("steps", 28))
         cfg = float(payload.get("cfg", 7.5))
@@ -584,7 +585,7 @@ def filter_autopilot_suggestions(suggestions):
     for s in suggestions:
         if not isinstance(s, dict):
             continue
-        if not s.get("title") or not s.get("prompt") or not s.get("rationale"):
+        if not s.get("title") or not s.get("prompt") or not isinstance(s.get("rationale"), str):
             continue
         if s.get("mission") not in cockpit.MISSIONS:
             continue
@@ -1001,7 +1002,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if self.path == "/api/cockpit/queue":
-            trial_id = f"trial_{int(time.time() * 1000)}"
+            trial_id = f"trial_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
             try:
                 trial = build_trial(payload, datetime.now(timezone.utc).isoformat(), trial_id)
             except ValueError as e:
@@ -1322,12 +1323,30 @@ def tailscale_ip():
     return "0.0.0.0"
 
 
+def _reconcile_stuck_trials():
+    """A trial's status=running is persisted before its generation thread starts (see
+    _handle_cockpit_run), so a server crash or restart mid-generation leaves it stuck: no thread
+    is running to ever move it to completed/failed, and the UI's 409 "already running" check
+    blocks every retry forever. Called once at startup to fail those out so they're retriable."""
+    with _lock:
+        trials = load_store(COCKPIT_QUEUE_FILE)
+        changed = False
+        for trial in trials.values():
+            if trial.get("status") == "running":
+                trial["status"] = "failed"
+                trial["error"] = "interrupted by a server restart"
+                changed = True
+        if changed:
+            save_store(COCKPIT_QUEUE_FILE, trials)
+
+
 def main(argv=None):
     port = DEFAULT_PORT
     if argv is None:
         argv = sys.argv[1:]
     if argv:
         port = int(argv[0])
+    _reconcile_stuck_trials()
     host = tailscale_ip()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"serving {SWEEP_DIR} + ratings API on {host}:{port}", flush=True)

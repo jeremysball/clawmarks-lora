@@ -27,13 +27,13 @@ the design in ways worth stating up front.
 lineage), not an image the generation is conditioned on. "Strength" is the LoRA's
 `strength_model`/`strength_clip` on `LoraLoader`, not an img2img denoise amount. This means the
 cockpit's "Freeform" and "Develop a candidate" missions need **no new generation backend at
-all** — they call the existing endpoint with a prompt and no `origin_tag`-derived meaning beyond
+all**: they call the existing endpoint with a prompt and no `origin_tag`-derived meaning beyond
 optional lineage tagging. All four brainstorms and the synthesis assumed this was img2img-style
 variation; it isn't.
 
 **There is no pre-generation prompt-scoring model anywhere in this codebase.** The preference
 model (`search/preference_pairwise_model.py`) is Bradley-Terry-style logistic regression trained
-on *differences between DINOv2 image embeddings* — it scores images, not text. The only text
+on *differences between DINOv2 image embeddings*. It scores images, not text. The only text
 encoder in the project is the `CLIPTextEncode` node inside the ComfyUI generation workflow itself
 (conditioning for the diffusion model, not a scoring model). `coverage_map.py`'s faithfulness/
 novelty grid and `elite_archive.py`'s per-cell champions are likewise computed from
@@ -142,7 +142,7 @@ assume either a working forecast model or a volume of trial history this project
 (the preference model itself refuses to train below 50 comparisons; a useful sensitivity
 readout would need far more trial volume than that). Building UI for statistics the project can't
 yet produce would be decoration, not function. These are candidates for a later revision once
-real trial-history volume exists — see "Explicitly deferred."
+real trial-history volume exists; see "Explicitly deferred."
 
 ## Layout
 
@@ -153,7 +153,7 @@ column's contents corrected to what's actually derivable.
 
 Four mutually exclusive entry points, each populated from data that already exists:
 
-- **Fill a coverage gap** — pulls `coverage_map.compute_data()`'s frontier cells (already
+- **Fill a coverage gap**: pulls `coverage_map.compute_data()`'s frontier cells (already
   computed: empty cells adjacent to a well-populated one). Show 2-3, each with its faith/novelty
   range in plain language (reuse the existing `axes_tip` framing from `coverage_map.py`) and its
   nearest occupied cell's top image as a thumbnail. Selecting one sets the trial's `target` and
@@ -161,15 +161,15 @@ Four mutually exclusive entry points, each populated from data that already exis
   simple heuristic for v1: prefer seed pool entries never used in a completed trial yet, no
   embedding-similarity ranking, since there's nothing to embed a subject string against without
   the missing prompt-to-embedding bridge).
-- **Develop a candidate** — a one-card-at-a-time deck from `seed_pool.load()`
+- **Develop a candidate**: a one-card-at-a-time deck from `seed_pool.load()`
   (`SWEEP_DIR/candidate_seeds.json`), same data `seeds.html` already shows. Needs one small
   addition to `seed_pool.py`: a way to tell whether a subject has already been used in a
   completed trial (cheapest approach: scan `trials.json` for a `candidate_subject` match at
   render time, no new persisted field). Use / Skip / Show another.
-- **Continue a lineage** — recent elites (`elite_archive.py`'s per-cell champions) and recent
+- **Continue a lineage**: recent elites (`elite_archive.py`'s per-cell champions) and recent
   counterfactuals, selecting one sets `parent_tag`. The prompt editor starts pre-filled with the
   parent's prompt so the diff is visible from the start, not inferred after the fact.
-- **Freeform** — no suggestion, no forced target. Still gets the same recipe editor and evidence
+- **Freeform**: no suggestion, no forced target. Still gets the same recipe editor and evidence
   columns everyone else gets; the point of this mission is that the system stays out of the way.
 
 ### Center: Recipe
@@ -191,7 +191,7 @@ Four mutually exclusive entry points, each populated from data that already exis
   guess: `SWEEP_DIR/trials.json`'s own history is the source once it has enough completed trials;
   until then, fall back to `GENERATION_TIMEOUT_S`'s documented cold-start figure (~215s) as a
   conservative estimate.
-- Primary action: **Generate {n} images** (not "4 probes" by default — n is visible and edited
+- Primary action: **Generate {n} images** (not "4 probes" by default: n is visible and edited
   right above the button, so a separate "probes" vocabulary would just be a second name for the
   same number). Disabled with an inline reason if `RUNPOD_API_KEY` is unset or the balance floor
   check (`BALANCE_FLOOR_USD`) would reject it, checked the same way `_handle_counterfactual`
@@ -215,7 +215,7 @@ already know nearby":
     it doesn't predict a score for the draft, it only tells you whether you're in territory the
     system has evidence about or territory it has none for. That distinction is real,
     computable today, and doesn't require the DINOv2-preference-space mapping the deferred
-    proxy model needs — text-to-text distance is a much smaller, already-available task than
+    proxy model needs. Text-to-text distance is a much smaller, already-available task than
     text-to-image-embedding-then-score.
 - **Target coverage context** (only when a target cell is set): that cell's current occupant
   count, its current champion thumbnail if any, and its faith/novelty range, straight from
@@ -238,7 +238,7 @@ Two tabs over `trials.json`:
 
 - **Queue**: draft and queued trials, each showing mission, hypothesis, recipe summary, and
   n/cost/time. A queued trial's snapshot is frozen at commit time (matches the synthesis's
-  preregistration framing) — editing after queuing creates a new trial rather than mutating the
+  preregistration framing); editing after queuing creates a new trial rather than mutating the
   queued one, so the eventual outcome can always be compared against what was actually predicted
   at commit time, not a retroactively edited version of it.
 - **Results**: completed and failed trials, grouped by trial rather than as a flat image stream.
@@ -254,16 +254,16 @@ a stalled or refused generation doesn't quietly vanish from the record.
 
 ## New server surface
 
-- `GET /cockpit.html` — new page module `build/cockpit.py`, following the existing
+- `GET /cockpit.html`: new page module `build/cockpit.py`, following the existing
   `render_html(data)` / `nav_bar_html()` pattern every other tool page uses.
-- `GET /api/trials` — returns `trials.json` for the queue/results drawer.
-- `POST /api/trial` — creates a trial record (mission, hypothesis, target, recipe) at `status:
+- `GET /api/trials`: returns `trials.json` for the queue/results drawer.
+- `POST /api/trial`: creates a trial record (mission, hypothesis, target, recipe) at `status:
   "queued"`, no generation yet. Separates "I've committed to this plan" from "the GPU is now
   running," matching the synthesis's queue-then-run split.
-- `POST /api/trial/<id>/run` — runs the trial's `n` generations (reusing
+- `POST /api/trial/<id>/run`: runs the trial's `n` generations (reusing
   `_handle_counterfactual`'s submit-and-poll loop, generalized for n>1 per the pending n-variation
   work), scores each output on save, and updates the trial record to `completed` or `failed`.
-- `POST /api/trial/<id>/decide` — records a per-output keep/reject decision and/or the trial-level
+- `POST /api/trial/<id>/decide`: records a per-output keep/reject decision and/or the trial-level
   conclusion text.
 
 All four reuse `load_store`/`save_store`, the existing `_lock`, and the existing balance-floor and
@@ -292,20 +292,20 @@ regardless of the forecast-model correction above:
   numeric forecast panel every brainstorm pictured ("this draft will probably score 0.8"). Would
   need its own design: how a text embedding maps into the existing DINOv2 preference space, how
   it's validated against real generations before being trusted enough to display. A real ML
-  project, not a UI addition. The nearest-neighbor novelty flag above is deliberately *not* this
-  — it never predicts a score, only whether evidence exists, which is a much smaller and already-
-  computable claim. Confidence-interval or ensemble-based versions of the full proxy model (see
+  project, not a UI addition. The nearest-neighbor novelty flag above is deliberately *not* this:
+  it never predicts a score, only whether evidence exists, which is a much smaller and
+  already-computable claim. Confidence-interval or ensemble-based versions of the full proxy model (see
   the "will look confidently precise while quietly being wrong" discussion this spec grew out of)
   stay deferred until there's enough trial history to calibrate them honestly.
 - **Named acquisition strategies / Pareto-frontier candidate slates** (borrowed from Ax/BoTorch
-  in the synthesis) — meaningful once there's a working forecast to rank candidates by; without
+  in the synthesis): meaningful once there's a working forecast to rank candidates by; without
   one there's nothing to rank.
-- **Response-profiler-style sensitivity previews** (borrowed from JMP) — needs substantially more
+- **Response-profiler-style sensitivity previews** (borrowed from JMP): needs substantially more
   trial history than this project will have for a long while; premature before real volume exists.
-- **Unifying `parent_tag` and `origin_tag` into one lineage mechanism** — real cleanup, but
+- **Unifying `parent_tag` and `origin_tag` into one lineage mechanism**: real cleanup, but
   orthogonal to shipping the cockpit; the bridge lookup described above is enough for v1.
 - **A structured "recipe chip" prompt grammar** (subject/setting/composition/material/palette/
-  mood as separate fields) — sol's synthesis itself argued against this becoming a hidden syntax
+  mood as separate fields): sol's synthesis itself argued against this becoming a hidden syntax
   that drifts from manual edits; if built at all, it should insert plain editable text, never
   become the source of truth over the prompt string.
 
