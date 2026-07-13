@@ -1,4 +1,7 @@
 import json
+from pathlib import Path
+
+import pytest
 
 from clawmarks.compute import comfyui
 from clawmarks.search import driver
@@ -22,7 +25,7 @@ def test_state_file_round_two_keeps_its_round_suffix(tmp_path, monkeypatch):
 def test_load_state_resumes_from_the_correctly_named_round_one_file(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "SWEEP_DIR", tmp_path)
     (tmp_path / "allnight_state.json").write_text(json.dumps({
-        "generation": 7, "stage": 1, "plateau_count": 2, "novelty_history": [0.1],
+        "generation": 7, "stage": 1, "plateau_count": 2, "novelty_history": [0.1] * 7,
         "gpt55_subjects": [], "start_balance": 5.0, "start_time": 100.0,
     }))
     state = driver.load_state(driver.ROUND_CONFIGS[1])
@@ -36,7 +39,7 @@ def test_load_state_resumes_from_the_correctly_named_round_two_file(tmp_path, mo
     isolation."""
     monkeypatch.setattr(driver, "SWEEP2_DIR", tmp_path)
     (tmp_path / "allnight2_state.json").write_text(json.dumps({
-        "generation": 3, "stage": 0, "plateau_count": 0, "novelty_history": [],
+        "generation": 3, "stage": 0, "plateau_count": 0, "novelty_history": [0.1] * 3,
         "gpt55_subjects": [], "start_balance": 1.0, "start_time": 100.0,
     }))
     state = driver.load_state(driver.ROUND_CONFIGS[2])
@@ -55,19 +58,56 @@ def test_load_resumable_manifest_resumes_prior_persisted_images(tmp_path):
     in driver.py), not just the three fields build_gallery reads, so this also proves the shape
     survives round-tripping intact."""
     prior = [{
-        "tag": "a", "centroid_sim": 0.5, "novelty": 0.3, "file": "a.png",
-        "prompt_name": "p", "prompt": "a prompt", "strength": 1.0, "cfg": 7.0,
+        "tag": "gen1_explore_0_seed1", "centroid_sim": 0.5, "novelty": 0.3,
+        "file": "a.png", "prompt_name": "p", "prompt": "a prompt", "seed": 1,
+        "strength": 1.0, "cfg": 7.0, "steps": 28, "sampler": "ddim", "negative": "bad",
         "prompt_type": "style",
     }]
     (tmp_path / "scored_manifest.json").write_text(json.dumps(prior))
     assert driver._load_resumable_manifest(tmp_path) == prior
 
 
-def test_load_resumable_manifest_falls_back_to_empty_on_corrupt_json(tmp_path):
-    """A process killed mid-write (before the write became atomic) can leave a truncated
-    scored_manifest.json. Losing the resume is acceptable; crashing the whole restart isn't."""
+def test_load_resumable_manifest_fails_closed_on_corrupt_json(tmp_path):
+    """A truncated manifest must stop a paid restart rather than silently discarding its history."""
     (tmp_path / "scored_manifest.json").write_text("{not valid json")
-    assert driver._load_resumable_manifest(tmp_path) == []
+    with pytest.raises(RuntimeError, match="unreadable"):
+        driver._load_resumable_manifest(tmp_path)
+
+
+def test_resume_fails_closed_when_manifest_is_ahead_of_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(driver, "SWEEP_DIR", tmp_path)
+    state = {
+        "generation": 1, "stage": 0, "plateau_count": 0, "novelty_history": [0.1],
+        "gpt55_subjects": [], "start_balance": 1.0, "start_time": 100.0,
+    }
+    driver.save_state(driver.ROUND_CONFIGS[1], state)
+    manifest = [{
+        "tag": "gen2_explore_0_seed1", "centroid_sim": 0.5, "novelty": 0.3,
+        "file": "a.png", "prompt_name": "p", "prompt": "a prompt", "seed": 1,
+        "strength": 1.0, "cfg": 7.0, "steps": 28, "sampler": "ddim", "negative": "bad",
+        "prompt_type": "style",
+    }]
+    (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(RuntimeError, match="behind manifest"):
+        driver._validate_resume_agreement(
+            state, driver._load_resumable_manifest(tmp_path),
+            tmp_path / "allnight_state.json", tmp_path / "scored_manifest.json",
+        )
+
+
+def test_state_and_manifest_writes_replace_sibling_temporary_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(driver, "SWEEP_DIR", tmp_path)
+    replacements = []
+    original_replace = driver.os.replace
+    monkeypatch.setattr(driver.os, "replace", lambda source, target: (
+        replacements.append((source, target)), original_replace(source, target)
+    )[1])
+    state = driver._new_state()
+    driver.save_state(driver.ROUND_CONFIGS[1], state)
+    driver._save_manifest(tmp_path, [])
+    assert len(replacements) == 2
+    assert all(Path(source).parent == target.parent for source, target in replacements)
+    assert all(source != target for source, target in replacements)
 
 
 def test_build_gallery_skips_manifest_entries_whose_file_no_longer_exists(tmp_path, monkeypatch):
