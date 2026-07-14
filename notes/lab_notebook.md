@@ -2019,3 +2019,65 @@ turned up three real issues, each fixed TDD-style:
 
 Full suite: 338 passing (three new tests), ruff/mypy clean.
 
+### 2026-07-14 (session 3): confirmed both sweep directories' images gone for good, moved
+### runtime state out of the repo, and rebuilt the server's empty-state experience
+
+Standing up the curation server in this branch's worktree surfaced a chain of problems, each
+uncovering the next.
+
+**The server hung forever on every request.** `notes/uncanny_sweep/` was empty in this worktree
+because git worktrees don't copy gitignored files (the generated images were never tracked).
+Pointing `CLAWMARKS_SWEEP_DIR` at the main checkout's copy for diagnosis surfaced the real bug:
+`scored_manifest.json`'s `file` fields still held absolute paths from before the project's
+`trent-with-smart-prompts` -> `clawmarks` rename, so opening any image raised an uncaught
+`FileNotFoundError` inside `do_GET`. An unhandled exception in a request thread just resets the
+TCP connection, so the browser sat there loading forever with no error shown at all.
+
+**Confirmed round 2's images are gone too, the same way round 1's were.** Re-checking
+`notes/uncanny_sweep2/` against the 2026-07-09 incident logged above found it still at 3.0 MB
+(matching that entry's "544 MB to 3 MB" figure exactly), 0 of 280 manifest images present on
+disk. A fresh exhaustive search (every mount, an archive/backup filename sweep, a search for two
+specific destroyed filenames across the whole filesystem, RunPod pod status) turned up nothing,
+same as the 2026-07-09 search. Both directories' full-resolution PNGs are permanently gone; only
+the JSON metadata and downscaled thumbnails survived, as already documented.
+
+**Backed up, verified, and deleted both directories**, per this project's backup-verify-delete
+rule: `cp -a` mirrors to `/workspace/clawmarks-backups/`, `diff -rq` plus file-count checks
+against the live directories before removing them (`uncanny_sweep`: 3701 files, 95 MB;
+`uncanny_sweep2`: 4 files, 3.1 MB). The prior 2026-07-14 CLAUDE.md entry documenting this
+incident and update predates this note but describes the same deletion.
+
+**Moved all sweep/probe runtime state out of the repo**, per the user's global XDG Base
+Directory convention: `notes/uncanny_sweep`, `notes/uncanny_sweep2`, `notes/probe_uncanny`, and
+`notes/probe_strength` now live at `$XDG_STATE_HOME/clawmarks/` (`~/.local/state/clawmarks/` by
+default, overridable via `CLAWMARKS_STATE_DIR`), renamed `uncanny_round1/` and `uncanny_round2/`
+since the old `_sweep`/`_sweep2` numbering read as an accident of history rather than a
+deliberate choice. `config.py` gained `STATE_DIR`; `SWEEP_DIR`/`SWEEP2_DIR`/`PROBE_DIR`/
+`PROBE_STRENGTH_DIR` now derive from it. The two probe directories (32 MB and 39 MB) were moved
+with `cp -a` + verify + `rm -rf` of the originals, same as the deletion above.
+
+**Fixed the server to fail fast and fail visibly instead of hanging.** `do_GET` now catches
+every exception: browser requests get an HTML error page with a collapsible stack trace and,
+for a `FileNotFoundError`, a hint pointing at a stale manifest path; `/api/*` and `*.json`
+requests get a well-formed JSON error body instead, so `fetch().then(r => r.json())` doesn't
+choke on an HTML page it can't parse. Startup now also checks that `scored_manifest.json`'s
+image paths actually resolve and exits with a clear message if none do, rather than discovering
+the same stale-path problem mid-request.
+
+**Redesigned the empty-state UX after user feedback that the old root page was unhelpful.**
+The root page used to 302-redirect to `scan.html`, which on empty data just showed a blank
+gallery with no indication of what to do next: criticized directly as "a terrible user
+experience" for not helping the user create the files or generations they needed. The server
+already had a full safe launch flow (`run_manager.py` / `/api/searchrun/launch`: backup,
+verify, RunPod balance check, refuse concurrent launches, detached `driver.py`) built for
+`runs.html` in an earlier session, so the fix reuses it: the root page now renders a hub with
+"Launch Round 1" / "Launch Round 2" buttons when no manifest images are present, and falls back
+to the previous manifest-summary-plus-tool-links view once a round has produced images.
+`cockpit.py`'s target-cells fetch also picks up the new JSON error body's `no_manifest` flag to
+show a "launch a round" link instead of a generic failure message on the same empty state.
+
+Verified via Playwright: the hub page renders exactly per the design agreed with the user, no
+console errors; `cockpit.html`'s empty-state message renders correctly and links back to `/`.
+Did not click either launch button during verification, since a real launch spends RunPod money
+and takes hours. Full suite: 340 passing.
+
