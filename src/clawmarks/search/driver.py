@@ -1,22 +1,15 @@
 """
 Merged all-night driver for the CLAWMARKS liminal-band / uncanny-frontier search
-(lab_notebook.md Section 3b). Combines notes/run_uncanny_allnight.py (round 1) and
-notes/run_uncanny_allnight2.py (round 2) into a single --round-parameterized entry point so
-the two scripts' 90%-duplicated bodies stop drifting apart.
+(lab_notebook.md Section 3b). Runs one named "leg" of generation within a named "expedition"
+(see docs/superpowers/specs/2026-07-14-expedition-leg-generation-design.md): the expedition
+holds shared prompt vocab and budget defaults (expedition.json); the leg holds whatever
+overrides make this run different (legs/<leg>.json), merged via load_leg_config.
 
-Round 1 (notes/run_uncanny_allnight.py): staged-escalation plateau handling (widen vocabulary
-first, then hand off to GPT-5.5), 50/50 explore/exploit, no parent_tag, no shared seed pool.
+Novelty for a leg's new images is scored against the real training set plus every *other*
+leg's already-generated images within the same expedition (see _load_sibling_leg_manifests),
+so retreading a sibling leg's already-explored region no longer counts as novel.
 
-Round 2 (notes/run_uncanny_allnight2.py): explore-heavy 85/15 split, GPT-5.5 seeds from
-generation 1, user-picks-first exploit pool with parent_tag, prior-round exclusion
-embeddings, shared seed pool read/write.
-
-Per-round config lives in ROUND_CONFIGS. Per the plan, round 2's build_generation_jobs is a
-strict generalization of round 1's: at explore_fraction=0.5 and with empty user_picks, it
-reproduces round 1's 50/50 split exactly.
-
-Run with: uv run clawmarks run allnight --round 1
-          uv run clawmarks run allnight --round 2
+Run with: uv run clawmarks run allnight --expedition <name> --leg <name>
 """
 import argparse
 import base64
@@ -30,8 +23,8 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 
+from clawmarks import config as clawmarks_config
 from clawmarks.atomic_io import atomic_json_write as _atomic_json_write
-from clawmarks.config import SEEDS_FILE, SWEEP2_DIR, SWEEP_DIR
 from clawmarks.search.scoring import bin_edges, bin_of, novelty_from_similarity
 from clawmarks.search.seed_pool import merge as seed_pool_merge, load as seed_pool_load, save as seed_pool_save
 
@@ -43,9 +36,20 @@ PLATEAU_WINDOW = 3
 PLATEAU_EPSILON = 0.01
 
 
+_LEG_CONFIG_DEFAULTS = {
+    "wall_clock_cap_hours": 7.5, "budget_usd_cap": 10.0, "budget_safety_margin": 1.5,
+    "gen_batch_size": 60, "explore_fraction": 0.5, "max_generations": 400,
+    "textures": [], "fallback_subjects": [], "seed_from_start": False,
+    "style_subject_count": 4, "description": "",
+    "widened_textures": [], "widened_subjects": [],
+}
+
+
 @dataclass
-class RoundConfig:
-    round: int
+class LegConfig:
+    expedition: str
+    leg: str
+    dir: object  # pathlib.Path; typed loosely to avoid a circular import-time annotation
     wall_clock_cap_hours: float
     budget_usd_cap: float
     budget_safety_margin: float
@@ -55,78 +59,37 @@ class RoundConfig:
     textures: list
     fallback_subjects: list
     seed_from_start: bool
-    exclude_prev_round: bool
-    out_dir_name: str
-    # round 1's two-stage escalation vocabularies (the merged driver only uses them when
-    # cfg.seed_from_start is False, mirroring round 1's stage-0/1 plateau handling)
+    style_subject_count: int = 4
+    description: str = ""
     widened_textures: list = field(default_factory=list)
     widened_subjects: list = field(default_factory=list)
 
 
-ROUND_CONFIGS = {
-    1: RoundConfig(
-        round=1, wall_clock_cap_hours=7.5, budget_usd_cap=10.0, budget_safety_margin=1.5,
-        gen_batch_size=60, explore_fraction=0.5, max_generations=400,
-        textures=[
-            "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
-            "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, "
-            "thick acrylic dry-brush texture, raw outsider-art painting",
-        ],
-        widened_textures=[
-            "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
-            "heavy black ink crosshatching over torn found-paper collage edges, raw "
-            "outsider-art painting",
-        ],
-        fallback_subjects=[
-            "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
-            "close-up owl portrait", "close-up horse portrait",
-            "close-up human face, pale skin, hand pressed beside cheek",
-            "close-up cyborg face, half exposed circuitry and wiring, clawed metal hand pressed beside cheek",
-            "close-up face mid-transformation, skin splitting to reveal clawed fingers pushing through the cheek",
-            "figure standing alone in an empty fluorescent-lit hallway, clawed hand pressed against the wall",
-            "dental x-ray radiograph of a jaw",
-            "empty concrete stairwell viewed from below",
-            "television weather map with swirling storm system",
-            "crowd of human faces packed close together",
-        ],
-        widened_subjects=[
-            "dollhouse interior seen through a broken window",
-            "empty parking garage at night, one flickering light",
-            "wall of surveillance camera monitors, mostly static",
-            "vending machine humming alone in a dark hallway",
-            "mannequin display missing its head",
-            "storm drain grate half-submerged in still water",
-            "airport terminal at night, all gates empty",
-            "abandoned playground, swing set mid-motion with no one on it",
-            "elevator interior, doors closing on an empty hallway",
-            "waiting room with rows of identical empty chairs",
-        ],
-        seed_from_start=False, exclude_prev_round=False, out_dir_name="uncanny_round1",
-    ),
-    2: RoundConfig(
-        round=2, wall_clock_cap_hours=1.0, budget_usd_cap=1.00, budget_safety_margin=0.10,
-        gen_batch_size=20, explore_fraction=0.85, max_generations=60,
-        textures=[
-            "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
-            "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, "
-            "thick acrylic dry-brush texture, raw outsider-art painting",
-            "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
-            "heavy black ink crosshatching over torn found-paper collage edges, raw "
-            "outsider-art painting",
-        ],
-        fallback_subjects=[
-            "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
-            "close-up human face, pale skin, hand pressed beside cheek",
-            "dollhouse interior seen through a broken window",
-            "empty parking garage at night, one flickering light",
-            "wall of surveillance camera monitors, mostly static",
-            "vending machine humming alone in a dark hallway",
-            "abandoned playground, swing set mid-motion with no one on it",
-            "waiting room with rows of identical empty chairs",
-        ],
-        seed_from_start=True, exclude_prev_round=True, out_dir_name="uncanny_round2",
-    ),
-}
+def load_leg_config(expedition, leg):
+    """Loads expeditions/<expedition>/expedition.json, merges legs/<leg>.json field-by-field
+    on top (leg wins), and fills in any field neither file sets from _LEG_CONFIG_DEFAULTS.
+    Missing expedition.json is a hard error: launching into a typo'd expedition name must
+    never silently create an empty one."""
+    expedition_file = clawmarks_config.EXPEDITIONS_DIR / expedition / "expedition.json"
+    if not expedition_file.exists():
+        raise RuntimeError(
+            f"unknown expedition {expedition!r}: {expedition_file} does not exist. "
+            f"Create it via the curation server's expedition-creation form first."
+        )
+    with open(expedition_file) as f:
+        merged = json.load(f)
+
+    leg_file = clawmarks_config.EXPEDITIONS_DIR / expedition / "legs" / f"{leg}.json"
+    if leg_file.exists():
+        with open(leg_file) as f:
+            leg_overrides = json.load(f)
+        merged.update(leg_overrides)
+
+    fields = dict(_LEG_CONFIG_DEFAULTS)
+    fields.update(merged)
+    return LegConfig(
+        expedition=expedition, leg=leg, dir=clawmarks_config.leg_dir(expedition, leg), **fields
+    )
 
 
 def build_generation_jobs(gen_idx, subjects, textures, elites, user_picks, batch_size,

@@ -7,6 +7,86 @@ from clawmarks.compute import comfyui
 from clawmarks.search import driver
 
 
+def test_load_leg_config_merges_expedition_and_leg_fields(tmp_path, monkeypatch):
+    from clawmarks.search import driver
+    from clawmarks import config
+
+    expeditions_dir = tmp_path / "expeditions"
+    (expeditions_dir / "demo" / "legs").mkdir(parents=True)
+    (expeditions_dir / "demo" / "expedition.json").write_text(json.dumps({
+        "wall_clock_cap_hours": 7.5, "budget_usd_cap": 10.0, "budget_safety_margin": 1.5,
+        "gen_batch_size": 60, "explore_fraction": 0.5, "max_generations": 400,
+        "textures": ["tex-a"], "fallback_subjects": ["subj-a"], "seed_from_start": False,
+    }))
+    (expeditions_dir / "demo" / "legs" / "leg1.json").write_text(json.dumps({
+        "explore_fraction": 0.85, "seed_from_start": True,
+    }))
+    monkeypatch.setattr(config, "EXPEDITIONS_DIR", expeditions_dir)
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+
+    cfg = driver.load_leg_config("demo", "leg1")
+
+    assert cfg.expedition == "demo"
+    assert cfg.leg == "leg1"
+    assert cfg.explore_fraction == 0.85  # leg override wins
+    assert cfg.seed_from_start is True  # leg override wins
+    assert cfg.wall_clock_cap_hours == 7.5  # inherited from expedition.json
+    assert cfg.textures == ["tex-a"]  # inherited, no leg override present
+    assert cfg.dir == config.leg_dir("demo", "leg1")
+
+
+def test_load_leg_config_empty_leg_file_inherits_everything(tmp_path, monkeypatch):
+    from clawmarks.search import driver
+    from clawmarks import config
+
+    expeditions_dir = tmp_path / "expeditions"
+    (expeditions_dir / "demo" / "legs").mkdir(parents=True)
+    (expeditions_dir / "demo" / "expedition.json").write_text(json.dumps({
+        "wall_clock_cap_hours": 1.0, "budget_usd_cap": 1.0, "budget_safety_margin": 0.1,
+        "gen_batch_size": 20, "explore_fraction": 0.85, "max_generations": 60,
+        "textures": [], "fallback_subjects": [], "seed_from_start": True,
+    }))
+    (expeditions_dir / "demo" / "legs" / "cockpit.json").write_text("{}")
+    monkeypatch.setattr(config, "EXPEDITIONS_DIR", expeditions_dir)
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+
+    cfg = driver.load_leg_config("demo", "cockpit")
+
+    assert cfg.explore_fraction == 0.85
+    assert cfg.seed_from_start is True
+
+
+def test_load_leg_config_missing_expedition_is_a_clear_error(tmp_path, monkeypatch):
+    from clawmarks.search import driver
+    from clawmarks import config
+
+    monkeypatch.setattr(config, "EXPEDITIONS_DIR", tmp_path / "expeditions")
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+
+    with pytest.raises(RuntimeError, match="unknown expedition"):
+        driver.load_leg_config("does_not_exist", "leg1")
+
+
+def test_load_leg_config_missing_leg_file_is_ok(tmp_path, monkeypatch):
+    """A leg file can be entirely absent (not just empty): inherit everything."""
+    from clawmarks.search import driver
+    from clawmarks import config
+
+    expeditions_dir = tmp_path / "expeditions"
+    (expeditions_dir / "demo" / "legs").mkdir(parents=True)
+    (expeditions_dir / "demo" / "expedition.json").write_text(json.dumps({
+        "wall_clock_cap_hours": 1.0, "budget_usd_cap": 1.0, "budget_safety_margin": 0.1,
+        "gen_batch_size": 20, "explore_fraction": 0.5, "max_generations": 60,
+        "textures": [], "fallback_subjects": [], "seed_from_start": False,
+    }))
+    monkeypatch.setattr(config, "EXPEDITIONS_DIR", expeditions_dir)
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+
+    cfg = driver.load_leg_config("demo", "brand_new_leg")
+
+    assert cfg.explore_fraction == 0.5
+
+
 def _manifest_entry(tag):
     return {
         "tag": tag,
