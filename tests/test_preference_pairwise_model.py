@@ -58,14 +58,12 @@ def test_cross_validate_returns_a_valid_accuracy_using_leave_one_out_below_min_c
     assert 0.0 <= acc <= 1.0
 
 
-def test_train_and_save_returns_none_below_min_comparisons(tmp_path, monkeypatch):
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
+def test_train_and_save_returns_none_below_min_comparisons(tmp_path):
     comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}] * 10
-    assert ppm.train_and_save(comparisons) is None
+    assert ppm.train_and_save(comparisons, tmp_path) is None
 
 
-def test_train_and_save_writes_model_and_meta_on_success(tmp_path, monkeypatch):
+def test_train_and_save_writes_model_and_meta_on_success(tmp_path):
     rng = np.random.RandomState(0)
     tags = [f"t{i}" for i in range(120)]
     embeddings = rng.normal(size=(120, 2)).astype(np.float32)
@@ -76,19 +74,14 @@ def test_train_and_save_writes_model_and_meta_on_success(tmp_path, monkeypatch):
         for i in range(0, 100, 2)
     ]
 
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
-    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-
-    result = ppm.train_and_save(comparisons)
+    result = ppm.train_and_save(comparisons, tmp_path)
     assert result is not None
     assert 0.0 <= result["cv_accuracy"] <= 1.0
     assert result["n_comparisons"] == 50
-    assert (tmp_path / "preference_pairwise_model.joblib").exists()
+    assert ppm.model_file(tmp_path).exists()
 
     import json
-    meta = json.loads((tmp_path / "preference_pairwise_model_meta.json").read_text())
+    meta = json.loads(ppm.model_meta_file(tmp_path).read_text())
     assert meta["n_comparisons"] == 50
     assert "trained_at" in meta
     assert meta["baseline_accuracy"] == 0.5
@@ -104,7 +97,7 @@ def test_train_and_save_uses_a_unique_tmp_path_so_concurrent_calls_dont_clobber_
     """curation_server.py now runs a retrain fit outside its request lock (both the manual
     /api/preference_retrain endpoint and the auto-retrain triggered from /api/compare), so two
     calls to train_and_save can genuinely overlap. Before this fix both wrote to the same fixed
-    f"{MODEL_FILE}.tmp" path, risking one call's joblib.dump corrupting the other's in-flight
+    fixed model tmp path, risking one call's joblib.dump corrupting the other's in-flight
     write before either os.replace'd it into place. Force two calls to have their dump() calls
     in flight at the same time and assert they used distinct temp paths."""
     rng = np.random.RandomState(0)
@@ -115,11 +108,6 @@ def test_train_and_save_uses_a_unique_tmp_path_so_concurrent_calls_dont_clobber_
         {"winner": tags[i], "loser": tags[i + 1], "compared_at": "t"}
         for i in range(0, 100, 2)
     ]
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
-    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-
     seen_paths = []
     seen_lock = threading.Lock()
     both_dumping = threading.Barrier(2, timeout=10)
@@ -137,7 +125,7 @@ def test_train_and_save_uses_a_unique_tmp_path_so_concurrent_calls_dont_clobber_
     results_lock = threading.Lock()
 
     def run():
-        result = ppm.train_and_save(comparisons)
+        result = ppm.train_and_save(comparisons, tmp_path)
         with results_lock:
             results.append(result)
 
@@ -154,9 +142,8 @@ def test_train_and_save_uses_a_unique_tmp_path_so_concurrent_calls_dont_clobber_
     assert all(r is not None for r in results)
 
 
-def test_main_refuses_without_comparisons_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    rc = ppm.main([])
+def test_main_refuses_without_comparisons_file(tmp_path):
+    rc = ppm.main([str(tmp_path)])
     assert rc == 1
 
 
@@ -282,49 +269,37 @@ def test_significance_does_not_report_false_significance_on_leaked_mirrored_nois
     assert stats["p_value"] > 0.2
 
 
-def test_train_and_save_refuses_when_usable_comparisons_fall_below_raw_count(tmp_path, monkeypatch):
+def test_train_and_save_refuses_when_usable_comparisons_fall_below_raw_count(tmp_path):
     """Regression test for a bug where train_and_save only checked the raw comparisons count
     against MIN_COMPARISONS, not the usable (embedding-cached) count. Here the raw count clears
     MIN_COMPARISONS but most comparisons reference tags missing from the embedding cache, so the
     usable count falls below the floor and training must still be refused."""
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-
     rng = np.random.RandomState(0)
     cached_tags = ["a", "b"]
     embeddings = rng.normal(size=(2, 2)).astype(np.float32)
     embed_cache.save_cache(tmp_path / "embeddings.npz", cached_tags, embeddings)
-    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
-
     comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}] * 5
     comparisons += [{"winner": f"missing{i}", "loser": f"missing{i}b", "compared_at": "t"} for i in range(55)]
     assert len(comparisons) >= ppm.MIN_COMPARISONS
 
-    assert ppm.train_and_save(comparisons) is None
+    assert ppm.train_and_save(comparisons, tmp_path) is None
     assert not (tmp_path / "preference_pairwise_model.joblib").exists()
 
 
-def test_train_and_save_refuses_when_repeated_judgments_consolidate_below_the_floor(tmp_path, monkeypatch):
+def test_train_and_save_refuses_when_repeated_judgments_consolidate_below_the_floor(tmp_path):
     """Regression test for issue #13's headline exploit: 50 raw submissions of the SAME pair
     clear the early `len(comparisons) < MIN_COMPARISONS` check in train_and_save, but consolidate
     to a single usable pair, and must still be refused. Unlike
     test_train_and_save_refuses_when_usable_comparisons_fall_below_raw_count above (which covers
     the missing-embedding cause), every tag here has a cached embedding: the only reason usable
     falls below the floor is duplicate-judgment consolidation itself."""
-    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-
     tags = ["a", "b"]
     embeddings = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
     embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
-    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
-
     comparisons = [{"winner": "a", "loser": "b", "compared_at": "t0"}] * ppm.MIN_COMPARISONS
     assert len(comparisons) >= ppm.MIN_COMPARISONS
 
-    assert ppm.train_and_save(comparisons) is None
+    assert ppm.train_and_save(comparisons, tmp_path) is None
     assert not (tmp_path / "preference_pairwise_model.joblib").exists()
 
 

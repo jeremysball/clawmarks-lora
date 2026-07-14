@@ -1,5 +1,6 @@
 from clawmarks.search.score_manifest import (
-    preprocess, MODEL_ID, REAL_DIR, partition_by_existing_file, merge_quarantine_entries,
+    preprocess, MODEL_ID, REAL_DIR, _default_manifest, partition_by_existing_file,
+    merge_quarantine_entries,
 )
 
 
@@ -7,6 +8,13 @@ def test_preprocess_and_constants_importable_from_new_location():
     assert MODEL_ID == "facebook/dinov2-base"
     assert REAL_DIR.endswith("corrected_dataset_extract")
     assert callable(preprocess)
+
+
+def test_default_manifest_uses_output_directory(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("[]")
+
+    assert _default_manifest(tmp_path) == str(manifest)
 
 
 def test_partition_by_existing_file_keeps_entries_whose_file_exists(tmp_path):
