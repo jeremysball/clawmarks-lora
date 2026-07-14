@@ -1,7 +1,40 @@
-from clawmarks.search.score_manifest import preprocess, MODEL_ID, REAL_DIR
+from clawmarks.search.score_manifest import preprocess, MODEL_ID, REAL_DIR, partition_by_existing_file
 
 
 def test_preprocess_and_constants_importable_from_new_location():
     assert MODEL_ID == "facebook/dinov2-base"
     assert REAL_DIR.endswith("corrected_dataset_extract")
     assert callable(preprocess)
+
+
+def test_partition_by_existing_file_keeps_entries_whose_file_exists(tmp_path):
+    present_file = tmp_path / "a.png"
+    present_file.write_bytes(b"x")
+    manifest = [{"file": str(present_file)}]
+
+    present, missing = partition_by_existing_file(manifest)
+
+    assert present == manifest
+    assert missing == []
+
+
+def test_partition_by_existing_file_quarantines_entries_whose_file_is_missing(tmp_path):
+    missing_entry = {"file": str(tmp_path / "does_not_exist.png")}
+    manifest = [missing_entry]
+
+    present, missing = partition_by_existing_file(manifest)
+
+    assert present == []
+    assert missing == [missing_entry]
+
+
+def test_partition_by_existing_file_does_not_mutate_input(tmp_path):
+    present_file = tmp_path / "a.png"
+    present_file.write_bytes(b"x")
+    missing_entry = {"file": str(tmp_path / "gone.png")}
+    manifest = [{"file": str(present_file)}, missing_entry]
+    original = list(manifest)
+
+    partition_by_existing_file(manifest)
+
+    assert manifest == original

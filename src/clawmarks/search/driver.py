@@ -26,11 +26,11 @@ import os
 import random
 import re
 import subprocess
-import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass, field
 
+from clawmarks.atomic_io import atomic_json_write as _atomic_json_write
 from clawmarks.config import SEEDS_FILE, SWEEP2_DIR, SWEEP_DIR
 from clawmarks.search.scoring import bin_edges, bin_of, novelty_from_similarity
 from clawmarks.search.seed_pool import merge as seed_pool_merge, load as seed_pool_load, save as seed_pool_save
@@ -296,23 +296,6 @@ def _validate_state(state, state_file, allow_legacy_round1_baseline=False):
         raise RuntimeError(
             f"cannot resume: persisted state {state_file} has generations but no start_balance"
         )
-
-
-def _atomic_json_write(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(value, f, indent=1)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary, path)
-    except Exception:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
 
 
 def save_state(cfg, state):
