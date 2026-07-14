@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 
 from clawmarks.search import embed_cache
@@ -96,6 +98,60 @@ def test_train_and_save_writes_model_and_meta_on_success(tmp_path, monkeypatch):
     tags_arr, embeddings_arr = embed_cache.load_cache(tmp_path / "embeddings.npz")
     expected_fingerprint = ppm.comparisons_fingerprint(tags_arr, embeddings_arr, comparisons)
     assert meta["comparisons_fingerprint"] == expected_fingerprint
+
+
+def test_train_and_save_uses_a_unique_tmp_path_so_concurrent_calls_dont_clobber_each_other(tmp_path, monkeypatch):
+    """curation_server.py now runs a retrain fit outside its request lock (both the manual
+    /api/preference_retrain endpoint and the auto-retrain triggered from /api/compare), so two
+    calls to train_and_save can genuinely overlap. Before this fix both wrote to the same fixed
+    f"{MODEL_FILE}.tmp" path, risking one call's joblib.dump corrupting the other's in-flight
+    write before either os.replace'd it into place. Force two calls to have their dump() calls
+    in flight at the same time and assert they used distinct temp paths."""
+    rng = np.random.RandomState(0)
+    tags = [f"t{i}" for i in range(120)]
+    embeddings = rng.normal(size=(120, 2)).astype(np.float32)
+    embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
+    comparisons = [
+        {"winner": tags[i], "loser": tags[i + 1], "compared_at": "t"}
+        for i in range(0, 100, 2)
+    ]
+    monkeypatch.setattr(ppm, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(ppm.embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
+    monkeypatch.setattr(ppm, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
+    monkeypatch.setattr(ppm, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
+
+    seen_paths = []
+    seen_lock = threading.Lock()
+    both_dumping = threading.Barrier(2, timeout=10)
+    real_dump = ppm.joblib.dump
+
+    def recording_dump(value, path, *a, **kw):
+        with seen_lock:
+            seen_paths.append(str(path))
+        both_dumping.wait()  # forces both calls' writes to genuinely overlap
+        return real_dump(value, path, *a, **kw)
+
+    monkeypatch.setattr(ppm.joblib, "dump", recording_dump)
+
+    results = []
+    results_lock = threading.Lock()
+
+    def run():
+        result = ppm.train_and_save(comparisons)
+        with results_lock:
+            results.append(result)
+
+    t1 = threading.Thread(target=run)
+    t2 = threading.Thread(target=run)
+    t1.start()
+    t2.start()
+    t1.join(timeout=15)
+    t2.join(timeout=15)
+
+    assert len(seen_paths) == 2
+    assert seen_paths[0] != seen_paths[1], "both calls wrote to the same tmp path"
+    assert len(results) == 2
+    assert all(r is not None for r in results)
 
 
 def test_main_refuses_without_comparisons_file(tmp_path, monkeypatch):

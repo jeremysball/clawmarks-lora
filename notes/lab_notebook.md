@@ -1926,3 +1926,96 @@ generated image as an independent exchangeable unit, which does not hold if imag
 prompt, seed, or checkpoint in a way that correlates their embeddings. Until that is checked
 (or the claim is scoped down to "these two fixed image collections"), treat the MMD p-value as
 suggestive, not a rigorously calibrated significance level.
+
+### 2026-07-14: Phase 2 open-threads cleanup (transactional writes, retrain-off-lock, N-variation counterfactuals, search-run launch UI)
+
+Closed out five items that had been sitting half-finished across the curation server and
+recovery scripts, each landed as its own TDD task with an independent GLM review:
+
+- Recovery scripts (`notes/recover_*` style atomic-write helpers) now accumulate quarantine
+  entries across runs instead of overwriting the ledger each time, and widen the cleanup
+  `except` so a partial write can't leave an orphaned temp file behind.
+- The preference-model retrain triggered by a rating submission no longer runs synchronously
+  inside the request lock (the deferred follow-up noted in the 2026-07-12 entry above); a rating
+  POST returns immediately and the retrain runs off-lock.
+- `/api/counterfactual` now accepts `n` (batch generation, capped at 6) and the Lightbox gained
+  `mountProgressive()` for thumb-then-full-res loading. Two bugs surfaced by GLM review and
+  fixed before merge: a pinned seed was generating `n` byte-identical images instead of forcing
+  a single job (the design spec's own pseudocode says one job when the seed is pinned, since
+  paying RunPod for identical copies is pure waste), and two concurrent counterfactual requests
+  for the same origin/batch-index could collide on the same output filename (fixed with a uuid
+  suffix on `new_tag`). `mountProgressive` also had a stale-callback race: the shared lightbox
+  `<img>` element is reused across navigations, so a superseded full-res load could still land
+  after the user navigated elsewhere and clobber the newer image; fixed with a per-call token
+  checked in both `onload` and a new `onerror` handler.
+- Implemented docs/superpowers/specs/2026-07-12-overnight-search-launch-design.md: `runs.html` +
+  `run_manager.py` let a search round be launched, monitored, and stopped from the browser
+  instead of SSHing in, with a per-run report (novelty trajectory, plateau count, spend, pick
+  rate by category, explore/exploit split) read straight off `allnight_state.json`/
+  `scored_manifest.json`. A second GLM review pass on this one caught real safety-rail gaps
+  worth recording since they're the kind of thing that looks fine until two requests race:
+  the original lock acquire was check-then-write (TOCTOU), so two near-simultaneous launches
+  under the server's `ThreadingHTTPServer` could both pass the "already running" guard and spawn
+  two `driver.py` processes against the same `out_dir`; fixed with an atomic
+  `O_CREAT|O_EXCL` lock claim. If writing the lock after spawning failed, the child was left
+  running with no lock at all, silently defeating the one-run-at-a-time guarantee; fixed by
+  reaping the child on any failure after Popen. `stop_run` trusted a bare PID-alive check, so a
+  reused PID after the real driver died would get SIGKILL'd as if it were the driver; fixed by
+  recording the launched PID's `/proc` start time and treating a mismatch as a stale lock.
+  `stop_run` also only signaled the driver's own PID, not its process group, so a `driver.py`
+  mid-`opencode` subprocess call at stop time would orphan that child; fixed with
+  `killpg`/`getpgid` (safe here since the driver is started with `start_new_session=True`, so
+  its pgid equals its own pid).
+- Deleted two rejected specs (`2026-07-11-toml-config-design.md` TOML-config, `2026-07-11-ui-
+  redesign-design.md` three-pillar nav) and added `*.backup_candidate_seeds_*` to `.gitignore`.
+  TODO.txt reconciled to match: the "Curation UI" implement items, the retrain-off-lock deferred
+  follow-up, and both search-run-launch UI items are now checked off there.
+
+A second GLM review pass (on the safety-rail fix commit itself, before this hygiene commit
+existed) caught one more real gap: `launch_run`'s `Popen` object goes out of scope right after
+spawning, so nothing ever `wait()`s the driver process. Once it exits it sits as an unreaped
+zombie, and `is_process_alive`'s `os.kill(pid, 0)` check reports zombies as alive — so
+`stop_run`'s SIGTERM-then-SIGKILL grace loops were each spinning their full duration (~20s
+total at the 10s default) even for a driver that exited immediately. Fixed with an
+`os.waitpid(pid, os.WNOHANG)` reap between poll iterations, verified with a test that lets a
+process exit into zombie state *without* ever calling `.poll()`/`.wait()` on it (either would
+have reaped it and defeated the test) and asserts `stop_run` returns in well under the grace
+period. Two minor, non-blocking gaps remain, logged here rather than fixed, since GLM's own
+severity read on both was "pre-existing, negligible probability, worth a follow-up, not a
+blocker": `stop_run` doesn't re-check `start_time_ticks` after reaping and before the SIGKILL
+phase (a pid-reuse race in that narrow post-reap window); and `_reap_if_exited` is only called
+from `stop_run`, so `status()`/`current_run()` still report a spontaneously-exited-but-unreaped
+driver as `running: True` until someone clicks Stop.
+
+Full suite: 335 passing, ruff/mypy clean. All work landed on the
+`worktree-phase2-task6-transactional-writes` branch; per-task branch/PR split from the original
+plan was not followed this pass (flagged for the finishing-a-development-branch step).
+
+### 2026-07-14 (later): three findings from a self-run branch review, fixed before merge
+
+PR #31's own automated review (GLM-5.2 via opencode) hung twice in a row mid-run and had to be
+cancelled both times, so this pass was read directly instead of delegated. Reading the diff
+turned up three real issues, each fixed TDD-style:
+
+- **Auto-retrain still held the request lock.** The manual `/api/preference_retrain` endpoint's
+  fit was already moved outside `_lock` in the original Phase 2 work, but `/api/compare`'s
+  auto-retrain (fires every `RETRAIN_EVERY`th comparison) still ran the full model fit inside
+  `with _lock:`, unchanged from main — exactly the bottleneck that task was supposed to close,
+  left in place on the path that fires during ordinary browsing rather than the manual button.
+  A concurrency test (spawn a slow-fit thread, assert a concurrent `/api/compare` still returns
+  in well under the fit's duration) reproduced a genuine 30-second block before the fix.
+- **Non-unique temp path in `train_and_save`.** Once both retrain paths fit outside the lock,
+  two calls can genuinely overlap — and `train_and_save` wrote to a fixed `f"{MODEL_FILE}.tmp"`
+  path, so two concurrent fits would race on the same file. A test forcing two `train_and_save`
+  calls' `joblib.dump` to be in flight simultaneously reproduced a `FileNotFoundError` from one
+  call's `os.replace` racing the other's. Fixed by routing the model and meta writes through the
+  existing `atomic_io` helpers (unique `tempfile.mkstemp` path per call).
+- **RunPod API key sent as a URL query param.** `runpod_client.runpod_balance` built the request
+  as `?api_key=<key>`, which can end up in server access logs or proxy history in a way a header
+  doesn't. Switched to `Authorization: Bearer <key>`. Verified live against the real RunPod
+  GraphQL API (not just the mocked unit test) that the header works identically to the old query
+  param — the request still needs the spoofed `User-Agent: curl/8.0` either way, which a first
+  verification attempt without it revealed by getting a false 403 on *both* auth styles.
+
+Full suite: 338 passing (three new tests), ruff/mypy clean.
+

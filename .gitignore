@@ -42,6 +42,7 @@ notes/uncanny_sweep/*.pt
 notes/uncanny_sweep2/*.html
 notes/uncanny_sweep2/scored_manifest.json
 notes/uncanny_seedrun1/
+*.backup_candidate_seeds_*
 .playwright-mcp/
 tests/fixtures/sample_sweep/notes/uncanny_sweep/*.html
 tests/fixtures/sample_sweep/notes/uncanny_sweep/*.js

@@ -29,7 +29,6 @@ Run with: python -m clawmarks.search.preference_pairwise_model
 """
 import hashlib
 import json
-import os
 import sys
 from datetime import datetime, timezone
 
@@ -38,6 +37,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold, LeaveOneGroupOut, cross_val_score, permutation_test_score
 
+from clawmarks.atomic_io import atomic_json_write, atomic_write
 from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 
@@ -210,9 +210,11 @@ def train_and_save(comparisons):
     acc = cross_validate(X, y)
     stats = significance(X, y)
     model = train(X, y)
-    model_tmp = f"{MODEL_FILE}.tmp"
-    joblib.dump(model, model_tmp)
-    os.replace(model_tmp, MODEL_FILE)
+    # curation_server.py runs this fit outside its request lock (both the manual retrain endpoint
+    # and the auto-retrain triggered from /api/compare), so two calls can genuinely overlap.
+    # atomic_write/atomic_json_write use a unique tempfile per call (tempfile.mkstemp), unlike a
+    # fixed f"{MODEL_FILE}.tmp" path, which two concurrent calls would both write to and corrupt.
+    atomic_write(MODEL_FILE, lambda f: joblib.dump(model, f))
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_comparisons": len(comparisons),
@@ -223,10 +225,7 @@ def train_and_save(comparisons):
         "p_value": stats["p_value"],
         "n_permutations": stats["n_permutations"],
     }
-    tmp = f"{MODEL_META_FILE}.tmp"
-    with open(tmp, "w") as f:
-        json.dump(meta, f)
-    os.replace(tmp, MODEL_META_FILE)
+    atomic_json_write(MODEL_META_FILE, meta)
     return {"model": model, "cv_accuracy": acc, "n_comparisons": len(comparisons)}
 
 

@@ -95,7 +95,10 @@ import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
-from clawmarks.config import ROOT, SEEDS_FILE, SWEEP_DIR
+from clawmarks.config import ROOT, SEEDS_FILE, SWEEP2_DIR, SWEEP_DIR
+from clawmarks.runpod_client import runpod_balance
+from clawmarks.search import run_manager
+from clawmarks.search.driver import ROUND_CONFIGS
 from clawmarks.search.score_manifest import REAL_DIR
 from clawmarks.search.seed_pool import merge as seed_pool_merge
 from clawmarks.search import comparison_sampler, preference_settings, preference_pairwise_model
@@ -106,7 +109,7 @@ from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
     novelty_decay, lineage_view, elite_archive, preference_rank, explore_hub,
-    seed_browser, compare_page, preference_status, cockpit,
+    seed_browser, compare_page, preference_status, cockpit, runs_page,
 )
 from clawmarks.build.thumbnails import generate_thumbnail
 
@@ -234,7 +237,6 @@ DEFAULT_PORT = 8420
 
 COMFY_ENDPOINT_ID = "uix4vdb2cec7sb"  # same serverless endpoint the search uses
 COMFY_BASE = f"https://api.runpod.ai/v2/{COMFY_ENDPOINT_ID}"
-GRAPHQL_URL = "https://api.runpod.io/graphql"
 BALANCE_FLOOR_USD = 0.05  # refuse to submit below this rather than risk a silent stall
 GENERATION_TIMEOUT_S = 330  # a cold endpoint (scaled to zero) took ~215s to spin up a worker in testing
 SEED_GEN_TIMEOUT_S = 300  # matches search/driver.py's request_gpt55_subjects timeout
@@ -278,16 +280,6 @@ def comfy_get(path, api_key):
     req = urllib.request.Request(f"{COMFY_BASE}{path}", headers={"Authorization": f"Bearer {api_key}"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
-
-
-def runpod_balance(api_key):
-    req = urllib.request.Request(
-        f"{GRAPHQL_URL}?api_key={api_key}",
-        data=json.dumps({"query": "query { myself { clientBalance } }"}).encode(),
-        headers={"Content-Type": "application/json", "User-Agent": "curl/8.0"}, method="POST")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        res = json.loads(r.read())
-    return res["data"]["myself"]["clientBalance"]
 
 
 def load_store(path):
@@ -349,7 +341,8 @@ def _maybe_retrain_pairwise_model(comparisons):
               file=sys.stderr, flush=True)
         return
     if result is not None:
-        _pairwise_model_cache["model"] = result["model"]
+        with _lock:
+            _pairwise_model_cache["model"] = result["model"]
 
 
 def _compared_pair_keys(comparisons):
@@ -710,6 +703,24 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == "/api/searchrun/status":
+            self._json_response(200, run_manager.status())
+            return
+        if self.path.startswith("/api/searchrun/report"):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                round_num = int((query.get("round") or ["1"])[0])
+            except ValueError:
+                self._json_response(400, {"error": "'round' must be an integer"})
+                return
+            if round_num not in ROUND_CONFIGS:
+                self._json_response(400, {"error": f"unknown round {round_num!r}"})
+                return
+            cfg = ROUND_CONFIGS[round_num]
+            out_dir = SWEEP_DIR if cfg.out_dir_name == "uncanny_sweep" else SWEEP2_DIR
+            favorites = load_store(FAVORITES_FILE)
+            self._json_response(200, run_manager.build_report(out_dir, favorites=favorites))
+            return
         if self.path == "/api/compare/next":
             with _lock:
                 comparisons = load_comparisons()
@@ -910,6 +921,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if self.path == "/runs.html":
+            body = runs_page.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if self.path.startswith("/real/"):
             # basename() strips any path components a malicious/malformed request tried to smuggle
             # in (e.g. /real/../../etc/passwd), so this can only ever resolve to a direct child of
@@ -941,6 +961,21 @@ class Handler(SimpleHTTPRequestHandler):
                 generate_thumbnail(match["file"], thumb_path)
             # fall through to super().do_GET() below, which now finds the file on disk
 
+        if self.path.startswith("/real_thumbs/"):
+            # Mirrors /thumbs/ above but for REAL_DIR (corrected_dataset_extract/, read-only
+            # reference data): cache writes go to SWEEP_DIR/real_thumbs/, never into REAL_DIR
+            # itself. basename() strips any path traversal the same way /real/ does.
+            name = os.path.basename(urllib.parse.unquote(self.path[len("/real_thumbs/"):]))
+            thumb_path = f"{SWEEP_DIR}/real_thumbs/{name}"
+            if not name or not os.path.exists(thumb_path):
+                real_path = os.path.join(REAL_DIR, name) if name else ""
+                if not name or not os.path.isfile(real_path):
+                    self.send_error(404, "no such real training image")
+                    return
+                os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                generate_thumbnail(real_path, thumb_path)
+            # fall through to super().do_GET() below, which now finds the file on disk
+
         super().do_GET()
 
     def do_POST(self):
@@ -965,7 +1000,10 @@ class Handler(SimpleHTTPRequestHandler):
                 comparisons = load_comparisons()
                 comparisons = record_comparison(comparisons, winner, loser, datetime.now(timezone.utc).isoformat())
                 save_comparisons(comparisons)
-                _maybe_retrain_pairwise_model(comparisons)
+            # Outside _lock: a full model fit can take a while, and every other route (favorites,
+            # compare, cockpit) shares this same lock, so retraining here would block them for the
+            # fit's whole duration instead of just the comparison write above.
+            _maybe_retrain_pairwise_model(comparisons)
             self._json_response(200, {"ok": True, "count": len(comparisons)})
             return
 
@@ -989,10 +1027,14 @@ class Handler(SimpleHTTPRequestHandler):
                         self._json_response(400, {"error": gate_error})
                         return
                     comparisons = load_comparisons()
-                    result = preference_pairwise_model.train_and_save(comparisons)
-                    if result is None:
-                        self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
-                        return
+                # Fit outside _lock: a full model fit can take a while, and every other route
+                # (favorites, compare, cockpit) shares this same lock, so holding it here blocks
+                # them for the fit's whole duration instead of just the state swap below.
+                result = preference_pairwise_model.train_and_save(comparisons)
+                if result is None:
+                    self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
+                    return
+                with _lock:
                     _pairwise_model_cache["model"] = result["model"]
             except Exception as e:
                 self._json_response(500, {"error": f"preference retrain crashed: {e}"})
@@ -1053,7 +1095,51 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_seed_generate(payload)
             return
 
+        if self.path == "/api/searchrun/launch":
+            self._handle_searchrun_launch(payload)
+            return
+
+        if self.path == "/api/searchrun/stop":
+            self._json_response(200, run_manager.stop_run())
+            return
+
         self._json_response(404, {"error": "unknown endpoint"})
+
+    def _handle_searchrun_launch(self, payload):
+        try:
+            round_num = int(payload.get("round"))
+        except (TypeError, ValueError):
+            self._json_response(400, {"error": "'round' must be an integer"})
+            return
+        if round_num not in ROUND_CONFIGS:
+            self._json_response(400, {"error": f"unknown round {round_num!r}"})
+            return
+
+        api_key = os.environ.get("RUNPOD_API_KEY")
+        if not api_key:
+            self._json_response(400, {"error": "RUNPOD_API_KEY not set in server environment"})
+            return
+
+        cfg = ROUND_CONFIGS[round_num]
+        # Use this module's own SWEEP_DIR/SWEEP2_DIR (both overridable via CLAWMARKS_SWEEP_DIR
+        # for tests) rather than driver._out_dir, which resolves against clawmarks.config
+        # directly and would ignore a monkeypatch made only on this module.
+        out_dir = SWEEP_DIR if cfg.out_dir_name == "uncanny_sweep" else SWEEP2_DIR
+        try:
+            info = run_manager.launch_run(
+                round_num, out_dir, api_key,
+                popen_fn=subprocess.Popen, balance_fn=run_manager.runpod_balance,
+            )
+        except run_manager.LaunchError as e:
+            message = str(e)
+            if "already in progress" in message:
+                self._json_response(409, {"error": message})
+            elif "below floor" in message:
+                self._json_response(402, {"error": message})
+            else:
+                self._json_response(400, {"error": message})
+            return
+        self._json_response(200, {"ok": True, **info})
 
     def _handle_cockpit_evidence(self):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -1134,6 +1220,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         try:
+            n = int(payload.get("n", 1))
+        except (TypeError, ValueError):
+            self._json_response(400, {"error": "'n' must be an integer"})
+            return
+        n = max(1, min(n, 6))
+
+        try:
             balance = runpod_balance(api_key)
         except Exception as e:
             self._json_response(502, {"error": f"balance check failed: {e}"})
@@ -1148,21 +1241,39 @@ class Handler(SimpleHTTPRequestHandler):
 
         strength = float(payload.get("strength", 1.0))
         cfg = float(payload.get("cfg", 7.5))
-        seed = int(payload.get("seed") or random.randint(1, 999999))
+        pinned_seed = payload.get("seed")
+        # A pinned seed makes every job in the batch byte-identical (same prompt/strength/cfg
+        # too), so honoring n>1 here would just pay for n copies of one image. Only n's random-
+        # seed path benefits from batching.
+        seeds = [int(pinned_seed)] if pinned_seed else [random.randint(1, 999999) for _ in range(n)]
         steps = int(payload.get("steps", 28))
         sampler = payload.get("sampler", "ddim")
         negative = payload.get("negative", NEG_DEFAULT)
 
+        results = []
+        for i, seed in enumerate(seeds):
+            try:
+                record = self._submit_and_wait_for_counterfactual(
+                    api_key, origin_tag, prompt, strength, cfg, seed, steps, sampler, negative,
+                    payload.get("overridden", []), i,
+                )
+            except (RuntimeError, TimeoutError) as e:
+                self._json_response(502, {"ok": False, "error": str(e), "results": results})
+                return
+            results.append(record)
+
+        self._json_response(200, {"ok": True, "results": results})
+
+    def _submit_and_wait_for_counterfactual(self, api_key, origin_tag, prompt, strength, cfg,
+                                             seed, steps, sampler, negative, overridden, batch_index):
         wf = build_workflow(prompt, seed, strength, cfg, steps, sampler, negative)
         try:
             res = comfy_post("/run", wf, api_key)
             jid = res.get("id")
         except Exception as e:
-            self._json_response(502, {"error": f"submit failed: {e}"})
-            return
+            raise RuntimeError(f"submit failed: {e}") from e
         if not jid:
-            self._json_response(502, {"error": f"submit failed: {res}"})
-            return
+            raise RuntimeError(f"submit failed: {res}")
 
         t0 = time.time()
         while time.time() - t0 < GENERATION_TIMEOUT_S:
@@ -1175,9 +1286,10 @@ class Handler(SimpleHTTPRequestHandler):
             if status == "COMPLETED":
                 images = res.get("output", {}).get("images", [])
                 if not images:
-                    self._json_response(502, {"error": "job completed with no image output"})
-                    return
-                new_tag = f"cf_{int(time.time())}_{origin_tag[:30]}"
+                    raise RuntimeError("job completed with no image output")
+                # uuid suffix (not just batch_index) avoids two concurrent requests for the same
+                # origin_tag racing on the same filename and corrupting each other's PNG.
+                new_tag = f"cf_{int(time.time())}_{batch_index}_{uuid.uuid4().hex[:8]}_{origin_tag[:30]}"
                 fname = f"{COUNTERFACTUALS_DIR}/{new_tag}.png"
                 with open(fname, "wb") as f:
                     f.write(base64.b64decode(images[0]["data"]))
@@ -1186,21 +1298,19 @@ class Handler(SimpleHTTPRequestHandler):
                     "strength": strength, "cfg": cfg, "seed": seed, "steps": steps,
                     "sampler": sampler, "negative": negative,
                     "file": f"counterfactuals/{new_tag}.png",
-                    "overridden": payload.get("overridden", []),
+                    "overridden": overridden,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 with _lock:
                     records = load_store(COUNTERFACTUALS_FILE)
                     records[new_tag] = record
                     save_store(COUNTERFACTUALS_FILE, records)
-                self._json_response(200, {"ok": True, **record})
-                return
+                return record
             if status in ("FAILED", "CANCELLED"):
-                self._json_response(502, {"error": f"generation job {status.lower()}: {res}"})
-                return
+                raise RuntimeError(f"generation job {status.lower()}: {res}")
             time.sleep(2)
 
-        self._json_response(504, {"error": f"generation timed out after {GENERATION_TIMEOUT_S}s"})
+        raise TimeoutError(f"generation timed out after {GENERATION_TIMEOUT_S}s")
 
     def _handle_seed_generate(self, payload):
         n = int(payload.get("n", 20))

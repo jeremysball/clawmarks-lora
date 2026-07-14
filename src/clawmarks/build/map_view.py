@@ -247,7 +247,8 @@ function showInfo(p) {{
   const realWrap = document.getElementById('realWrap');
   const realImg = document.getElementById('realImg');
   const realCaption = document.getElementById('realCaption');
-  realImg.src = '/real/' + encodeURIComponent(p.nearest_real);
+  mountProgressive(realImg, '/real_thumbs/' + encodeURIComponent(p.nearest_real),
+    '/real/' + encodeURIComponent(p.nearest_real));
   realCaption.textContent = `Nearest real training image (sim ${{p.nearest_real_sim}})`;
   realWrap.style.display = 'block';
 }}

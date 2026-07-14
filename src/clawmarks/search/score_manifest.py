@@ -19,6 +19,7 @@ import numpy as np
 from PIL import Image
 from transformers import AutoModel
 
+from clawmarks.atomic_io import atomic_json_write
 from clawmarks.config import ROOT, SWEEP_DIR
 
 MODEL_ID = "facebook/dinov2-base"
@@ -56,6 +57,25 @@ def embed_images(paths, batch_size=16, model=None):
             feats = feats / feats.norm(dim=-1, keepdim=True)
             embs.append(feats)
     return torch.cat(embs, dim=0)
+
+
+def partition_by_existing_file(manifest):
+    """Split manifest entries into (present, missing) by whether m["file"] exists on disk,
+    without dropping the missing ones: a missing file means quarantine and report the entry,
+    never silently delete it from the record."""
+    present = [m for m in manifest if os.path.exists(m["file"])]
+    missing = [m for m in manifest if not os.path.exists(m["file"])]
+    return present, missing
+
+
+def merge_quarantine_entries(prior, new):
+    """Accumulates quarantined entries across runs, keyed by "file", instead of each run's
+    quarantine write replacing the last: a prior run's quarantined entry that isn't
+    re-quarantined this run (its manifest entry no longer exists at all, say) would otherwise
+    silently vanish from the record the moment a later run overwrote the file."""
+    merged = {m["file"]: m for m in prior}
+    merged.update({m["file"]: m for m in new})
+    return list(merged.values())
 
 
 def _default_manifest():
@@ -107,8 +127,20 @@ def main(argv=None):
         manifest = json.load(f)
     print(f"scoring {len(manifest)} generated images...", flush=True)
 
-    paths = [m["file"] for m in manifest if os.path.exists(m["file"])]
-    manifest = [m for m in manifest if os.path.exists(m["file"])]
+    manifest, quarantined = partition_by_existing_file(manifest)
+    if quarantined:
+        quarantine_file = f"{SWEEP_DIR}/manifest_quarantine.json"
+        prior_quarantined = []
+        if os.path.exists(quarantine_file):
+            with open(quarantine_file) as f:
+                prior_quarantined = json.load(f)
+        merged_quarantined = merge_quarantine_entries(prior_quarantined, quarantined)
+        atomic_json_write(quarantine_file, merged_quarantined)
+        print(f"WARNING: {len(quarantined)} manifest entries have no file on disk; quarantined "
+              f"to {quarantine_file} ({len(merged_quarantined)} total accumulated) instead of "
+              f"being dropped", flush=True)
+
+    paths = [m["file"] for m in manifest]
     embs = embed_images(paths, model=model)
 
     centroid_sim = (embs @ centroid).tolist()
@@ -120,11 +152,9 @@ def main(argv=None):
         m["novelty"] = 1 - ns
         m["prompt_type"] = "style" if m["prompt_name"].startswith("style_") else "conflict"
 
-    with open(f"{SWEEP_DIR}/scored_manifest.json", "w") as f:
-        json.dump(manifest, f, indent=1)
-
-    with open(f"{SWEEP_DIR}/real_ref.json", "w") as f:
-        json.dump({"mean": real_ref_mean, "min": real_ref_min, "max": real_ref_max}, f, indent=1)
+    atomic_json_write(f"{SWEEP_DIR}/scored_manifest.json", manifest)
+    atomic_json_write(f"{SWEEP_DIR}/real_ref.json",
+                       {"mean": real_ref_mean, "min": real_ref_min, "max": real_ref_max})
 
     print(f"DONE: wrote {SWEEP_DIR}/scored_manifest.json ({len(manifest)} images scored)", flush=True)
 

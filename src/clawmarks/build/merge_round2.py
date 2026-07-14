@@ -25,6 +25,7 @@ import shutil
 import torch
 from transformers import AutoModel
 
+from clawmarks.atomic_io import atomic_json_write, atomic_write
 from clawmarks.config import SWEEP_DIR, SWEEP2_DIR
 from clawmarks.search.score_manifest import preprocess, MODEL_ID
 
@@ -58,8 +59,7 @@ def main(argv=None):
         print(f"backed up round-1-only manifest to {backup_path}", flush=True)
 
     merged_manifest = manifest1 + manifest2
-    with open(MANIFEST_FILE, "w") as f:
-        json.dump(merged_manifest, f, indent=1)
+    atomic_json_write(MANIFEST_FILE, merged_manifest)
     print(f"merged manifest: {len(manifest1)} round-1 + {len(manifest2)} round-2 = {len(merged_manifest)} total", flush=True)
 
     # --- Embed only the new round-2 images, reusing the cached round-1 + real embeddings ---
@@ -94,8 +94,13 @@ def main(argv=None):
     merged_gen_embs = torch.cat([gen_embs, new_embs], dim=0)
     merged_paths = cached_paths + new_paths
 
-    torch.save({"paths": merged_paths, "real_paths": real_paths, "real_embs": real_embs, "gen_embs": merged_gen_embs},
-               EMBS_FILE)
+    atomic_write(
+        EMBS_FILE,
+        lambda f: torch.save(
+            {"paths": merged_paths, "real_paths": real_paths, "real_embs": real_embs, "gen_embs": merged_gen_embs},
+            f,
+        ),
+    )
     print(f"updated embedding cache: {merged_gen_embs.shape[0]} generated images total", flush=True)
 
     # Similarity and solution-map data are no longer written to disk here: since PR #7,
