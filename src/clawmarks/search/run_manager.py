@@ -154,8 +154,10 @@ def launch_run(round_num, out_dir, api_key, popen_fn=subprocess.Popen, balance_f
         if proc is not None:
             # The subprocess was already spawned when the lock write failed; without this it
             # would keep running with no lock file, silently breaking the one-run-at-a-time
-            # guarantee for every launch after it.
+            # guarantee for every launch after it. wait() (not just kill()) so it's actually
+            # reaped rather than left as a zombie that is_process_alive still reports as alive.
             proc.kill()
+            proc.wait()
         raise
 
 
@@ -214,6 +216,19 @@ def build_report(out_dir, favorites=None, current_balance=None):
     return report
 
 
+def _reap_if_exited(pid):
+    """Best-effort zombie reap. launch_run's Popen object goes out of scope right after
+    spawning (only the pid is kept in the lock), so nothing else in this process ever wait()s on
+    the driver; once it exits it sits as a zombie, and os.kill(pid, 0) -- what is_process_alive
+    checks -- reports zombies as alive. Without this, stop_run's SIGTERM/SIGKILL grace loops
+    would spin their full duration on every stop, even for a driver that exited immediately.
+    ChildProcessError means pid isn't (or is no longer) our child; safe to ignore."""
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        pass
+
+
 def _signal_run(pid, sig):
     """launch_run starts the driver with start_new_session=True, making it a process-group
     leader (pgid == pid at spawn time), so killpg reaches any child it has shelled out to (e.g.
@@ -232,13 +247,17 @@ def stop_run(grace_s=STOP_GRACE_S, sleep_fn=time.sleep):
 
     pid = info["pid"]
     _signal_run(pid, signal.SIGTERM)
+    _reap_if_exited(pid)
     deadline = time.time() + grace_s
     while time.time() < deadline and is_process_alive(pid):
         sleep_fn(0.2)
+        _reap_if_exited(pid)
     if is_process_alive(pid):
         _signal_run(pid, signal.SIGKILL)
+        _reap_if_exited(pid)
         deadline = time.time() + grace_s
         while time.time() < deadline and is_process_alive(pid):
             sleep_fn(0.2)
+            _reap_if_exited(pid)
     _remove_lock()
     return {"running": False}

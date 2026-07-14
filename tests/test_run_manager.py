@@ -343,18 +343,18 @@ def test_launch_run_is_race_free_under_concurrent_calls(tmp_path, monkeypatch):
 def test_launch_run_reaps_the_child_and_clears_the_lock_if_writing_the_lock_fails(tmp_path, monkeypatch):
     """If the lock write fails after the subprocess is already spawned, the child must not be
     left running with no lock file -- that would silently break the one-run-at-a-time guarantee
-    for every launch after it."""
+    for every launch after it. Uses a real spawned process (not a pid-recording mock) so the
+    assertion proves the process actually dies, not just that .kill() was called."""
     lock_file = tmp_path / ".searchrun.lock"
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
     out_dir = tmp_path / "sweep_not_yet_created"
 
-    killed = []
+    spawned = []
 
-    class FakeProc:
-        pid = 424242
-
-        def kill(self):
-            killed.append(self.pid)
+    def popen_fn(*a, **k):
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        spawned.append(proc)
+        return proc
 
     def broken_dump(*a, **k):
         raise OSError("disk full")
@@ -363,11 +363,14 @@ def test_launch_run_reaps_the_child_and_clears_the_lock_if_writing_the_lock_fail
 
     with pytest.raises(OSError):
         run_manager.launch_run(1, out_dir, "fake-key",
-                                popen_fn=lambda *a, **k: FakeProc(),
-                                balance_fn=lambda key: 100.0)
+                                popen_fn=popen_fn, balance_fn=lambda key: 100.0)
 
-    assert killed == [424242]
     assert not lock_file.exists()
+    pid = spawned[0].pid
+    deadline = time.time() + 5
+    while time.time() < deadline and run_manager.is_process_alive(pid):
+        time.sleep(0.1)
+    assert not run_manager.is_process_alive(pid)
 
 
 def test_current_run_treats_a_pid_reused_by_an_unrelated_process_as_stale(tmp_path, monkeypatch):
@@ -381,6 +384,29 @@ def test_current_run_treats_a_pid_reused_by_an_unrelated_process_as_stale(tmp_pa
 
     assert run_manager.current_run() is None
     assert not lock_file.exists()
+
+
+def test_stop_run_reaps_the_process_promptly_instead_of_blocking_the_full_grace_period(tmp_path, monkeypatch):
+    """A process that has already exited but was never wait()'d by its parent is a zombie:
+    os.kill(pid, 0) still succeeds on it, so without reaping, is_process_alive reports it as
+    alive and stop_run spins its full SIGTERM-then-SIGKILL grace periods for nothing. run_manager
+    (this process) is the real parent here, so it can and should reap it."""
+    lock_file = tmp_path / ".searchrun.lock"
+    # Deliberately never call proc.poll()/.wait() here -- either would reap it itself (Python's
+    # subprocess module wait()s under the hood) and defeat the point of this test: the process
+    # must exit and become a zombie *before* run_manager ever touches it.
+    proc = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    time.sleep(0.5)
+    info = {"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}
+    lock_file.write_text(json.dumps(info))
+    monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
+
+    start = time.time()
+    result = run_manager.stop_run(grace_s=10)
+    elapsed = time.time() - start
+
+    assert result == {"running": False}
+    assert elapsed < 3
 
 
 def test_launch_run_records_pid_start_time_for_reuse_detection(tmp_path, monkeypatch):
