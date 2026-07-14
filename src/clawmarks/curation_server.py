@@ -941,6 +941,21 @@ class Handler(SimpleHTTPRequestHandler):
                 generate_thumbnail(match["file"], thumb_path)
             # fall through to super().do_GET() below, which now finds the file on disk
 
+        if self.path.startswith("/real_thumbs/"):
+            # Mirrors /thumbs/ above but for REAL_DIR (corrected_dataset_extract/, read-only
+            # reference data): cache writes go to SWEEP_DIR/real_thumbs/, never into REAL_DIR
+            # itself. basename() strips any path traversal the same way /real/ does.
+            name = os.path.basename(urllib.parse.unquote(self.path[len("/real_thumbs/"):]))
+            thumb_path = f"{SWEEP_DIR}/real_thumbs/{name}"
+            if not name or not os.path.exists(thumb_path):
+                real_path = os.path.join(REAL_DIR, name) if name else ""
+                if not name or not os.path.isfile(real_path):
+                    self.send_error(404, "no such real training image")
+                    return
+                os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                generate_thumbnail(real_path, thumb_path)
+            # fall through to super().do_GET() below, which now finds the file on disk
+
         super().do_GET()
 
     def do_POST(self):
@@ -1138,6 +1153,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         try:
+            n = int(payload.get("n", 1))
+        except (TypeError, ValueError):
+            self._json_response(400, {"error": "'n' must be an integer"})
+            return
+        n = max(1, min(n, 6))
+
+        try:
             balance = runpod_balance(api_key)
         except Exception as e:
             self._json_response(502, {"error": f"balance check failed: {e}"})
@@ -1152,21 +1174,36 @@ class Handler(SimpleHTTPRequestHandler):
 
         strength = float(payload.get("strength", 1.0))
         cfg = float(payload.get("cfg", 7.5))
-        seed = int(payload.get("seed") or random.randint(1, 999999))
+        pinned_seed = payload.get("seed")
+        seeds = [int(pinned_seed)] * n if pinned_seed else [random.randint(1, 999999) for _ in range(n)]
         steps = int(payload.get("steps", 28))
         sampler = payload.get("sampler", "ddim")
         negative = payload.get("negative", NEG_DEFAULT)
 
+        results = []
+        for i, seed in enumerate(seeds):
+            try:
+                record = self._submit_and_wait_for_counterfactual(
+                    api_key, origin_tag, prompt, strength, cfg, seed, steps, sampler, negative,
+                    payload.get("overridden", []), i,
+                )
+            except (RuntimeError, TimeoutError) as e:
+                self._json_response(502, {"ok": False, "error": str(e), "results": results})
+                return
+            results.append(record)
+
+        self._json_response(200, {"ok": True, "results": results})
+
+    def _submit_and_wait_for_counterfactual(self, api_key, origin_tag, prompt, strength, cfg,
+                                             seed, steps, sampler, negative, overridden, batch_index):
         wf = build_workflow(prompt, seed, strength, cfg, steps, sampler, negative)
         try:
             res = comfy_post("/run", wf, api_key)
             jid = res.get("id")
         except Exception as e:
-            self._json_response(502, {"error": f"submit failed: {e}"})
-            return
+            raise RuntimeError(f"submit failed: {e}") from e
         if not jid:
-            self._json_response(502, {"error": f"submit failed: {res}"})
-            return
+            raise RuntimeError(f"submit failed: {res}")
 
         t0 = time.time()
         while time.time() - t0 < GENERATION_TIMEOUT_S:
@@ -1179,9 +1216,8 @@ class Handler(SimpleHTTPRequestHandler):
             if status == "COMPLETED":
                 images = res.get("output", {}).get("images", [])
                 if not images:
-                    self._json_response(502, {"error": "job completed with no image output"})
-                    return
-                new_tag = f"cf_{int(time.time())}_{origin_tag[:30]}"
+                    raise RuntimeError("job completed with no image output")
+                new_tag = f"cf_{int(time.time())}_{batch_index}_{origin_tag[:30]}"
                 fname = f"{COUNTERFACTUALS_DIR}/{new_tag}.png"
                 with open(fname, "wb") as f:
                     f.write(base64.b64decode(images[0]["data"]))
@@ -1190,21 +1226,19 @@ class Handler(SimpleHTTPRequestHandler):
                     "strength": strength, "cfg": cfg, "seed": seed, "steps": steps,
                     "sampler": sampler, "negative": negative,
                     "file": f"counterfactuals/{new_tag}.png",
-                    "overridden": payload.get("overridden", []),
+                    "overridden": overridden,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 with _lock:
                     records = load_store(COUNTERFACTUALS_FILE)
                     records[new_tag] = record
                     save_store(COUNTERFACTUALS_FILE, records)
-                self._json_response(200, {"ok": True, **record})
-                return
+                return record
             if status in ("FAILED", "CANCELLED"):
-                self._json_response(502, {"error": f"generation job {status.lower()}: {res}"})
-                return
+                raise RuntimeError(f"generation job {status.lower()}: {res}")
             time.sleep(2)
 
-        self._json_response(504, {"error": f"generation timed out after {GENERATION_TIMEOUT_S}s"})
+        raise TimeoutError(f"generation timed out after {GENERATION_TIMEOUT_S}s")
 
     def _handle_seed_generate(self, payload):
         n = int(payload.get("n", 20))

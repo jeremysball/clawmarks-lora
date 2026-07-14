@@ -178,6 +178,32 @@ _LIGHTBOX_JS = r"""(function(){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  // Loads a thumb immediately (whatever's already cached/fast), then swaps to the full-res
+  // image asynchronously once it's loaded, instead of every caller either blocking on a heavy
+  // full-res load or being stuck on a thumb forever. Exposed on window so any page's own JS can
+  // call it without importing anything beyond this lightbox.js script tag.
+  let progressiveCssInjected = false;
+  function ensureProgressiveCss(){
+    if (progressiveCssInjected) return;
+    progressiveCssInjected = true;
+    const style = document.createElement('style');
+    style.textContent = '.progressive-loading { filter:blur(8px); opacity:0.85; ' +
+      'transition:filter .2s ease, opacity .2s ease; }';
+    document.head.appendChild(style);
+  }
+  function mountProgressive(imgEl, thumbSrc, fullSrc){
+    ensureProgressiveCss();
+    imgEl.src = thumbSrc;
+    imgEl.classList.add('progressive-loading');
+    const full = new Image();
+    full.onload = () => {
+      imgEl.src = fullSrc;
+      imgEl.classList.remove('progressive-loading');
+    };
+    full.src = fullSrc;
+  }
+  window.mountProgressive = mountProgressive;
+
   let DATA = null, byTag = null;
   let order = [];
   let idx = -1;
@@ -243,9 +269,11 @@ _LIGHTBOX_JS = r"""(function(){
 #lb-overlay .lb-cf-submit { margin-top:10px; background:#2a4a7c; border-color:#3a5a8c; color:#cddcff; }
 #lb-overlay .lb-cf-status { font-size:11.5px; color:#9a9aa4; margin-top:8px; min-height:1.4em; }
 #lb-overlay .lb-cf-status.err { color:#e0605e; }
-#lb-overlay .lb-cf-result { margin-top:10px; display:none; }
-#lb-overlay .lb-cf-result.open { display:block; }
-#lb-overlay .lb-cf-result img { max-width:100%; border-radius:6px; cursor:pointer; }
+#lb-overlay .lb-cf-result { margin-top:10px; display:none; flex-wrap:wrap; gap:6px; }
+#lb-overlay .lb-cf-result.open { display:flex; }
+#lb-overlay .lb-cf-result img { width:100px; height:100px; object-fit:cover; border-radius:6px; cursor:pointer;
+  opacity:0.85; }
+#lb-overlay .lb-cf-result img:hover { opacity:1; }
 #lb-overlay .lb-cf-list { margin-top:10px; display:flex; gap:6px; overflow-x:auto; }
 #lb-overlay .lb-cf-list img { width:60px; height:60px; object-fit:cover; border-radius:5px; cursor:pointer;
   flex-shrink:0; opacity:0.85; }
@@ -289,10 +317,11 @@ _LIGHTBOX_JS = r"""(function(){
       <div><label>Strength</label><input class="lb-cf-strength" type="number" step="0.05"></div>
       <div><label>CFG</label><input class="lb-cf-cfg" type="number" step="0.5"></div>
       <div><label>Seed</label><input class="lb-cf-seed" type="number" step="1"></div>
+      <div><label>Count (n)</label><input class="lb-cf-n" type="number" step="1" min="1" max="6" value="1"></div>
     </div>
     <button class="lb-cf-submit">Generate</button>
     <div class="lb-cf-status"></div>
-    <div class="lb-cf-result"><img class="lb-cf-result-img"></div>
+    <div class="lb-cf-result"></div>
     <div class="lb-cf-list"></div>
   </div>
   <div class="lb-simlabel">similar images (by DINOv2 embedding)</div>
@@ -391,7 +420,11 @@ _LIGHTBOX_JS = r"""(function(){
     const d = order[idx];
     const mainImg = el.querySelector('.lb-main');
     el.querySelector('.lb-imgwrap').classList.add('loading');
-    mainImg.src = d.file;
+    if (d.thumb) {
+      mountProgressive(mainImg, d.thumb, d.file);
+    } else {
+      mainImg.src = d.file;
+    }
     prefetchNeighbors();
     el.querySelector('.lb-info').textContent =
       `${d.tag} | gen ${d.gen} | ${d.category} | type=${d.prompt_type} | prompt=${d.prompt_name} | ` +
@@ -421,6 +454,7 @@ _LIGHTBOX_JS = r"""(function(){
 
     el.querySelector('.lb-cf-panel').classList.remove('open');
     el.querySelector('.lb-cf-result').classList.remove('open');
+    el.querySelector('.lb-cf-result').innerHTML = '';
     el.querySelector('.lb-cf-status').textContent = '';
     el.querySelector('.lb-cf-status').classList.remove('err');
     renderCfList(d);
@@ -445,9 +479,11 @@ _LIGHTBOX_JS = r"""(function(){
       el.querySelector('.lb-cf-strength').value = d.strength;
       el.querySelector('.lb-cf-cfg').value = d.cfg;
       el.querySelector('.lb-cf-seed').value = '';
+      el.querySelector('.lb-cf-n').value = 1;
       el.querySelector('.lb-cf-status').textContent = '';
       el.querySelector('.lb-cf-status').classList.remove('err');
       el.querySelector('.lb-cf-result').classList.remove('open');
+      el.querySelector('.lb-cf-result').innerHTML = '';
     }
   }
 
@@ -457,6 +493,8 @@ _LIGHTBOX_JS = r"""(function(){
     const strength = parseFloat(el.querySelector('.lb-cf-strength').value);
     const cfg = parseFloat(el.querySelector('.lb-cf-cfg').value);
     const seedRaw = el.querySelector('.lb-cf-seed').value.trim();
+    const nRaw = parseInt(el.querySelector('.lb-cf-n').value, 10);
+    const n = Number.isFinite(nRaw) && nRaw > 0 ? nRaw : 1;
     const overridden = [];
     if (prompt !== d.prompt) overridden.push('prompt');
     if (strength !== d.strength) overridden.push('strength');
@@ -467,30 +505,37 @@ _LIGHTBOX_JS = r"""(function(){
       origin_tag: d.tag, prompt, strength, cfg,
       seed: seedRaw ? parseInt(seedRaw, 10) : null,
       steps: d.steps, sampler: d.sampler, negative: d.negative,
-      overridden,
+      overridden, n,
     };
 
     const submitBtn = el.querySelector('.lb-cf-submit');
     const status = el.querySelector('.lb-cf-status');
     submitBtn.disabled = true;
     status.classList.remove('err');
-    status.textContent = 'Generating... a few seconds if the endpoint is already warm, up to 5 minutes if it has to cold-start a worker. Keep this tab open.';
+    status.textContent = (n > 1 ? `Generating ${n} variations...` : 'Generating...') +
+      ' a few seconds if the endpoint is already warm, up to 5 minutes if it has to cold-start a worker. Keep this tab open.';
 
     fetch('/api/counterfactual', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
       .then(r => r.json().then(data => ({ok: r.ok, data})))
       .then(({ok, data}) => {
         submitBtn.disabled = false;
+        const results = data.results || [];
+        if (results.length) {
+          results.forEach(r => { counterfactuals[r.tag] = r; byTag[r.tag] = r; });
+          const resultDiv = el.querySelector('.lb-cf-result');
+          resultDiv.innerHTML = results.map(r =>
+            `<img loading="lazy" src="${escHtml(r.file)}" title="s=${r.strength} cfg=${r.cfg} seed=${escHtml(String(r.seed))}" data-tag="${escHtml(r.tag)}">`
+          ).join('');
+          resultDiv.querySelectorAll('img').forEach(img => { img.onclick = () => jump(img.dataset.tag); });
+          resultDiv.classList.add('open');
+          renderCfList(d);
+        }
         if (!ok || data.error) {
           status.classList.add('err');
           status.textContent = data.error || 'generation failed';
           return;
         }
-        status.textContent = 'Done.';
-        counterfactuals[data.tag] = data;
-        const resultImg = el.querySelector('.lb-cf-result-img');
-        resultImg.src = data.file;
-        el.querySelector('.lb-cf-result').classList.add('open');
-        renderCfList(d);
+        status.textContent = results.length > 1 ? `Done: ${results.length} variations.` : 'Done.';
       })
       .catch(e => {
         submitBtn.disabled = false;
