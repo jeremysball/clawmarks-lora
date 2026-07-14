@@ -210,7 +210,12 @@ def _prediction_watched_files():
     (predicted archive.html, preference_rank.html) instead of serving stale predictions until
     the manifest next changes or the server restarts."""
     files = [_manifest_path()]
-    for f in (preference_pairwise_model.MODEL_FILE, preference_pairwise_model.MODEL_META_FILE):
+    out_dir = _active_out_dir()
+    model_files = (
+        preference_pairwise_model.model_file(out_dir),
+        preference_pairwise_model.model_meta_file(out_dir),
+    ) if out_dir else ()
+    for f in model_files:
         if os.path.exists(f):
             files.append(str(f))
     return files
@@ -218,8 +223,13 @@ def _prediction_watched_files():
 
 def _preference_status_watched_files():
     files = []
-    for f in (COMPARISONS_FILE, preference_pairwise_model.MODEL_FILE,
-              preference_pairwise_model.MODEL_META_FILE, preference_settings.PREFERENCE_SETTINGS_FILE):
+    out_dir = _active_out_dir()
+    leg_files = (
+        preference_pairwise_model.model_file(out_dir),
+        preference_pairwise_model.model_meta_file(out_dir),
+        out_dir / "preference_settings.json",
+    ) if out_dir else ()
+    for f in (COMPARISONS_FILE, *leg_files):
         if os.path.exists(f):
             files.append(str(f))
     return files
@@ -1240,7 +1250,9 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             if not isinstance(enabled, bool):
                 self._json_response(400, {"error": "missing or non-boolean 'enabled'"})
                 return
-            if enabled and not os.path.exists(preference_pairwise_model.MODEL_FILE):
+            out_dir = _active_out_dir()
+            if enabled and (out_dir is None or not os.path.exists(
+                    preference_pairwise_model.model_file(out_dir))):
                 self._json_response(400, {"error": "no trained model yet; cannot enable predicted preference"})
                 return
             preference_settings.save(enabled)
