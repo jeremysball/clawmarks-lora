@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from clawmarks.atomic_io import atomic_json_write, atomic_write
+from clawmarks.atomic_io import _replace_via_temp_file, atomic_json_write, atomic_write
 
 
 def test_atomic_json_write_creates_readable_file(tmp_path):
@@ -68,3 +68,35 @@ def test_atomic_write_binary_failure_leaves_original_intact(tmp_path, monkeypatc
         atomic_write(target, lambda f: f.write(b"new"))
 
     assert target.read_bytes() == b"original"
+
+
+def test_atomic_json_write_survives_write_fn_raising_mid_write(tmp_path):
+    """The scenario the whole module exists for: a crash (disk full, process killed) during
+    the write itself, not just a failed replace after a clean write."""
+    target = tmp_path / "manifest.json"
+    target.write_text(json.dumps({"a": 1}))
+
+    def boom(f):
+        f.write("{")
+        raise OSError("simulated disk full mid-write")
+
+    with pytest.raises(OSError):
+        _replace_via_temp_file(target, "w", boom)
+
+    assert json.loads(target.read_text()) == {"a": 1}
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_atomic_write_binary_survives_write_fn_raising_mid_write(tmp_path):
+    target = tmp_path / "data.bin"
+    target.write_bytes(b"original")
+
+    def boom(f):
+        f.write(b"partial")
+        raise OSError("simulated disk full mid-write")
+
+    with pytest.raises(OSError):
+        atomic_write(target, boom)
+
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.iterdir()) == [target]

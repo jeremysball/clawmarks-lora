@@ -68,6 +68,16 @@ def partition_by_existing_file(manifest):
     return present, missing
 
 
+def merge_quarantine_entries(prior, new):
+    """Accumulates quarantined entries across runs, keyed by "file", instead of each run's
+    quarantine write replacing the last: a prior run's quarantined entry that isn't
+    re-quarantined this run (its manifest entry no longer exists at all, say) would otherwise
+    silently vanish from the record the moment a later run overwrote the file."""
+    merged = {m["file"]: m for m in prior}
+    merged.update({m["file"]: m for m in new})
+    return list(merged.values())
+
+
 def _default_manifest():
     full = f"{SWEEP_DIR}/manifest.json"
     partial = f"{SWEEP_DIR}/manifest_partial.json"
@@ -119,9 +129,16 @@ def main(argv=None):
 
     manifest, quarantined = partition_by_existing_file(manifest)
     if quarantined:
-        atomic_json_write(f"{SWEEP_DIR}/manifest_quarantine.json", quarantined)
+        quarantine_file = f"{SWEEP_DIR}/manifest_quarantine.json"
+        prior_quarantined = []
+        if os.path.exists(quarantine_file):
+            with open(quarantine_file) as f:
+                prior_quarantined = json.load(f)
+        merged_quarantined = merge_quarantine_entries(prior_quarantined, quarantined)
+        atomic_json_write(quarantine_file, merged_quarantined)
         print(f"WARNING: {len(quarantined)} manifest entries have no file on disk; quarantined "
-              f"to {SWEEP_DIR}/manifest_quarantine.json instead of being dropped", flush=True)
+              f"to {quarantine_file} ({len(merged_quarantined)} total accumulated) instead of "
+              f"being dropped", flush=True)
 
     paths = [m["file"] for m in manifest]
     embs = embed_images(paths, model=model)

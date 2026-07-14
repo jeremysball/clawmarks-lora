@@ -20,7 +20,7 @@ def _replace_via_temp_file(path, mode, write_fn):
     except Exception:
         try:
             os.unlink(temporary)
-        except FileNotFoundError:
+        except OSError:
             pass
         raise
 
