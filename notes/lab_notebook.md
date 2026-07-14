@@ -1971,7 +1971,23 @@ recovery scripts, each landed as its own TDD task with an independent GLM review
   TODO.txt reconciled to match: the "Curation UI" implement items, the retrain-off-lock deferred
   follow-up, and both search-run-launch UI items are now checked off there.
 
-Full suite: 334 passing, ruff/mypy clean. All work landed on the
+A second GLM review pass (on the safety-rail fix commit itself, before this hygiene commit
+existed) caught one more real gap: `launch_run`'s `Popen` object goes out of scope right after
+spawning, so nothing ever `wait()`s the driver process. Once it exits it sits as an unreaped
+zombie, and `is_process_alive`'s `os.kill(pid, 0)` check reports zombies as alive — so
+`stop_run`'s SIGTERM-then-SIGKILL grace loops were each spinning their full duration (~20s
+total at the 10s default) even for a driver that exited immediately. Fixed with an
+`os.waitpid(pid, os.WNOHANG)` reap between poll iterations, verified with a test that lets a
+process exit into zombie state *without* ever calling `.poll()`/`.wait()` on it (either would
+have reaped it and defeated the test) and asserts `stop_run` returns in well under the grace
+period. Two minor, non-blocking gaps remain, logged here rather than fixed, since GLM's own
+severity read on both was "pre-existing, negligible probability, worth a follow-up, not a
+blocker": `stop_run` doesn't re-check `start_time_ticks` after reaping and before the SIGKILL
+phase (a pid-reuse race in that narrow post-reap window); and `_reap_if_exited` is only called
+from `stop_run`, so `status()`/`current_run()` still report a spontaneously-exited-but-unreaped
+driver as `running: True` until someone clicks Stop.
+
+Full suite: 335 passing, ruff/mypy clean. All work landed on the
 `worktree-phase2-task6-transactional-writes` branch; per-task branch/PR split from the original
 plan was not followed this pass (flagged for the finishing-a-development-branch step).
 
