@@ -27,6 +27,7 @@ def json_script(data):
 NAV_OPTIONS = [
     ("explore.html", "all tools (hub)"),
     ("cockpit.html", "generation cockpit"),
+    ("runs.html", "search runs"),
     ("compare.html", "compare images (head-to-head)"),
     ("scan.html", "scan gallery"),
     ("map.html", "solution map (UMAP)"),

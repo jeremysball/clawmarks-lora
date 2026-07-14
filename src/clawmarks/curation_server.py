@@ -109,7 +109,7 @@ from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
     novelty_decay, lineage_view, elite_archive, preference_rank, explore_hub,
-    seed_browser, compare_page, preference_status, cockpit,
+    seed_browser, compare_page, preference_status, cockpit, runs_page,
 )
 from clawmarks.build.thumbnails import generate_thumbnail
 
@@ -705,6 +705,21 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/searchrun/status":
             self._json_response(200, run_manager.status())
             return
+        if self.path.startswith("/api/searchrun/report"):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                round_num = int((query.get("round") or ["1"])[0])
+            except ValueError:
+                self._json_response(400, {"error": "'round' must be an integer"})
+                return
+            if round_num not in ROUND_CONFIGS:
+                self._json_response(400, {"error": f"unknown round {round_num!r}"})
+                return
+            cfg = ROUND_CONFIGS[round_num]
+            out_dir = SWEEP_DIR if cfg.out_dir_name == "uncanny_sweep" else SWEEP2_DIR
+            favorites = load_store(FAVORITES_FILE)
+            self._json_response(200, run_manager.build_report(out_dir, favorites=favorites))
+            return
         if self.path == "/api/compare/next":
             with _lock:
                 comparisons = load_comparisons()
@@ -898,6 +913,15 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/cockpit.html":
             body = cockpit.render_html().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/runs.html":
+            body = runs_page.render_html().encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
