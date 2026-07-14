@@ -12,10 +12,9 @@ fit; this module only lays out the already-computed points. compute_data(sweep_d
 solution_map's result via `deps["solution-map"]`, served live by curation_server.py through
 LiveCache's depends_on=["solution-map"] mechanism, not a standalone build step.
 """
-import json
 from collections import Counter
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def compute_data(sweep_dir, deps):
@@ -52,10 +51,10 @@ def render_html(data):
         "to it as their closest match."
     )
 
-    real_anchor_json = json.dumps(data["real_anchor_counts"])
+    real_anchor_json = json_script(data["real_anchor_counts"])
 
-    points_json = json.dumps(points)
-    real_json = json.dumps(real_points)
+    points_json = json_script(points)
+    real_json = json_script(real_points)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS solution map</title>
@@ -141,6 +140,13 @@ real style, not the whole training set; click a bar to highlight those images on
 <div id="anchorChart"></div>
 
 <script>
+// json_script() only protects this declaration from a </script> breakout; it does not
+// HTML-escape decoded string values. Every POINTS/REAL field written into innerHTML below
+// must go through escHtml() first.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 const POINTS = {points_json};
 const REAL = {real_json};
 const ANCHOR_COUNTS = {real_anchor_json};
@@ -232,10 +238,10 @@ function showInfo(p) {{
   img.style.display = 'block';
   img.style.cursor = 'pointer';
   img.onclick = () => Lightbox.open(p.tag);
-  info.innerHTML = `<b>${{p.tag}}</b><br>gen ${{p.gen}} | ${{p.category}}<br>`
-    + `type=${{p.prompt_type}} | prompt=${{p.prompt_name}}<br>`
+  info.innerHTML = `<b>${{escHtml(p.tag)}}</b><br>gen ${{p.gen}} | ${{escHtml(p.category)}}<br>`
+    + `type=${{escHtml(p.prompt_type)}} | prompt=${{escHtml(p.prompt_name)}}<br>`
     + `faith=${{p.faith}} novelty=${{p.novelty}}<br>`
-    + `nearest real: ${{p.nearest_real}} (sim ${{p.nearest_real_sim}})`
+    + `nearest real: ${{escHtml(p.nearest_real)}} (sim ${{p.nearest_real_sim}})`
     + (picks[p.tag] ? '<br><b style="color:#f5c542">picked winner</b>' : '');
 
   const realWrap = document.getElementById('realWrap');
@@ -295,8 +301,8 @@ document.getElementById('playBtn').addEventListener('click', () => {{
 const anchorChart = document.getElementById('anchorChart');
 const maxCount = ANCHOR_COUNTS.length ? ANCHOR_COUNTS[0][1] : 1;
 anchorChart.innerHTML = ANCHOR_COUNTS.map(([name, count]) => `
-  <div class="abar" data-name="${{name}}">
-    <div class="label">${{name}}</div>
+  <div class="abar" data-name="${{escHtml(name)}}">
+    <div class="label">${{escHtml(name)}}</div>
     <div class="track"><div class="fill" style="width:${{(count / maxCount * 100).toFixed(1)}}%"></div></div>
     <div class="count">${{count}}</div>
   </div>`).join('');

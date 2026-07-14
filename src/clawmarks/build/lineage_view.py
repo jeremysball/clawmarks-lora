@@ -8,6 +8,7 @@ has a parent_tag yet, it writes an explanatory placeholder page instead of an em
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.lineage_view
 """
+import html
 import json
 
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
@@ -64,13 +65,18 @@ deltas at each step, to show whether exploiting actually improves on its parent 
         m = by_tag[tag]
         children = children_by_parent.get(tag, [])
         child_html = "".join(node_html(c, depth + 1) for c in children)
-        return (f'<li><div class="node" onclick="Lightbox.open(\'{tag}\')"><b>{tag}</b> faith={m["centroid_sim"]:.3f} '
+        # tag is written into an HTML attribute and text node; escaping it here (rather than
+        # embedding it as a JS string literal in an inline onclick, as before) means a single
+        # html.escape() covers the whole sink instead of needing separate JS-string and
+        # HTML-attribute escaping layers. The click handler reads it back via data-tag below.
+        safe_tag = html.escape(tag, quote=True)
+        return (f'<li><div class="node" data-tag="{safe_tag}"><b>{safe_tag}</b> faith={m["centroid_sim"]:.3f} '
                 f'novelty={m["novelty"]:.3f}</div>{"<ul>" + child_html + "</ul>" if children else ""}</li>')
 
     top_level = [t for t in by_tag if t not in {c for cs in children_by_parent.values() for c in cs}]
     tree_html = "<ul>" + "".join(node_html(t) for t in top_level if t in children_by_parent) + "</ul>"
 
-    html = f"""<!doctype html><html><head><meta charset="utf-8">
+    page_html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS lineage tree</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -86,7 +92,12 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {nav_bar_html('lineage.html')}
 <h1>Lineage tree</h1>
 {tree_html}
+<script>
+document.querySelectorAll('.node[data-tag]').forEach(el => {{
+  el.addEventListener('click', () => Lightbox.open(el.dataset.tag));
+}});
+</script>
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 </body></html>"""
-    return html
+    return page_html

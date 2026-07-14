@@ -90,6 +90,12 @@ plateau and escalate on its own.</p>
 </main>
 
 <script>
+// GPT-generated seed text is untrusted and is written into innerHTML below; it must go through
+// escHtml() first, or a seed containing e.g. "<img src=x onerror=...>" executes on render.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 function fmtSource(s) {{
   return s.replace('gpt5.5', 'GPT-5.5').replace('-', ' ');
 }}
@@ -105,9 +111,9 @@ function render(seeds) {{
   }}
   document.getElementById('count').textContent = entries.length + ' candidate seeds';
   document.getElementById('seedList').innerHTML = entries.map(([text, meta]) => `
-    <div class="seed" data-text="${{text.replace(/"/g, '&quot;')}}">
-      <div class="text">${{text}}</div>
-      <div class="src">${{fmtSource(meta.source || '')}}</div>
+    <div class="seed" data-text="${{escHtml(text)}}">
+      <div class="text">${{escHtml(text)}}</div>
+      <div class="src">${{escHtml(fmtSource(meta.source || ''))}}</div>
     </div>`).join('');
 }}
 

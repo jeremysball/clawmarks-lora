@@ -21,7 +21,7 @@ import os
 
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.search.preference_pairwise_model import MODEL_FILE as PREFERENCE_MODEL_FILE
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 N_BINS = 4  # matches gallery.html's display grid
 
@@ -121,9 +121,9 @@ def compute_data(sweep_dir, use_predicted_preference=False):
 
 def render_html(data):
     cells = data["cells"]
-    data_json = json.dumps(cells)
-    faith_bins_json = json.dumps(data.get("faith_bins", []))
-    novelty_bins_json = json.dumps(data.get("novelty_bins", []))
+    data_json = json_script(cells)
+    faith_bins_json = json_script(data.get("faith_bins", []))
+    novelty_bins_json = json_script(data.get("novelty_bins", []))
 
     elite_tip = info_btn(
         "MAP-Elites is a search strategy that keeps a grid of bins (here, faithfulness x novelty) "
@@ -208,6 +208,13 @@ so every bin holds a similar share of the images rather than an equal slice of t
 </div>
 
 <script>
+// json_script() only protects this declaration from a </script> breakout; it does not
+// HTML-escape decoded string values. Every CELLS field written into innerHTML/an attribute
+// below must go through escHtml() first.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 const CELLS = {data_json};
 let picks = {{}};
 const FAITH_BINS = {faith_bins_json};
@@ -229,6 +236,17 @@ function eliteFor(c) {{
   return {{ item: c.items[0], source: 'highest novelty' }};  // items pre-sorted by elite_sort_key
 }}
 
+// Click handlers look items up by their trusted array index instead of interpolating a
+// tag string into the onclick attribute, so an attacker-controlled tag can't break out of
+// the JS string literal there.
+function openElite(i) {{
+  Lightbox.open(eliteFor(CELLS[i]).item.tag);
+}}
+
+function openModalItem(i, j) {{
+  Lightbox.open(CELLS[i].items[j].tag);
+}}
+
 function render() {{
   const grid = document.getElementById('grid');
   grid.innerHTML = CELLS.map((c, i) => {{
@@ -239,9 +257,9 @@ function render() {{
     const cellClass = human ? 'human' : (predicted ? 'predicted' : '');
     return `
     <div class="cell ${{cellClass}}">
-      <img src="${{elite.thumb}}" loading="lazy" data-tag="${{elite.tag}}" onclick="Lightbox.open('${{elite.tag}}')">
+      <img src="${{escHtml(elite.thumb)}}" loading="lazy" data-tag="${{escHtml(elite.tag)}}" onclick="openElite(${{i}})">
       <div class="meta">
-        <b>${{elite.prompt_name}}</b> <span class="badge ${{badgeClass}}">${{source}}</span><br>
+        <b>${{escHtml(elite.prompt_name)}}</b> <span class="badge ${{badgeClass}}">${{source}}</span><br>
         faith=${{elite.faith}} novelty=${{elite.novelty}}<br>
         n=${{c.n}} in cell | s=${{elite.strength}} cfg=${{elite.cfg}}
         <span class="bin">bin faith ${{c.fb + 1}}/${{N_BINS}} (${{binRange(FAITH_BINS, c.fb)}}) ·
@@ -255,10 +273,10 @@ function render() {{
 function openModal(i) {{
   const c = CELLS[i];
   document.getElementById('modalTitle').textContent = `${{c.n}} images in this cell`;
-  document.getElementById('modalGrid').innerHTML = c.items.map(it => `
-    <div class="item ${{picks[it.tag] ? 'human' : ''}}" title="${{it.tag}}" onclick="Lightbox.open('${{it.tag}}')">
-      <img src="${{it.thumb}}" loading="lazy" data-tag="${{it.tag}}">
-      <div class="meta">${{it.prompt_name}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
+  document.getElementById('modalGrid').innerHTML = c.items.map((it, j) => `
+    <div class="item ${{picks[it.tag] ? 'human' : ''}}" title="${{escHtml(it.tag)}}" onclick="openModalItem(${{i}}, ${{j}})">
+      <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}">
+      <div class="meta">${{escHtml(it.prompt_name)}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
     </div>`).join('');
   document.getElementById('modal').classList.add('open');
 }}

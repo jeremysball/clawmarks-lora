@@ -19,7 +19,7 @@ import json
 import math
 import os
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def compute_data(sweep_dir, deps):
@@ -72,9 +72,9 @@ def render_html(data):
     else:
         slider_min, slider_max, default_thresh = 0.80, 0.99, 0.93
 
-    edges_json = json.dumps(sim_scored)
-    thumbs_json = json.dumps(thumbs)
-    meta_json = json.dumps(meta)
+    edges_json = json_script(sim_scored)
+    thumbs_json = json_script(thumbs)
+    meta_json = json_script(meta)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS redundancy clusters</title>
@@ -118,12 +118,27 @@ of the population, not just its raw count.</p>
 <div id="clusters"></div>
 
 <script>
+// json_script() only protects this declaration from a </script> breakout; it does not
+// HTML-escape decoded string values. Every EDGES/THUMBS/META field written into innerHTML/an
+// attribute below must go through escHtml() first.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 const EDGES = {edges_json};
 const THUMBS = {thumbs_json};
 const META = {meta_json};
 const TAGS = Object.keys(EDGES);
 const idx = {{}};
 TAGS.forEach((t, i) => idx[t] = i);
+let renderedClusters = [];
+
+// Click handler looks the tag up by trusted (cluster, item) indices instead of interpolating
+// a tag string into the onclick attribute, so an attacker-controlled tag can't break out of
+// the JS string literal there.
+function openClusterItem(gi, ti) {{
+  Lightbox.open(renderedClusters[gi][ti]);
+}}
 
 function cluster(threshold) {{
   const parent = TAGS.map((_, i) => i);
@@ -152,11 +167,12 @@ function render() {{
     `<b>${{groups.length}}</b> effective clusters out of ${{TAGS.length}} images `
     + `(<b>${{singletons}}</b> singletons, <b>${{multi.length}}</b> multi-image clusters, `
     + `largest = <b>${{multi.length ? multi[0].length : 0}}</b> images)`;
-  document.getElementById('clusters').innerHTML = multi.slice(0, 60).map(g => {{
+  renderedClusters = multi.slice(0, 60);
+  document.getElementById('clusters').innerHTML = renderedClusters.map((g, gi) => {{
     const rep = g.reduce((best, t) => (META[t] && (!best || META[t].novelty > META[best].novelty)) ? t : best, null);
     return `<div class="cluster">
-      <div class="head">${{g.length}} images | representative: ${{rep}} (${{META[rep] ? META[rep].prompt_name : ''}})</div>
-      <div class="strip">${{g.map(t => `<img loading="lazy" src="${{THUMBS[t] || ''}}" data-tag="${{t}}" title="${{t}}" style="cursor:pointer" onclick="Lightbox.open('${{t}}')">`).join('')}}</div>
+      <div class="head">${{g.length}} images | representative: ${{escHtml(rep)}} (${{META[rep] ? escHtml(META[rep].prompt_name) : ''}})</div>
+      <div class="strip">${{g.map((t, ti) => `<img loading="lazy" src="${{escHtml(THUMBS[t] || '')}}" data-tag="${{escHtml(t)}}" title="${{escHtml(t)}}" style="cursor:pointer" onclick="openClusterItem(${{gi}}, ${{ti}})">`).join('')}}</div>
     </div>`;
   }}).join('') + (multi.length > 60 ? `<p style="color:#9a9aa4;font-size:12px;">...and ${{multi.length - 60}} more clusters not shown</p>` : '');
 }}

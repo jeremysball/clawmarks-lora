@@ -16,7 +16,7 @@ import joblib
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import index_by_tag, item_summary
 from clawmarks.search.preference_pairwise_model import MODEL_FILE, score
-from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
+from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html, json_script
 
 
 def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
@@ -61,7 +61,7 @@ def render_html(data):
         "view exists to sanity-check the model before it's allowed to steer the live search: "
         "does the top of this list actually look like things you like?"
     )
-    data_json = json.dumps(items)
+    data_json = json_script(items)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS predicted preference</title>
@@ -85,10 +85,25 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 <p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="grid"></div>
 <script>
+// json_script() only protects this declaration from a </script> breakout; it does not
+// HTML-escape decoded string values. Every ITEMS field written into innerHTML/an attribute
+// below must go through escHtml() first.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 const ITEMS = {data_json};
-document.getElementById('grid').innerHTML = ITEMS.map(it => `
+
+// Click handler looks the item up by its trusted array index instead of interpolating a tag
+// string into the onclick attribute, so an attacker-controlled tag can't break out of the JS
+// string literal there.
+function openItem(i) {{
+  Lightbox.open(ITEMS[i].tag);
+}}
+
+document.getElementById('grid').innerHTML = ITEMS.map((it, i) => `
   <div class="cell">
-    <img src="${{it.thumb}}" loading="lazy" data-tag="${{it.tag}}" onclick="Lightbox.open('${{it.tag}}')">
+    <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}" onclick="openItem(${{i}})">
     <div class="meta">p=${{it.predicted_preference}} | f=${{it.faith}} n=${{it.novelty}}</div>
   </div>`).join('');
 </script>

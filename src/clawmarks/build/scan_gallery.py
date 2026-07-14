@@ -17,7 +17,7 @@ import json
 import os
 import re
 
-from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 
 def generation_of(tag):
@@ -66,7 +66,7 @@ def compute_data(sweep_dir, deps):
 
 
 def render_html(items):
-    data_json = json.dumps(items)
+    data_json = json_script(items)
 
     faith_tip = info_btn(
         "Faithfulness measures how close an image stays to the original training photos, on a scale "
@@ -235,6 +235,15 @@ body {{
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
 <script>
+// json_script() (see shared_ui.py) only protects this declaration from breaking out of the
+// <script> tag; it does not HTML-escape the decoded string values. Every place a DATA field
+// (model-generated prompt/tag/category text) is written into innerHTML or an HTML attribute
+// below must go through escHtml() first, or a value containing e.g. "<img src=x onerror=...>"
+// executes when the thumbnail renders.
+function escHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
 const DATA = {data_json};
 let view = DATA.slice();
 let picks = {{}};
@@ -250,7 +259,7 @@ fetch('/api/favorites').then(r => r.json()).then(f => {{
   const names = Array.from(new Set(DATA.map(d => d.prompt_name))).sort();
   const sel = document.getElementById('promptFilter');
   sel.innerHTML = '<option value="">all</option>' +
-    names.map(n => `<option value="${{n}}">${{n}}</option>`).join('');
+    names.map(n => `<option value="${{escHtml(n)}}">${{escHtml(n)}}</option>`).join('');
 }})();
 
 function applyFilters() {{
@@ -321,6 +330,13 @@ function vtName(tag) {{
   return 'vt-' + tag.replace(/[^a-zA-Z0-9_-]/g, '_');
 }}
 
+// Click handler looks the item up by its trusted array index (i) instead of interpolating
+// d.tag as a string into the onclick attribute, so an attacker-controlled tag value can't break
+// out of the JS string literal there.
+function openThumb(i) {{
+  Lightbox.open(view[i].tag, view.map(v => v.tag));
+}}
+
 function thumbHtml(d, i) {{
   const cls = [
     d.prompt_type + '-b',
@@ -329,11 +345,11 @@ function thumbHtml(d, i) {{
   ].join(' ');
   return `
     <div class="thumb ${{cls}}" style="view-transition-name: ${{vtName(d.tag)}}"
-         onclick="Lightbox.open('${{d.tag}}', view.map(v=>v.tag))" data-i="${{i}}">
-      <img loading="lazy" decoding="async" src="${{d.thumb}}" data-tag="${{d.tag}}">
+         onclick="openThumb(${{i}})" data-i="${{i}}">
+      <img loading="lazy" decoding="async" src="${{escHtml(d.thumb)}}" data-tag="${{escHtml(d.tag)}}">
       ${{picks[d.tag] ? '<div class="pickbadge">&#9733;</div>' : ''}}
       ${{favorites[d.tag] ? '<div class="favbadge">&#9829;</div>' : ''}}
-      <div class="meta">f=${{d.faith}} n=${{d.novelty}} ${{d.prompt_name}}</div>
+      <div class="meta">f=${{d.faith}} n=${{d.novelty}} ${{escHtml(d.prompt_name)}}</div>
     </div>`;
 }}
 
