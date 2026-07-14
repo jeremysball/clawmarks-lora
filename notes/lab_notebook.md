@@ -1991,3 +1991,31 @@ Full suite: 335 passing, ruff/mypy clean. All work landed on the
 `worktree-phase2-task6-transactional-writes` branch; per-task branch/PR split from the original
 plan was not followed this pass (flagged for the finishing-a-development-branch step).
 
+### 2026-07-14 (later): three findings from a self-run branch review, fixed before merge
+
+PR #31's own automated review (GLM-5.2 via opencode) hung twice in a row mid-run and had to be
+cancelled both times, so this pass was read directly instead of delegated. Reading the diff
+turned up three real issues, each fixed TDD-style:
+
+- **Auto-retrain still held the request lock.** The manual `/api/preference_retrain` endpoint's
+  fit was already moved outside `_lock` in the original Phase 2 work, but `/api/compare`'s
+  auto-retrain (fires every `RETRAIN_EVERY`th comparison) still ran the full model fit inside
+  `with _lock:`, unchanged from main — exactly the bottleneck that task was supposed to close,
+  left in place on the path that fires during ordinary browsing rather than the manual button.
+  A concurrency test (spawn a slow-fit thread, assert a concurrent `/api/compare` still returns
+  in well under the fit's duration) reproduced a genuine 30-second block before the fix.
+- **Non-unique temp path in `train_and_save`.** Once both retrain paths fit outside the lock,
+  two calls can genuinely overlap — and `train_and_save` wrote to a fixed `f"{MODEL_FILE}.tmp"`
+  path, so two concurrent fits would race on the same file. A test forcing two `train_and_save`
+  calls' `joblib.dump` to be in flight simultaneously reproduced a `FileNotFoundError` from one
+  call's `os.replace` racing the other's. Fixed by routing the model and meta writes through the
+  existing `atomic_io` helpers (unique `tempfile.mkstemp` path per call).
+- **RunPod API key sent as a URL query param.** `runpod_client.runpod_balance` built the request
+  as `?api_key=<key>`, which can end up in server access logs or proxy history in a way a header
+  doesn't. Switched to `Authorization: Bearer <key>`. Verified live against the real RunPod
+  GraphQL API (not just the mocked unit test) that the header works identically to the old query
+  param — the request still needs the spoofed `User-Agent: curl/8.0` either way, which a first
+  verification attempt without it revealed by getting a false 403 on *both* auth styles.
+
+Full suite: 338 passing (three new tests), ruff/mypy clean.
+
