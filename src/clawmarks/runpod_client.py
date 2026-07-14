@@ -7,10 +7,16 @@ GRAPHQL_URL = "https://api.runpod.io/graphql"
 
 
 def runpod_balance(api_key):
+    # Authorization header, not a ?api_key= query param: a query string can end up in server
+    # access logs or proxy history in a way a header doesn't.
     req = urllib.request.Request(
-        f"{GRAPHQL_URL}?api_key={api_key}",
+        GRAPHQL_URL,
         data=json.dumps({"query": "query { myself { clientBalance } }"}).encode(),
-        headers={"Content-Type": "application/json", "User-Agent": "curl/8.0"}, method="POST")
+        headers={
+            "Content-Type": "application/json", "User-Agent": "curl/8.0",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST")
     with urllib.request.urlopen(req, timeout=30) as r:
         res = json.loads(r.read())
     return res["data"]["myself"]["clientBalance"]
