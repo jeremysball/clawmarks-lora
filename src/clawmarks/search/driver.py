@@ -21,9 +21,12 @@ Run with: uv run clawmarks run allnight --round 1
 import argparse
 import base64
 import json
+import math
 import os
 import random
+import re
 import subprocess
+import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -225,9 +228,22 @@ def _state_file(cfg):
 
 def load_state(cfg):
     state_file = _state_file(cfg)
-    if state_file.exists():
+    if not state_file.exists():
+        return _new_state()
+    try:
         with open(state_file) as f:
-            return json.load(f)
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"cannot resume: persisted state {state_file} is unreadable: {e}") from e
+    if cfg.seed_from_start and isinstance(state, dict) and "stage" not in state:
+        # Round 2's historical state predates the stage field. Normalize only this known schema
+        # difference in memory; every other required field remains mandatory.
+        state["stage"] = 0
+    _validate_state(state, state_file, allow_legacy_round1_baseline=cfg.round == 1)
+    return state
+
+
+def _new_state():
     return {
         "generation": 0, "stage": 0, "plateau_count": 0,
         "novelty_history": [], "gpt55_subjects": [], "start_balance": None,
@@ -235,9 +251,74 @@ def load_state(cfg):
     }
 
 
+def _validate_state(state, state_file, allow_legacy_round1_baseline=False):
+    required = {
+        "generation", "stage", "plateau_count", "novelty_history", "gpt55_subjects",
+        "start_balance", "start_time",
+    }
+    if not isinstance(state, dict) or not required.issubset(state):
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} is malformed or missing required fields"
+        )
+    for name in ("generation", "stage", "plateau_count"):
+        value = state[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid {name}")
+    if not isinstance(state["novelty_history"], list) or any(
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+        for value in state["novelty_history"]
+    ):
+        raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid novelty_history")
+    history_length = len(state["novelty_history"])
+    expected_lengths = {state["generation"]}
+    if allow_legacy_round1_baseline:
+        # The original round-1 run stored a fixed generation-0 baseline at index zero, so its
+        # surviving state has one more history value than completed generations. Keep that value
+        # because the plateau detector consumes novelty_history as an ordered history.
+        expected_lengths.add(state["generation"] + 1)
+    if history_length not in expected_lengths:
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} has generation/history mismatch"
+        )
+    if not isinstance(state["gpt55_subjects"], list) or any(
+        not isinstance(value, str) for value in state["gpt55_subjects"]
+    ):
+        raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid gpt55_subjects")
+    balance = state["start_balance"]
+    if balance is not None and (
+        isinstance(balance, bool) or not isinstance(balance, (int, float)) or not math.isfinite(balance)
+    ):
+        raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid start_balance")
+    start_time = state["start_time"]
+    if isinstance(start_time, bool) or not isinstance(start_time, (int, float)) or not math.isfinite(start_time):
+        raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid start_time")
+    if state["generation"] > 0 and balance is None:
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} has generations but no start_balance"
+        )
+
+
+def _atomic_json_write(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(value, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def save_state(cfg, state):
-    with open(_state_file(cfg), "w") as f:
-        json.dump(state, f, indent=1)
+    state_file = _state_file(cfg)
+    _validate_state(state, state_file, allow_legacy_round1_baseline=cfg.round == 1)
+    _atomic_json_write(state_file, state)
 
 
 def _load_resumable_manifest(out_dir):
@@ -245,23 +326,84 @@ def _load_resumable_manifest(out_dir):
     search resumes on top of prior generations instead of discarding them: the main loop used to
     always start from an empty manifest and then overwrite scored_manifest.json with only the
     new run's images, permanently losing every previously persisted record on every restart.
-    Falls back to an empty manifest (rather than crashing) if the file is truncated/corrupt, e.g.
-    from a process kill mid-write in an older build before the write became atomic (see the
-    tmp+os.replace pattern below): the prior run's images are still on disk even if this one
-    record of them is unreadable, so refusing to start is worse than losing the resume."""
+    Refuses to continue if the file is truncated, corrupt, or has an invalid entry. Starting a
+    paid run with an unknown prior manifest could overwrite the only trustworthy record of the
+    search, so resume errors fail closed and leave the original file untouched."""
     manifest_path = out_dir / "scored_manifest.json"
     if not manifest_path.exists():
         return []
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"WARNING: {manifest_path} is corrupt ({e}); starting this restart with an empty "
-              f"manifest instead of crashing. The file itself is left untouched for manual "
-              f"recovery.", flush=True)
-        return []
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} is unreadable: {e}") from e
+    _validate_manifest(manifest, manifest_path)
     print(f"resuming with {len(manifest)} already-persisted images from {manifest_path}", flush=True)
     return manifest
+
+
+_GENERATION_TAG = re.compile(r"^gen([1-9][0-9]*)_")
+
+
+def _current_driver_generation(tag):
+    match = _GENERATION_TAG.match(tag)
+    return int(match.group(1)) if match else None
+
+
+def _validate_manifest(manifest, manifest_path):
+    if not isinstance(manifest, list):
+        raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} is not a list")
+    required = {
+        "tag", "file", "prompt_name", "prompt", "seed", "strength", "cfg", "steps",
+        "sampler", "negative", "centroid_sim", "novelty", "prompt_type",
+    }
+    tags = set()
+    for entry in manifest:
+        if not isinstance(entry, dict) or not required.issubset(entry):
+            raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has malformed entry")
+        tag = entry["tag"]
+        if not isinstance(tag, str) or not tag or tag in tags:
+            raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid tag")
+        tags.add(tag)
+        if not isinstance(entry["file"], str) or not entry["file"]:
+            raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid file")
+        for name in ("centroid_sim", "novelty", "strength", "cfg"):
+            value = entry[name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid {name}")
+        for name in ("prompt_name", "prompt", "sampler", "negative", "prompt_type"):
+            if not isinstance(entry[name], str):
+                raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid {name}")
+        for name in ("seed", "steps"):
+            if isinstance(entry[name], bool) or not isinstance(entry[name], int):
+                raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid {name}")
+
+
+def _validate_resume_agreement(state, manifest, state_file, manifest_path, allow_legacy_round1_baseline=False):
+    _validate_state(state, state_file, allow_legacy_round1_baseline=allow_legacy_round1_baseline)
+    _validate_manifest(manifest, manifest_path)
+    generations = [
+        generation for entry in manifest
+        if (generation := _current_driver_generation(entry["tag"])) is not None
+    ]
+    state_generation = state["generation"]
+    if state_generation == 0 and generations:
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} is behind manifest {manifest_path}"
+        )
+    if state_generation > 0 and (not generations or max(generations) != state_generation):
+        if generations and max(generations) > state_generation:
+            raise RuntimeError(
+                f"cannot resume: persisted state {state_file} is behind manifest {manifest_path}"
+            )
+        raise RuntimeError(
+            f"cannot resume: persisted state {state_file} is ahead of manifest {manifest_path}"
+        )
+
+
+def _save_manifest(out_dir, manifest):
+    _validate_manifest(manifest, out_dir / "scored_manifest.json")
+    _atomic_json_write(out_dir / "scored_manifest.json", manifest)
 
 
 def request_gpt55_subjects(cfg, existing_subjects, n=30):
@@ -553,6 +695,14 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     state = load_state(cfg)
+    manifest = _load_resumable_manifest(out_dir)
+    _validate_resume_agreement(
+        state,
+        manifest,
+        _state_file(cfg),
+        out_dir / "scored_manifest.json",
+        allow_legacy_round1_baseline=cfg.round == 1,
+    )
     if state["start_balance"] is None:
         state["start_balance"] = get_balance()
         save_state(cfg, state)
@@ -619,8 +769,6 @@ def main(argv=None):
     # style_subject_count=5 below.
     style_subject_count = 5 if cfg.round == 1 else 4
 
-    manifest = _load_resumable_manifest(out_dir)
-
     while True:
         elapsed_h = (time.time() - start_time) / 3600
         if elapsed_h > cfg.wall_clock_cap_hours:
@@ -665,14 +813,9 @@ def main(argv=None):
         new_manifest = submit_and_collect(cfg, jobs, out_dir, f"gen{gen}")
         new_scored = score_batch(model, real_embs, real_centroid, new_manifest, prev_embs=prev_embs)
         manifest.extend(new_scored)
-        # tmp+os.replace so a kill mid-write can never leave a truncated/corrupt
-        # scored_manifest.json behind for the next restart's _load_resumable_manifest to trip
-        # over -- matches preference_pairwise_model.train_and_save's existing atomic-write pattern.
-        manifest_path = out_dir / "scored_manifest.json"
-        manifest_tmp = f"{manifest_path}.tmp"
-        with open(manifest_tmp, "w") as f:
-            json.dump(manifest, f, indent=1)
-        os.replace(manifest_tmp, manifest_path)
+        # _save_manifest validates every entry, then writes tmp+os.replace, so a kill mid-write
+        # can never leave a truncated scored_manifest.json for the next restart to trip over.
+        _save_manifest(out_dir, manifest)
 
         best_novelty = build_gallery(cfg, manifest, real_ref) if manifest else 0.0
         state["novelty_history"].append(best_novelty)
