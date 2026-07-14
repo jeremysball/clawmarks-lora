@@ -38,10 +38,12 @@ def compute_data(sweep_dir):
     else:
         gate_message = ""
 
-    has_model = os.path.exists(preference_pairwise_model.MODEL_FILE)
+    model_path = preference_pairwise_model.model_file(sweep_dir)
+    model_meta_path = preference_pairwise_model.model_meta_file(sweep_dir)
+    has_model = os.path.exists(model_path)
     model_meta = None
-    if has_model and os.path.exists(preference_pairwise_model.MODEL_META_FILE):
-        with open(preference_pairwise_model.MODEL_META_FILE) as f:
+    if has_model and os.path.exists(model_meta_path):
+        with open(model_meta_path) as f:
             model_meta = json.load(f)
 
     new_comparisons_since_train = 0

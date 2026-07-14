@@ -13,9 +13,9 @@ import os
 
 import joblib
 
-from clawmarks.search import embed_cache
+from clawmarks.search import embed_cache, preference_pairwise_model
 from clawmarks.search.manifest_index import index_by_tag, item_summary
-from clawmarks.search.preference_pairwise_model import MODEL_FILE, score
+from clawmarks.search.preference_pairwise_model import score
 from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html, json_script
 
 
@@ -33,15 +33,16 @@ def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
 
 
 def compute_data(sweep_dir):
-    if not os.path.exists(MODEL_FILE):
-        return {"has_model": False}
+    model_path = preference_pairwise_model.model_file(sweep_dir)
+    if not os.path.exists(model_path):
+        return {"has_model": False, "model_file": model_path}
 
     with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
     by_tag = index_by_tag(manifest)
 
     tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
-    model = joblib.load(MODEL_FILE)
+    model = joblib.load(model_path)
     scores = score(model, embeddings)
     items = build_ranked_items(by_tag, tags, scores, sweep_dir)
 
@@ -50,7 +51,7 @@ def compute_data(sweep_dir):
 
 def render_html(data):
     if not data["has_model"]:
-        return (f"<!doctype html><html><body>no trained model at {MODEL_FILE}; run `python -m "
+        return (f'<!doctype html><html><body>no trained model at {data["model_file"]}; run `python -m '
                 f"clawmarks.search.preference_pairwise_model` first (needs 50+ comparisons)</body></html>")
 
     items = data["items"]
