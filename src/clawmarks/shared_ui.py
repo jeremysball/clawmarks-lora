@@ -601,13 +601,30 @@ _LIGHTBOX_JS = r"""(function(){
     const isFav = !!favorites[d.tag];
     const endpoint = isFav ? '/api/unfavorite' : '/api/favorite';
     const body = isFav ? {tag: d.tag} : Object.assign({}, d);
+    const removedRecord = isFav ? favorites[d.tag] : null;
     fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
       .then(r => r.json())
       .then(() => {
         if (isFav) delete favorites[d.tag]; else favorites[d.tag] = body;
         render();
         document.dispatchEvent(new CustomEvent('lightbox:favorite', {detail: {tag: d.tag, favorited: !isFav}}));
+        if (isFav && removedRecord) showUndoFavorite(d.tag, removedRecord);
       });
+  }
+  let undoTimer = null;
+  function showUndoFavorite(tag, record){
+    clearTimeout(undoTimer);
+    const status = el.querySelector('.lb-info');
+    const original = status.textContent;
+    status.textContent = 'Removed favorite. Undo?';
+    const undoBtn = document.createElement('button');
+    undoBtn.textContent = 'Undo';
+    undoBtn.onclick = () => {
+      fetch('/api/favorite', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(record)})
+        .then(r => r.json()).then(() => { favorites[tag] = record; render(); });
+    };
+    el.querySelector('.lb-actions').appendChild(undoBtn);
+    undoTimer = setTimeout(() => { undoBtn.remove(); }, 10000);
   }
   function close(){ el.classList.remove('open'); }
 
