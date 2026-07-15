@@ -69,3 +69,15 @@ def test_error_page_shows_request_path(running_server, monkeypatch):
 
     body = _fetch_error_page(port, "/map.html")
     assert "/map.html" in body
+
+
+def test_missing_route_uses_the_styled_404_page(running_server):
+    port = running_server.server_address[1]
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/missing-page.html")
+
+    assert exc_info.value.code == 404
+    body = exc_info.value.read().decode()
+    assert "Nothing here" in body
+    assert "/missing-page.html" in body

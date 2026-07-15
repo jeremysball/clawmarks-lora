@@ -945,6 +945,36 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             pass  # client already gone; nothing left to send
 
+    def _send_404_page(self, path):
+        body = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {{ color-scheme:dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee; --dim:#9a9aa4; --accent:#7c9eff; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+main {{ max-width:42rem; margin:2rem; padding:2rem; border:1px solid var(--border); border-radius:10px; background:var(--panel); }}
+h1 {{ margin-top:0; }}
+p {{ color:var(--dim); line-height:1.5; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+</style></head><body><main>
+<h1>Nothing here</h1>
+<p>Route: <code>{html.escape(path)}</code></p>
+<p>Check the address or return to the status page.</p>
+<p><a href="/">Back to status page</a></p>
+</main></body></html>""".encode()
+        self.send_response(404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 404:
+            self._send_404_page(self.path)
+            return
+        super().send_error(code, message, explain)
+
     def _send_status_page(self):
         selection = _active_selection
         if selection["expedition"] is None:
@@ -1952,7 +1982,13 @@ def _check_manifest_images():
         return  # nothing selected yet; the empty-state hub handles this case
     manifest_path = active_dir / "scored_manifest.json"
     if not manifest_path.exists():
-        print(f"warning: no scored_manifest.json at {manifest_path}, skipping image check", flush=True)
+        print(
+            "warning: active leg "
+            f"{_active_selection['expedition']}/{_active_selection['leg']} has no scored manifest at "
+            f"{manifest_path}. Switch to a completed leg or launch a round for this leg.",
+            file=sys.stderr,
+            flush=True,
+        )
         return
     with open(manifest_path) as f:
         manifest = json.load(f)

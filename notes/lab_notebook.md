@@ -2312,3 +2312,19 @@ for its own `?cell=` query param.
 Remaining phases (6: error/empty-state legibility, 7: DINOv2-similarity explainability, 8:
 remaining IA/nav/hygiene) not yet started; each gets its own worktree stacked on the prior phase's
 branch, following the same one-PR-per-phase pattern.
+
+### 2026-07-15 (session 14): Phase 5 review fixes and Phase 6 complete
+
+A GLM review of Phase 5 (PR #38) found two scan-page regressions. The round-aware sort change
+had replaced the human-readable generation field with its internal composite sort key, so the
+shared lightbox would show values such as `gen 200003`. The sort key now lives in a separate
+`sort_gen` field. The URL-restored picked/favorited filters also ran before the favorite records
+loaded and then only re-rendered the already-empty result set. The favorites callback now reruns
+the filters after it loads. Both fixes have regression tests.
+
+Completed Phase 6 on a branch stacked above the corrected Phase 5 commit. Missing manifests now
+tell the researcher to switch legs or launch a round, while missing images still explain stale
+manifest paths. Error pages name the failed route. Startup writes an actionable missing-manifest
+warning to stderr with the active expedition and leg. All 404s, including static-file fallthroughs,
+now render a dark, app-consistent page instead of the standard-library error document. The full
+suite passed with 396 tests, and Playwright verified the styled 404 at desktop and mobile widths.
