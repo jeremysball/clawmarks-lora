@@ -12,6 +12,15 @@ def test_compute_data_reads_manifest(tmp_path):
     assert "<html>" in html.lower() or "<!doctype" in html.lower()
 
 
+def test_render_html_explains_dinov2_and_density_scale():
+    html = coverage_map.render_html({"cells": [], "max_count": 3})
+    assert "DINOv2 is an open vision model" in html
+    assert "quantile bins" in html
+    assert "median occupied-cell count" in html
+    assert "median ${MEDIAN_COUNT}" in html
+    assert "max ${MAX_COUNT}" in html
+
+
 def _cell(fb, nb, count, frontier=False, items=None):
     return {
         "fb": fb, "nb": nb, "count": count, "frontier": frontier,

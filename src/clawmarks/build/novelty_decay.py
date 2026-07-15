@@ -14,6 +14,7 @@ from collections import defaultdict
 from clawmarks.shared_ui import (
     BTN_CSS,
     DARK_TOKENS,
+    DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
     TOPNAV_CSS,
@@ -58,6 +59,7 @@ def compute_data(sweep_dir):
 
 def render_html(data, active_expedition=None, active_leg=None, running=None):
     series = data["series"]
+    dino_tip = info_btn(DINO_TIP)
 
     if not series:
         return f"""<!doctype html><html><head><meta charset="utf-8">
@@ -75,7 +77,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 </style></head><body>
 {nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Novelty decay watchlist</h1>
-<p>No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
+<p>DINOv2{dino_tip} scores every image before this chart groups them. No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
 to plot (placeholder page). This chart tracks each prompt's mean novelty generation over
 generation, to flag prompts that have stopped yielding new territory; a single-generation seed
 run has nothing to compare across.</p>
@@ -125,7 +127,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 
 {nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Novelty decay watchlist{trend_tip}</h1>
-<p class="sub">Mean novelty per generation, one line per prompt family that has appeared in 2+
+<p class="sub">DINOv2{dino_tip} scores every image before this chart groups them. Novelty measures how unlike an image is from the images already explored. Mean novelty per generation, one line per prompt family that has appeared in 2+
 generations, sorted worst-trending first. A flat or falling line means that prompt has stopped
 yielding new territory against the growing "already explored" set and is a candidate to retire
 from the explore pool; a rising line means it's still working.</p>

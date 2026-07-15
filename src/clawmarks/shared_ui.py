@@ -103,6 +103,12 @@ TOPNAV_CSS = """
 
 _infotip_counter = 0
 
+DINO_TIP = (
+    "DINOv2 is an open vision model that turns an image into about 768 numbers (an embedding) "
+    "capturing style without human labels; similar style gives similar embeddings, so we measure "
+    "style match without a human."
+)
+
 
 def info_btn(tip):
     """A small tappable (?) icon that shows `tip` in a popover. Click-based, not hover-only, so

@@ -2328,3 +2328,21 @@ manifest paths. Error pages name the failed route. Startup writes an actionable 
 warning to stderr with the active expedition and leg. All 404s, including static-file fallthroughs,
 now render a dark, app-consistent page instead of the standard-library error document. The full
 suite passed with 396 tests, and Playwright verified the styled 404 at desktop and mobile widths.
+
+### 2026-07-15 (session 15): Phase 7 makes DINOv2 score views interpretable
+
+Completed the DINOv2-similarity explainability pass on a worktree stacked above Phase 6. The
+solution map, coverage map, redundancy clusters, and novelty-decay views now share one short
+DINOv2 explanation. The map distinguishes style match to the average real-art embedding from the
+closest single training photo, shows each sweep's style-match range and median in the hover panel,
+and includes an on-canvas mark legend plus a play-control tooltip. Coverage now explains its
+quantile bins and median frontier gate, and its legend marks one image, the median count, and the
+maximum count. Redundancy names its slider an image-to-image match threshold, gives its actual
+pair range, and identifies the representative as the highest-novelty member. Novelty decay now
+defines novelty before asking the researcher to act on a trend.
+
+Added rendering tests for every page, including the no-data novelty state. The focused suite has
+23 passing tests. The full suite has 400 passing tests, and ruff plus mypy are clean. A server
+smoke attempt reached the expected startup state but could not render the four pages because the
+user's currently selected `uncanny_frontier/cockpit` leg has no scored manifest. Selecting another
+leg would write the user's active-leg state, so that live check was intentionally not performed.

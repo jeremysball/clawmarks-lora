@@ -17,6 +17,7 @@ from collections import Counter
 from clawmarks.shared_ui import (
     BTN_CSS,
     DARK_TOKENS,
+    DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
     TOPNAV_CSS,
@@ -44,6 +45,10 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
     points = data["points"]
     real_points = data["real_points"]
     max_gen = data["max_gen"]
+    faith_values = sorted(p["faith"] for p in points)
+    faith_min = faith_values[0] if faith_values else 0
+    faith_median = faith_values[len(faith_values) // 2] if faith_values else 0
+    faith_max = faith_values[-1] if faith_values else 0
 
     umap_tip = info_btn(
         "UMAP takes the high-dimensional embedding (the numeric fingerprint DINOv2 assigns each "
@@ -58,6 +63,11 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
         "photos, the search has collapsed onto a narrow slice of the style rather than exploring all "
         "of it. This bar chart counts, for each real training photo, how many generated images anchor "
         "to it as their closest match."
+    )
+    dino_tip = info_btn(DINO_TIP)
+    play_tip = info_btn(
+        "Play the generation history to watch the search add images over time. Earlier dots fade "
+        "so the newest generation stays visible."
     )
 
     real_anchor_json = json_script(data["real_anchor_counts"])
@@ -93,6 +103,8 @@ canvas {{ background:var(--panel); border:1px solid var(--border); border-radius
 #panel .realWrap {{ margin-top:10px; }}
 #panel .realWrap .caption {{ font-size:11px; color:var(--text-dim); margin-top:4px; }}
 #panel .realWrap img {{ border:1px solid var(--pick); }}
+#mapLegend {{ position:absolute; left:12px; bottom:12px; background:rgba(11,11,13,0.82); border:1px solid var(--border);
+  border-radius:6px; padding:7px 9px; color:var(--text-dim); font-size:11px; line-height:1.55; pointer-events:none; }}
 button.playbtn {{ background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 12px; cursor:pointer; }}
 #anchorChart {{ display:flex; flex-direction:column; gap:4px; max-width:640px; }}
 .abar {{ display:flex; align-items:center; gap:8px; font-size:11.5px; cursor:pointer; }}
@@ -112,7 +124,7 @@ button.playbtn {{ background:var(--panel); color:var(--text); border:1px solid v
 
 {nav_bar_html('map.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Solution map{umap_tip}</h1>
-<p class="sub">UMAP projection of the full DINOv2 embedding space: every generated image plus the
+<p class="sub">UMAP projection of the full DINOv2{dino_tip} embedding space: every generated image plus the
 31 real training images (gold stars), not just the two faithfulness/novelty scalars. Distance
 here approximates visual similarity, so clusters are genuinely similar images and empty regions
 between the real-image cluster and the generated cloud are territory the search hasn't reached
@@ -121,7 +133,7 @@ in embedding space, whether or not the faithfulness/novelty grid shows it as "ex
 <div id="bar">
   <label>Generation &le; <input type="range" id="genSlider" min="0" max="{max_gen}" value="{max_gen}"></label>
   <span id="genLabel"></span>
-  <button class="playbtn" id="playBtn">&#9654; play</button>
+  <button class="playbtn" id="playBtn">&#9654; play</button>{play_tip}
   <label>Color by <select id="colorMode">
     <option value="gen">generation (ghosted)</option>
     <option value="type">prompt type</option>
@@ -131,7 +143,9 @@ in embedding space, whether or not the faithfulness/novelty grid shows it as "ex
 </div>
 
 <div id="wrap">
-  <div id="canvasWrap"><canvas id="cv" width="720" height="560"></canvas></div>
+  <div id="canvasWrap"><canvas id="cv" width="720" height="560"></canvas>
+    <div id="mapLegend">&#9733; real training photo<br>&bull; generated<br><span style="color:#f5c542">&#9679; gold dot = picked winner</span></div>
+  </div>
   <div id="panel">
     <img id="panelImg">
     <div class="info" id="panelInfo">Hover or tap a point for details.</div>
@@ -249,8 +263,9 @@ function showInfo(p) {{
   img.onclick = () => Lightbox.open(p.tag);
   info.innerHTML = `<b>${{escHtml(p.tag)}}</b><br>gen ${{p.gen}} | ${{escHtml(p.category)}}<br>`
     + `type=${{escHtml(p.prompt_type)}} | prompt=${{escHtml(p.prompt_name)}}<br>`
-    + `faith=${{p.faith}} novelty=${{p.novelty}}<br>`
-    + `nearest real: ${{escHtml(p.nearest_real)}} (sim ${{p.nearest_real_sim}})`
+    + `style match to your real art's average=${{p.faith}} (range {faith_min:.2f}-{faith_max:.2f}, median {faith_median:.2f} this sweep)<br>`
+    + `novelty=${{p.novelty}}<br>`
+    + `closest single training photo: ${{escHtml(p.nearest_real)}} (sim ${{p.nearest_real_sim}})`
     + (picks[p.tag] ? '<br><b style="color:#f5c542">picked winner</b>' : '');
 
   const realWrap = document.getElementById('realWrap');
@@ -258,7 +273,7 @@ function showInfo(p) {{
   const realCaption = document.getElementById('realCaption');
   mountProgressive(realImg, '/real_thumbs/' + encodeURIComponent(p.nearest_real),
     '/real/' + encodeURIComponent(p.nearest_real));
-  realCaption.textContent = `Nearest real training image (sim ${{p.nearest_real_sim}})`;
+  realCaption.textContent = `Closest single training photo (sim ${{p.nearest_real_sim}})`;
   realWrap.style.display = 'block';
 }}
 

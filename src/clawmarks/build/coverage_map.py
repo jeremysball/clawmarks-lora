@@ -17,6 +17,7 @@ import os
 from clawmarks.shared_ui import (
     BTN_CSS,
     DARK_TOKENS,
+    DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
     TOPNAV_CSS,
@@ -96,7 +97,7 @@ def compute_data(sweep_dir):
                 "items": [item_summary(m) for m in items],
             })
 
-    return {"cells": cells_json, "max_count": max_count}
+    return {"cells": cells_json, "median_count": median_count, "max_count": max_count}
 
 
 def _fmt_range(lo, hi, decimals=2):
@@ -162,6 +163,7 @@ def neighbor_tags(data, fb, nb):
 
 def render_html(data, active_expedition=None, active_leg=None, running=None):
     cells_json = data["cells"]
+    median_count = data.get("median_count", 0)
     max_count = data["max_count"]
     data_json = json_script(cells_json)
 
@@ -171,8 +173,11 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
         "image is from everything already explored, so 1 means nothing found so far looks like it. "
         "Every image lands in exactly one cell of this grid based on those two scores; a frontier "
         "cell is an empty one next to a well-populated one, a promising, reachable gap the search "
-        "hasn't filled yet."
+        "hasn't filled yet. The grid uses quantile bins, so each axis is split into ranges with "
+        "roughly equal numbers of images. The median frontier gate only highlights empty cells "
+        "beside occupied cells at or above the median count."
     )
+    dino_tip = info_btn(DINO_TIP)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS coverage map</title>
@@ -231,7 +236,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 
 {nav_bar_html('coverage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Coverage / void map{axes_tip}</h1>
-<p class="sub">Same faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
+<p class="sub">Same DINOv2{dino_tip}-based faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
 grid and colored by image count instead of showing thumbnails per cell. Gold-outlined cells are
 empty but sit next to a cell at or above the median occupied-cell count: the shortlist of gaps
 worth targeting, rather than gaps that are empty because nothing in that region is reachable at
@@ -269,6 +274,7 @@ function escHtml(s) {{
 
 const CELLS = {data_json};
 const N_BINS = {N_BINS};
+const MEDIAN_COUNT = {median_count};
 const MAX_COUNT = {max_count};
 
 function colorFor(count) {{
@@ -350,8 +356,9 @@ document.addEventListener('keydown', e => {{
 }});
 
 const legend = document.getElementById('legend');
-legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></span> low count`
-  + `<span class="swatch" style="background:${{colorFor(MAX_COUNT)}}; margin-left:12px;"></span> high count`
+legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></span> 1`
+  + `<span style="margin-left:6px;">median ${{MEDIAN_COUNT}}</span>`
+  + `<span class="swatch" style="background:${{colorFor(MAX_COUNT)}}; margin-left:12px;"></span> max ${{MAX_COUNT}}`
   + `<span class="swatch" style="background:transparent; outline:2px solid #f5c542; margin-left:12px;"></span> frontier (empty, adjacent to a dense cell)`;
 </script>
 <script src="scrollnav.js"></script>
