@@ -164,6 +164,14 @@ def test_cockpit_expedition_selector_switches_to_cockpit_leg():
     assert "JSON.stringify({expedition, leg: 'cockpit'})" in page
 
 
+def test_cockpit_has_a_dark_prefers_color_scheme_variant():
+    page = cockpit.render_html()
+
+    assert "@media (prefers-color-scheme: dark)" in page
+    assert "--paper:#0b0b0d" in page
+    assert ".topnav.cockpit-topnav" not in page
+
+
 def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
     (config.EXPEDITIONS_DIR / "other" / "legs").mkdir(parents=True)
     (config.EXPEDITIONS_DIR / "other" / "expedition.json").write_text("{}")

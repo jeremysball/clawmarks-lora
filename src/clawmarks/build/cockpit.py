@@ -113,6 +113,18 @@ document.getElementById('expeditionSwitch').addEventListener('click', () => {{
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:system-ui,"Segoe UI",Helvetica,Arial,sans-serif;
 }}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    color-scheme:dark;
+    --paper:#0b0b0d;
+    --sheet:#16161a;
+    --sheet-deep:#1d1d22;
+    --ink:#eaeaee;
+    --ballpoint:#7c9eff;
+    --teal:#5ec98a;
+    --red:#e0605e;
+  }}
+}}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}}
 
@@ -122,12 +134,6 @@ body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans
     color-mix(in srgb, var(--paper) 82%, transparent) 0 2px,
     transparent 2px 5px);
   opacity:.5;pointer-events:none}}
-
-.topnav.cockpit-topnav {{ background:color-mix(in srgb, var(--paper) 92%, transparent) !important;
-  border-bottom:1px solid var(--line) !important; }}
-.topnav.cockpit-topnav a.navlink {{ color:var(--ballpoint) !important; font-family:var(--mono); }}
-.topnav.cockpit-topnav select {{ background:var(--sheet) !important; color:var(--ink) !important;
-  border:1px solid var(--line) !important; font-family:var(--mono); }}
 
 main{{max-width:1500px;margin:auto;padding:26px 24px 150px}}
 .eyebrow{{color:var(--ballpoint);font:700 10.5px var(--sans);letter-spacing:.14em;text-transform:uppercase}}
