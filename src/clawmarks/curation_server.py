@@ -911,14 +911,23 @@ class Handler(SimpleHTTPRequestHandler):
         message = f"{type(exc).__name__}: {exc}"
         hint = ""
         if isinstance(exc, FileNotFoundError):
-            hint = (
-                "<p>This usually means <code>scored_manifest.json</code> still points at an "
-                "old absolute path (e.g. after the project directory was renamed or moved) and "
-                "the image no longer lives there. Re-pointing or regenerating the manifest's "
-                "<code>file</code> paths should fix it.</p>"
-            )
+            missing_path = str(exc).split("'")[1] if "'" in str(exc) else ""
+            if missing_path.endswith("scored_manifest.json"):
+                hint = (
+                    "<p>The active leg has no scored manifest yet. "
+                    '<a href="/">Pick a leg that has completed a search round</a>, or '
+                    '<a href="/runs.html">launch a new round for this leg</a>.</p>'
+                )
+            else:
+                hint = (
+                    "<p>This usually means <code>scored_manifest.json</code> still points at an "
+                    "old absolute path (e.g. after the project directory was renamed or moved) "
+                    "and the image no longer lives there. Re-pointing or regenerating the "
+                    "manifest's <code>file</code> paths should fix it.</p>"
+                )
         body = f"""<div style="font-family:sans-serif;max-width:48rem;margin:2rem auto;line-height:1.5">
 <h1 style="color:#b91c1c">Something went wrong</h1>
+<p>Route: <code>{html.escape(self.path)}</code></p>
 <p><strong>{html.escape(message)}</strong></p>
 {hint}
 <details>
