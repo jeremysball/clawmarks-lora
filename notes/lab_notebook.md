@@ -2118,3 +2118,74 @@ through the existing `/api/active-leg` route instead of offering hardcoded Round
 launch buttons. The new four-test expedition route slice passed after the expected RED failure.
 The clean import check passed. The full suite remains blocked by the known older tests that still
 reference removed `SWEEP_DIR` and related legacy configuration names.
+
+### 2026-07-14 (session 8): gave cockpit trials sibling-leg novelty exclusion
+
+Task 14 now pools every other leg's scored images in the selected expedition and embeds them with
+the cockpit server's existing long-lived DINOv2 model. Cockpit scoring passes that pool to
+`score_batch` as prior embeddings, so a cockpit trial's novelty score penalizes duplication of
+work from sibling legs without reloading DINOv2 for each trial. The cockpit page also lists
+expeditions and switches the active selection to that expedition's standing `cockpit` leg through
+the existing `/api/active-leg` route. Both focused tests and the clean import check pass. An
+isolated live server check confirmed the selected option and POST response without touching real
+generation state. The full suite still has 290 passing tests, 21 failures, and 39 errors from
+legacy tests that reference removed fixed-path globals.
+
+### 2026-07-14 (session 9): isolated cockpit trial writes from active-leg switches
+
+Task 14 review found that a background cockpit trial repeatedly resolved the mutable active leg
+while generation ran. Switching legs during the trial could split its images, thumbnails,
+manifest records, and queue status across two legs. The launch handler now snapshots the
+expedition, leg, output directory, and queue file before starting the worker. Every worker read
+and write, including sibling-leg novelty exclusion, uses that snapshot. Opening `cockpit.html`
+also selects the active expedition's standing `cockpit` leg before rendering.
+
+A route-level regression blocked mocked generation, switched from `cockpit` to `round1`, then
+confirmed the image, thumbnail, manifest entry, and completed queue record all remained under
+`cockpit`; `round1` received no trial files. Direct sibling-manifest coverage confirms missing
+files are excluded before embedding. The required focused suites pass with 9 cockpit/active-leg
+tests and 28 run-manager tests, and clean import passes. The full suite remains at the known
+migration baseline with 293 passing tests, 21 failures, and 39 errors from legacy fixed-path
+fixtures.
+
+### 2026-07-14 (session 10): finished the expedition/leg migration, full suite green
+
+Task 17 closed out the migration. The remaining stragglers were the last handful of tests still
+monkeypatching module-level `SWEEP_DIR`-era globals (`MODEL_FILE`, `EMBEDDINGS_FILE`,
+`PREFERENCE_SETTINGS_FILE`) instead of passing a leg directory, in
+`test_preference_rank_live.py` and `test_preference_status.py`. Migrating those, plus fixing a
+stray docstring reference to the removed `RoundConfig`, cleared the last of the legacy failures:
+`rg -n "SWEEP_DIR|SWEEP2_DIR|ROUND_CONFIGS|RoundConfig|--round\b" src/ tests/` now returns
+nothing, and `uv run python -m pytest -q` passes all 357 tests with zero failures or errors.
+`ruff check` and `mypy src` both came back clean after fixing a leftover mid-file import in
+`curation_server.py` and two unused local variables in test setup code.
+
+The live smoke check caught two startup bugs the test suite's mocks hadn't exercised, both from
+code paths that only run against a real, freshly-created state directory with no expedition
+selected yet:
+
+- `_reconcile_stuck_trials()`, called unconditionally from `main()` at every startup, called
+  `_cockpit_queue_file()` before any leg was ever selected, and crashed the whole server with
+  `TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'` before it could even bind
+  a socket. `_check_manifest_images()` already had the "no leg selected yet" guard from Task 11;
+  `_reconcile_stuck_trials()` needed the same one and didn't have it.
+- The status page's `_send_status_page()` called `load_manifest()` unconditionally too. It didn't
+  crash (the broad `except Exception` around it caught the same `TypeError`), but it rendered the
+  empty-state hub with the confusing message "could not read manifest: unsupported operand
+  type(s) for /: 'NoneType' and 'str'" instead of a clean "no expedition/leg selected". Fixed
+  with the same early-return guard, and it now shows the right message.
+
+Both gaps got regression tests in `test_curation_server_startup.py` before the fix, confirmed
+RED, then GREEN after: one calling `_reconcile_stuck_trials()` directly with no active selection,
+one spinning up a real `HTTPServer` and asserting the rendered status page contains "no
+expedition/leg selected" and not "could not read manifest". Full suite re-run after both fixes:
+357 passed.
+
+The rest of the manual smoke check passed clean: the empty-state hub listed the `uncanny_frontier`
+reference expedition's three legs (from Task 16), `POST /api/expeditions` created a test
+expedition and returned `{"ok": true, ...}`, `POST /api/active-leg` switched to it, and
+`/cockpit.html` returned 200. The test expedition directory created during the check
+(`expeditions/smoke_test/`) was deleted afterward; it was never committed.
+
+The expedition/leg migration (Tasks 1-17) is done. `main` still has the old `SWEEP_DIR`/
+round1/round2 model; merging this branch is the next step, not yet done as of this entry.

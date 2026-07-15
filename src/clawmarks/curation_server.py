@@ -97,6 +97,8 @@ import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
+from clawmarks.atomic_io import atomic_json_write
+
 from clawmarks import config
 from clawmarks.config import ROOT
 from clawmarks.runpod_client import runpod_balance
@@ -119,8 +121,6 @@ with open(os.path.join(os.path.dirname(__file__), "static", "favicon.png"), "rb"
     _FAVICON_PNG = _f.read()
 
 _live_cache = LiveCache()
-
-from clawmarks.atomic_io import atomic_json_write
 
 _active_selection = {"expedition": None, "leg": None}
 
@@ -895,15 +895,19 @@ class Handler(SimpleHTTPRequestHandler):
             pass  # client already gone; nothing left to send
 
     def _send_status_page(self):
-        try:
-            manifest = load_manifest()
-            n_entries = len(manifest)
-            n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
-            manifest_summary = f"{n_present}/{n_entries} manifest images present on disk"
-            has_data = n_present > 0
-        except Exception as e:
-            manifest_summary = f"could not read manifest: {e}"
+        if _active_out_dir() is None:
+            manifest_summary = "no expedition/leg selected"
             has_data = False
+        else:
+            try:
+                manifest = load_manifest()
+                n_entries = len(manifest)
+                n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
+                manifest_summary = f"{n_present}/{n_entries} manifest images present on disk"
+                has_data = n_present > 0
+            except Exception as e:
+                manifest_summary = f"could not read manifest: {e}"
+                has_data = False
 
         if has_data:
             body = self._status_page_data_body(manifest_summary)
@@ -1796,6 +1800,8 @@ def _reconcile_stuck_trials():
     _handle_cockpit_run), so a server crash or restart mid-generation leaves it stuck: no thread
     is running to ever move it to completed/failed, and the UI's 409 "already running" check
     blocks every retry forever. Called once at startup to fail those out so they're retriable."""
+    if _active_out_dir() is None:
+        return  # nothing selected yet; the empty-state hub handles this case
     with _lock:
         trials = load_store(_cockpit_queue_file())
         changed = False

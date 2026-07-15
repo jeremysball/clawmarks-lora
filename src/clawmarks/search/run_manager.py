@@ -174,7 +174,7 @@ def build_report(out_dir, favorites=None, current_balance=None):
     """The per-run report the notebook keeps asking for: novelty trajectory, plateau count,
     spend, pick rate by category, explore-vs-exploit split. Reads directly off disk (state
     file + scored_manifest.json) rather than through driver.load_state, since a report is a
-    read-only summary and shouldn't require constructing a RoundConfig or pay load_state's
+    read-only summary and shouldn't require constructing leg configuration or pay load_state's
     resume-validation cost."""
     out_dir = Path(out_dir)
     favorites = favorites or {}

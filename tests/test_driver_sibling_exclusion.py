@@ -61,7 +61,6 @@ def test_third_leg_pools_both_earlier_siblings(tmp_path):
 
 
 def test_cli_requires_expedition_and_leg():
-    parser = driver.main.__globals__["argparse"].ArgumentParser()
     # smoke-checks the real parser via main() itself rather than re-deriving its structure
     import pytest
     with pytest.raises(SystemExit):

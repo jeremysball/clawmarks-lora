@@ -9,7 +9,6 @@ def test_load_returns_false_default_when_file_missing(tmp_path):
 
 
 def test_save_then_load_round_trips_true(tmp_path):
-    path = tmp_path / "preference_settings.json"
     preference_settings.save(True, tmp_path)
     assert preference_settings.load(tmp_path) == {"use_predicted_preference": True}
 

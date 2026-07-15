@@ -36,5 +36,5 @@ ACTIVE_LEG_FILE = STATE_DIR / "active_leg.json"
 def leg_dir(expedition: str, leg: str) -> Path:
     """Runtime output directory for one leg: allnight_state.json, scored_manifest.json,
     thumbs/, real_thumbs/, seed_pool.json, and every curation artifact (favorites,
-    comparisons, cockpit queue, ...) that today lives at a fixed SWEEP_DIR."""
+    comparisons, cockpit queue, ...) stored for that expedition leg."""
     return STATE_DIR / "expeditions" / expedition / leg
