@@ -20,9 +20,24 @@ import re
 from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_CSS, MOBILE_BASE_CSS, info_btn, json_script
 
 
+def round_of(tag):
+    """Which search round produced this tag. Only round 1 (no prefix) and round 2 (`r2_`
+    prefix) exist so far; extend this if a round 3 driver ever ships."""
+    return 2 if tag.startswith("r2_") else 1
+
+
 def generation_of(tag):
+    """Generation number *within* its round. Combined with round_of() below into a single
+    sortable integer, since generation numbers restart at 0 each round: a bare gen3_ from round 1
+    and an r2_gen3_ from round 2 both parse to 3 here, so sorting on this alone put round 2's
+    early generations in the middle of round 1's, instead of after all of round 1."""
     m = re.match(r"(?:r2_)?gen(\d+)_", tag)
     return int(m.group(1)) if m else 0
+
+
+def sortable_generation(tag):
+    """Round-aware sort key: round dominates, generation breaks ties within a round."""
+    return round_of(tag) * 100_000 + generation_of(tag)
 
 
 def compute_data(sweep_dir, deps):
@@ -41,7 +56,7 @@ def compute_data(sweep_dir, deps):
             "file": os.path.basename(m["file"]),
             "thumb": thumb_path if has_thumb else os.path.basename(m["file"]),
             "tag": m["tag"],
-            "gen": generation_of(m["tag"]),
+            "gen": sortable_generation(m["tag"]),
             "category": m["category"],
             "prompt_name": m["prompt_name"],
             "prompt_type": m["prompt_type"],
