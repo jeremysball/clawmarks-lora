@@ -2081,3 +2081,198 @@ console errors; `cockpit.html`'s empty-state message renders correctly and links
 Did not click either launch button during verification, since a real launch spends RunPod money
 and takes hours. Full suite: 340 passing.
 
+### 2026-07-14 (session 4): isolated mutable defaults in `load_leg_config`
+
+Task 2 review found that `load_leg_config` shallow-copied its module-level defaults dictionary.
+The list-valued defaults, including `widened_textures`, were therefore shared by every leg that
+left those fields unset. A regression test reproduced the leak by appending to one loaded config
+and observing the mutation in a second config. `copy.deepcopy` now gives each load independent
+list objects. The new regression test and the five-test `load_leg_config` slice both pass.
+
+### 2026-07-14 (session 5): added the missing state-history regression coverage
+
+Task 3 review identified that the existing round-1 state-resume test used exact-length history and
+therefore would have passed before the legacy validator shim was removed. Added direct validator
+coverage for both a 49-entry history at generation 50 and the actual historical exception, a
+51-entry history at generation 50. The latter proves the removed round-1 shim no longer accepts
+`generation + 1` history entries. Renamed the shared state filename test to describe its current
+leg-independent behavior. The targeted driver-state suite passes with 29 tests.
+
+### 2026-07-14 (session 6): made startup safe before leg selection
+
+Task 11 added a regression test for starting `curation_server.py` with no active expedition or
+leg. Before the fix, `_check_manifest_images()` dereferenced the `None` returned by
+`_active_out_dir()` and raised a `TypeError`. The function now returns immediately in that empty
+state, allowing the empty-state hub to handle startup. The RED test failed with the expected
+`TypeError`; the GREEN test passed with one test. The full suite still has 276 passing tests,
+21 failures, and 47 errors from older tests that still monkeypatch the removed `SWEEP_DIR` and
+related legacy configuration names.
+
+### 2026-07-14 (session 7): replaced the hardcoded round launch hub with expedition and leg selection
+
+Task 12 added `_list_expeditions` and `_create_expedition` to the curation server. Creating an
+expedition now writes its shared `expedition.json` atomically, scaffolds an empty `cockpit` leg
+configuration, and creates that leg's runtime directory. The server now exposes `GET /api/expeditions`
+and `POST /api/expeditions`, and the empty-state page lists every configured leg and selects one
+through the existing `/api/active-leg` route instead of offering hardcoded Round 1 and Round 2
+launch buttons. The new four-test expedition route slice passed after the expected RED failure.
+The clean import check passed. The full suite remains blocked by the known older tests that still
+reference removed `SWEEP_DIR` and related legacy configuration names.
+
+### 2026-07-14 (session 8): gave cockpit trials sibling-leg novelty exclusion
+
+Task 14 now pools every other leg's scored images in the selected expedition and embeds them with
+the cockpit server's existing long-lived DINOv2 model. Cockpit scoring passes that pool to
+`score_batch` as prior embeddings, so a cockpit trial's novelty score penalizes duplication of
+work from sibling legs without reloading DINOv2 for each trial. The cockpit page also lists
+expeditions and switches the active selection to that expedition's standing `cockpit` leg through
+the existing `/api/active-leg` route. Both focused tests and the clean import check pass. An
+isolated live server check confirmed the selected option and POST response without touching real
+generation state. The full suite still has 290 passing tests, 21 failures, and 39 errors from
+legacy tests that reference removed fixed-path globals.
+
+### 2026-07-14 (session 9): isolated cockpit trial writes from active-leg switches
+
+Task 14 review found that a background cockpit trial repeatedly resolved the mutable active leg
+while generation ran. Switching legs during the trial could split its images, thumbnails,
+manifest records, and queue status across two legs. The launch handler now snapshots the
+expedition, leg, output directory, and queue file before starting the worker. Every worker read
+and write, including sibling-leg novelty exclusion, uses that snapshot. Opening `cockpit.html`
+also selects the active expedition's standing `cockpit` leg before rendering.
+
+A route-level regression blocked mocked generation, switched from `cockpit` to `round1`, then
+confirmed the image, thumbnail, manifest entry, and completed queue record all remained under
+`cockpit`; `round1` received no trial files. Direct sibling-manifest coverage confirms missing
+files are excluded before embedding. The required focused suites pass with 9 cockpit/active-leg
+tests and 28 run-manager tests, and clean import passes. The full suite remains at the known
+migration baseline with 293 passing tests, 21 failures, and 39 errors from legacy fixed-path
+fixtures.
+
+### 2026-07-14 (session 10): finished the expedition/leg migration, full suite green
+
+Task 17 closed out the migration. The remaining stragglers were the last handful of tests still
+monkeypatching module-level `SWEEP_DIR`-era globals (`MODEL_FILE`, `EMBEDDINGS_FILE`,
+`PREFERENCE_SETTINGS_FILE`) instead of passing a leg directory, in
+`test_preference_rank_live.py` and `test_preference_status.py`. Migrating those, plus fixing a
+stray docstring reference to the removed `RoundConfig`, cleared the last of the legacy failures:
+`rg -n "SWEEP_DIR|SWEEP2_DIR|ROUND_CONFIGS|RoundConfig|--round\b" src/ tests/` now returns
+nothing, and `uv run python -m pytest -q` passes all 357 tests with zero failures or errors.
+`ruff check` and `mypy src` both came back clean after fixing a leftover mid-file import in
+`curation_server.py` and two unused local variables in test setup code.
+
+The live smoke check caught two startup bugs the test suite's mocks hadn't exercised, both from
+code paths that only run against a real, freshly-created state directory with no expedition
+selected yet:
+
+- `_reconcile_stuck_trials()`, called unconditionally from `main()` at every startup, called
+  `_cockpit_queue_file()` before any leg was ever selected, and crashed the whole server with
+  `TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'` before it could even bind
+  a socket. `_check_manifest_images()` already had the "no leg selected yet" guard from Task 11;
+  `_reconcile_stuck_trials()` needed the same one and didn't have it.
+- The status page's `_send_status_page()` called `load_manifest()` unconditionally too. It didn't
+  crash (the broad `except Exception` around it caught the same `TypeError`), but it rendered the
+  empty-state hub with the confusing message "could not read manifest: unsupported operand
+  type(s) for /: 'NoneType' and 'str'" instead of a clean "no expedition/leg selected". Fixed
+  with the same early-return guard, and it now shows the right message.
+
+Both gaps got regression tests in `test_curation_server_startup.py` before the fix, confirmed
+RED, then GREEN after: one calling `_reconcile_stuck_trials()` directly with no active selection,
+one spinning up a real `HTTPServer` and asserting the rendered status page contains "no
+expedition/leg selected" and not "could not read manifest". Full suite re-run after both fixes:
+357 passed.
+
+The rest of the manual smoke check passed clean: the empty-state hub listed the `uncanny_frontier`
+reference expedition's three legs (from Task 16), `POST /api/expeditions` created a test
+expedition and returned `{"ok": true, ...}`, `POST /api/active-leg` switched to it, and
+`/cockpit.html` returned 200. The test expedition directory created during the check
+(`expeditions/smoke_test/`) was deleted afterward; it was never committed.
+
+The expedition/leg migration (Tasks 1-17) is done. `main` still has the old `SWEEP_DIR`/
+round1/round2 model; merging this branch is the next step, not yet done as of this entry.
+
+### 2026-07-15 (session 11): GLM-5.2 review of PR #33, fixed 5 confirmed regressions before merge
+
+Ran a 4-shard opencode/GLM-5.2 code review of PR #33's full diff (56 files, ~6100 changed lines)
+via the `delegate-code-review` skill, dispatched over the `taskferry` MCP tools. All 4 shards
+(angles A/B, C, D/E, F/G/H) completed cleanly. Merged their candidate lists, hand-verified every
+one against the actual worktree code, and posted both the raw finder output and the verified
+findings as PR comments for the record.
+
+Five findings were CONFIRMED as real bugs distinct from the two no-leg-selected crashes already
+fixed in session 10, and all five got fixed before merging:
+
+1. **`docker-compose.yml`** set a dead `CLAWMARKS_SWEEP_DIR` env var and never mounted or set
+   `CLAWMARKS_STATE_DIR`, so a docker-composed deployment would write every generated PNG and
+   manifest to unmounted, ephemeral container storage, lost on the next `watchtower` recreate.
+   This is a real, live deployment path (confirmed via this notebook's own docker-compose
+   reference entries), not dead code, so it was a genuine data-integrity risk per this project's
+   #1 rule. Fixed: set `CLAWMARKS_STATE_DIR=/app/state/clawmarks` and bind-mount `./state`.
+2. **Seed pool split**: the curation server's "Generate seeds" UI wrote to
+   `candidate_seeds.json`, while `search/driver.py` reads/writes `seed_pool.json` for the same
+   per-leg subject pool. These used to be one shared file; the migration silently split them, so
+   seeds a user topped up from the UI never reached a run. Fixed by pointing `_seeds_file()` at
+   `seed_pool.json` (both stores use the same dict-of-subject shape, confirmed by reading
+   `search/seed_pool.py`'s `load`/`save` against `curation_server.py`'s `load_store`/`save_store`).
+3. **`runs_page.py` never migrated**: the only UI for launching/monitoring searches still posted
+   `{round: int}` and fetched `?round=N` against endpoints that now hard-require
+   `expedition`+`leg` and return 400. Rewrote the page to fetch `/api/expeditions` and populate
+   expedition/leg `<select>`s, matching the pattern the status page already uses. Verified live
+   with Playwright: pickers populate from the real `uncanny_frontier` expedition's three legs, no
+   console errors.
+4. **`/api/searchrun/report`** read favorites via `_favorites_file()` (the globally *active* leg)
+   instead of the leg named in the `?expedition=&leg=` query, so a report for a non-active leg
+   silently computed pick-rate-by-category against the wrong leg's favorites. Fixed to load
+   favorites from the queried `out_dir` directly.
+5. **No-leg-selected crashes, siblings of the two already fixed in session 10**: `load_manifest()`
+   and half a dozen `*_file()` helpers, the `/thumbs/`+`/real_thumbs/` handlers, `_embeddings_for`,
+   and `_handle_cockpit_run` all dereferenced `_active_out_dir()` with no `None` guard, each
+   raising a raw `TypeError` (500, confusing stack trace) instead of a clean "no leg selected"
+   response. Rather than patch each call site individually, added a single `_require_out_dir()`
+   helper (raises `NoActiveLegError`) and a matching top-level `except NoActiveLegError` in both
+   `do_GET` and `do_POST` (the latter previously had no top-level exception handler at all) that
+   returns a clean 400. Every one of these call sites now routes through it.
+
+One CONFIRMED finding was deliberately *not* fixed the way the review suggested: `GET
+/cockpit.html` silently switches the globally active leg to `(expedition, "cockpit")` on page
+load, which can redirect a concurrently open tab's writes to the wrong leg. Every cockpit route
+(queue, target_cells, evidence, run) resolves its working directory off that same global active
+leg, so the switch is load-bearing, not accidental; removing it without also decoupling every
+cockpit route from global active-leg state would trade a UX surprise for a functional break, and
+that decoupling is a bigger structural change than this pass's scope. Documented the coupling
+in a code comment instead and left it as a known tradeoff for a future, dedicated pass.
+
+Two of the fixes (`EMBEDDINGS_FILE` AttributeError in `preference_rank.py`/`elite_archive.py`,
+`_manifest_path`/`*_file()` None-guards) had zero prior test coverage; added regression tests for
+both classes (`test_preference_rank.py`, `test_elite_archive_predicted_preference.py`,
+`test_curation_server_startup.py`) confirmed RED before the fix, GREEN after. Full suite: 363
+passed (up from 357). `ruff check` clean. Live smoke check against the real
+`$XDG_STATE_HOME/clawmarks/` state (read-only GETs and one active-leg switch, restored to
+"none selected" afterward) confirmed the no-leg-selected paths now return clean 400s instead of
+500s, and that the remaining 500s on the real `cockpit`/`round1` legs are genuine
+`FileNotFoundError`s from those legs never having been run (no `scored_manifest.json` yet) rather
+than the None-guard bug class, i.e. expected behavior, not a regression.
+
+Posted the raw finder-stage output and the hand-verified findings as two separate comments on
+PR #33 per the `delegate-code-review` skill's posting convention. Next: merge PR #33 and retire
+the worktree.
+
+### 2026-07-15 (session 12): resolved the merge conflict with origin/main's round-based model
+
+`origin/main` had advanced past PR #33's fork point via an already-merged PR #32
+("friendly errors, XDG state relocation, and a launch-hub empty state"), which independently
+renamed and kept the round-based model (`RoundConfig`/`ROUND_CONFIGS`, `SWEEP_DIR`/`SWEEP2_DIR`
+under `uncanny_round1`/`uncanny_round2`) instead of adopting this branch's expedition/leg model,
+and built its own, differently-shaped `do_GET`/`do_POST` error-handling wrapper. `git merge
+origin/main --no-edit` produced conflicts in `config.py`, `curation_server.py`, `driver.py`,
+`test_config.py`, and this notebook.
+
+Asked the user how to reconcile the fork; the answer was to let the expedition/leg model win
+outright and drop the round-based model, since PR #33's entire purpose is retiring it. Resolved
+every conflict by keeping this branch's expedition/leg code (`EXPEDITIONS_DIR`, `leg_dir()`,
+`LegConfig`/`load_leg_config`, `_require_out_dir()`/`NoActiveLegError`) and deleting
+`RoundConfig`/`ROUND_CONFIGS`/`SWEEP_DIR`/`SWEEP2_DIR` and their call sites entirely. Also found
+and fixed one silent auto-merge duplication that produced two `_check_manifest_images()`
+definitions in `curation_server.py` (git merged them without flagging a conflict since they
+didn't textually overlap); kept the expedition/leg-aware one, deleted the `SWEEP_DIR`-based
+duplicate it shadowed. `rg -n "SWEEP_DIR|SWEEP2_DIR|ROUND_CONFIGS|RoundConfig" src/ tests/`
+confirms nothing remains.

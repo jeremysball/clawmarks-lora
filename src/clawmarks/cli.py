@@ -10,7 +10,8 @@ def build_parser():
     run_p = sub.add_parser("run")
     run_sub = run_p.add_subparsers(dest="run_target", required=True)
     allnight_p = run_sub.add_parser("allnight")
-    allnight_p.add_argument("--round", type=int, choices=[1, 2], required=True)
+    allnight_p.add_argument("--expedition", required=True)
+    allnight_p.add_argument("--leg", required=True)
     allnight_p.add_argument(
         "--use-predicted-preference", action="store_true", default=False,
         help="Stage 5b: build the exploit pool from the trained preference model's top picks "
@@ -52,7 +53,7 @@ def main(argv=None):
 
     if args.command == "run":
         from clawmarks.search.driver import main as driver_main
-        run_argv = ["--round", str(args.round)]
+        run_argv = ["--expedition", args.expedition, "--leg", args.leg]
         if args.use_predicted_preference:
             run_argv.append("--use-predicted-preference")
         return driver_main(run_argv)

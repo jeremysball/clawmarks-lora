@@ -2,7 +2,7 @@ from clawmarks import curation_server as cs
 
 
 def test_get_map_data_is_cached_and_depends_on_solution_map(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 
@@ -27,7 +27,7 @@ def test_get_map_data_is_cached_and_depends_on_solution_map(tmp_path, monkeypatc
 
 
 def test_get_redundancy_data_is_cached_and_depends_on_solution_map(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 

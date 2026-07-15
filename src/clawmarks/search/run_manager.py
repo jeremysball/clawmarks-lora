@@ -106,7 +106,7 @@ def verify_backup(out_dir, backup_dir):
         )
 
 
-def launch_run(round_num, out_dir, api_key, popen_fn=subprocess.Popen, balance_fn=runpod_balance):
+def launch_run(expedition, leg, out_dir, api_key, popen_fn=subprocess.Popen, balance_fn=runpod_balance):
     # current_run() also clears a stale lock (dead or PID-reused) left by a prior crash, so a
     # fresh atomic create below isn't blocked by garbage from a run that never really finished.
     current_run()
@@ -132,11 +132,13 @@ def launch_run(round_num, out_dir, api_key, popen_fn=subprocess.Popen, balance_f
             verify_backup(out_dir, backup_dir)
 
         proc = popen_fn(
-            [sys.executable, "-m", "clawmarks.search.driver", "--round", str(round_num)],
+            [sys.executable, "-m", "clawmarks.search.driver",
+             "--expedition", expedition, "--leg", leg],
             start_new_session=True,
         )
         info = {
-            "pid": proc.pid, "round": round_num, "started_at": time.time(), "out_dir": str(out_dir),
+            "pid": proc.pid, "expedition": expedition, "leg": leg,
+            "started_at": time.time(), "out_dir": str(out_dir),
             "start_time_ticks": _process_start_time(proc.pid),
         }
         # os.fdopen takes ownership of fd immediately: it will be closed when f is (even via
@@ -172,18 +174,16 @@ def build_report(out_dir, favorites=None, current_balance=None):
     """The per-run report the notebook keeps asking for: novelty trajectory, plateau count,
     spend, pick rate by category, explore-vs-exploit split. Reads directly off disk (state
     file + scored_manifest.json) rather than through driver.load_state, since a report is a
-    read-only summary and shouldn't require constructing a RoundConfig or pay load_state's
+    read-only summary and shouldn't require constructing leg configuration or pay load_state's
     resume-validation cost."""
     out_dir = Path(out_dir)
     favorites = favorites or {}
 
     state = {}
-    for name in ("allnight_state.json", "allnight2_state.json"):
-        state_file = out_dir / name
-        if state_file.exists():
-            with open(state_file) as f:
-                state = json.load(f)
-            break
+    state_file = out_dir / "allnight_state.json"
+    if state_file.exists():
+        with open(state_file) as f:
+            state = json.load(f)
 
     manifest = []
     manifest_file = out_dir / "scored_manifest.json"

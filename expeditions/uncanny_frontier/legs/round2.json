@@ -1,0 +1,26 @@
+{
+  "wall_clock_cap_hours": 1.0,
+  "budget_usd_cap": 1.00,
+  "budget_safety_margin": 0.10,
+  "gen_batch_size": 20,
+  "explore_fraction": 0.85,
+  "max_generations": 60,
+  "seed_from_start": true,
+  "style_subject_count": 4,
+  "textures": [
+    "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
+    "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, thick acrylic dry-brush texture, raw outsider-art painting",
+    "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
+    "heavy black ink crosshatching over torn found-paper collage edges, raw outsider-art painting"
+  ],
+  "fallback_subjects": [
+    "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
+    "close-up human face, pale skin, hand pressed beside cheek",
+    "dollhouse interior seen through a broken window",
+    "empty parking garage at night, one flickering light",
+    "wall of surveillance camera monitors, mostly static",
+    "vending machine humming alone in a dark hallway",
+    "abandoned playground, swing set mid-motion with no one on it",
+    "waiting room with rows of identical empty chairs"
+  ]
+}

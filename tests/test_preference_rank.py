@@ -1,4 +1,10 @@
-from clawmarks.build.preference_rank import build_ranked_items
+import json
+
+import joblib
+import numpy as np
+
+from clawmarks.build.preference_rank import build_ranked_items, compute_data
+from clawmarks.search import embed_cache, preference_pairwise_model
 
 
 def _item(tag, tmp_path):
@@ -25,3 +31,24 @@ def test_build_ranked_items_skips_tags_missing_from_manifest(tmp_path):
     by_tag = {"a": _item("a", tmp_path)}
     items = build_ranked_items(by_tag, ["a", "ghost"], [0.5, 0.9], tmp_path)
     assert [it["tag"] for it in items] == ["a"]
+
+
+class _FakeModel:
+    def decision_function(self, embeddings):
+        return np.arange(len(embeddings), dtype=float)
+
+
+def test_compute_data_reads_the_out_dir_scoped_embeddings_cache(tmp_path):
+    # Regression test: compute_data used to call embed_cache.EMBEDDINGS_FILE, a module
+    # attribute removed by the expedition/leg migration, which raised AttributeError before it
+    # ever got to reading the cache. Uncovered by build_ranked_items-only tests above.
+    manifest = [_item("a", tmp_path), _item("b", tmp_path)]
+    with open(tmp_path / "scored_manifest.json", "w") as f:
+        json.dump(manifest, f)
+    embed_cache.save_cache(embed_cache.embeddings_file(tmp_path), ["a", "b"], np.zeros((2, 4)))
+    joblib.dump(_FakeModel(), preference_pairwise_model.model_file(tmp_path))
+
+    data = compute_data(tmp_path)
+
+    assert data["has_model"] is True
+    assert {it["tag"] for it in data["items"]} == {"a", "b"}

@@ -25,12 +25,13 @@ cross-validated accuracy, and a fingerprint of the exact comparisons used
 (comparisons_fingerprint()) so callers like build/preference_status.py can tell whether new
 comparisons have arrived since the last train without recomputing the whole training set.
 
-Run with: python -m clawmarks.search.preference_pairwise_model
+Run with: python -m clawmarks.search.preference_pairwise_model <out_dir>
 """
 import hashlib
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -38,13 +39,18 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold, LeaveOneGroupOut, cross_val_score, permutation_test_score
 
 from clawmarks.atomic_io import atomic_json_write, atomic_write
-from clawmarks.config import SWEEP_DIR
 from clawmarks.search import embed_cache
 
 MIN_COMPARISONS = 50
 N_PERMUTATIONS = 200
-MODEL_FILE = SWEEP_DIR / "preference_pairwise_model.joblib"
-MODEL_META_FILE = SWEEP_DIR / "preference_pairwise_model_meta.json"
+
+
+def model_file(out_dir):
+    return out_dir / "preference_pairwise_model.joblib"
+
+
+def model_meta_file(out_dir):
+    return out_dir / "preference_pairwise_model_meta.json"
 
 
 def _consolidate_pairs(comparisons):
@@ -192,8 +198,8 @@ def score(model, embeddings):
     return model.decision_function(embeddings)
 
 
-def train_and_save(comparisons):
-    """Trains on `comparisons` (an already-loaded list) and persists MODEL_FILE/MODEL_META_FILE.
+def train_and_save(comparisons, out_dir):
+    """Trains on `comparisons` (an already-loaded list) and persists the model and metadata.
     Returns {"model", "cv_accuracy", "n_comparisons"}, or None if there aren't enough usable
     comparisons to train on: fewer than MIN_COMPARISONS reference tags present in the embedding
     cache, even if the raw comparisons list itself clears MIN_COMPARISONS. Checking the raw count
@@ -202,7 +208,7 @@ def train_and_save(comparisons):
     what curation_server.py's retrain-gate check mirrors."""
     if len(comparisons) < MIN_COMPARISONS:
         return None
-    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(out_dir))
     X, y = build_training_set(tags, embeddings, comparisons)
     n_usable = X.shape[0] // 2
     if n_usable < MIN_COMPARISONS:
@@ -213,8 +219,8 @@ def train_and_save(comparisons):
     # curation_server.py runs this fit outside its request lock (both the manual retrain endpoint
     # and the auto-retrain triggered from /api/compare), so two calls can genuinely overlap.
     # atomic_write/atomic_json_write use a unique tempfile per call (tempfile.mkstemp), unlike a
-    # fixed f"{MODEL_FILE}.tmp" path, which two concurrent calls would both write to and corrupt.
-    atomic_write(MODEL_FILE, lambda f: joblib.dump(model, f))
+    # fixed model tmp path, which two concurrent calls would both write to and corrupt.
+    atomic_write(model_file(out_dir), lambda f: joblib.dump(model, f))
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_comparisons": len(comparisons),
@@ -225,12 +231,17 @@ def train_and_save(comparisons):
         "p_value": stats["p_value"],
         "n_permutations": stats["n_permutations"],
     }
-    atomic_json_write(MODEL_META_FILE, meta)
+    atomic_json_write(model_meta_file(out_dir), meta)
     return {"model": model, "cv_accuracy": acc, "n_comparisons": len(comparisons)}
 
 
 def main(argv=None):
-    comparisons_path = SWEEP_DIR / "user_comparisons.json"
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        raise SystemExit("usage: python -m clawmarks.search.preference_pairwise_model <out_dir>")
+    out_dir = Path(argv[0])
+    comparisons_path = out_dir / "user_comparisons.json"
     if not comparisons_path.exists():
         print(f"no comparisons file at {comparisons_path}; nothing to train on", flush=True)
         return 1
@@ -242,7 +253,7 @@ def main(argv=None):
               f"Compare more images via compare.html first.", flush=True)
         return 1
 
-    result = train_and_save(comparisons)
+    result = train_and_save(comparisons, out_dir)
     if result is None:
         print("no comparisons reference tags present in the embedding cache; nothing to train "
               "on. Run `python -m clawmarks.search.embed_cache` first.", flush=True)
@@ -250,7 +261,7 @@ def main(argv=None):
 
     print(f"{result['n_comparisons']} comparisons, cross-validated accuracy: "
           f"{result['cv_accuracy']:.3f}", flush=True)
-    print(f"wrote {MODEL_FILE} and {MODEL_META_FILE}", flush=True)
+    print(f"wrote {model_file(out_dir)} and {model_meta_file(out_dir)}", flush=True)
     return 0
 
 

@@ -1,0 +1,21 @@
+{
+  "wall_clock_cap_hours": 7.5,
+  "seed_from_start": false,
+  "style_subject_count": 5,
+  "widened_textures": [
+    "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
+    "heavy black ink crosshatching over torn found-paper collage edges, raw outsider-art painting"
+  ],
+  "widened_subjects": [
+    "dollhouse interior seen through a broken window",
+    "empty parking garage at night, one flickering light",
+    "wall of surveillance camera monitors, mostly static",
+    "vending machine humming alone in a dark hallway",
+    "mannequin display missing its head",
+    "storm drain grate half-submerged in still water",
+    "airport terminal at night, all gates empty",
+    "abandoned playground, swing set mid-motion with no one on it",
+    "elevator interior, doors closing on an empty hallway",
+    "waiting room with rows of identical empty chairs"
+  ]
+}

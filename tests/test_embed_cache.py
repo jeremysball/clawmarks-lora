@@ -25,6 +25,10 @@ def _write_image(path, color):
     Image.new("RGB", (32, 32), color=color).save(path)
 
 
+def test_embeddings_file_is_relative_to_output_directory(tmp_path):
+    assert embed_cache.embeddings_file(tmp_path) == tmp_path / "embeddings.npz"
+
+
 def test_embed_paths_returns_one_normalized_row_per_path(tmp_path):
     p1 = tmp_path / "a.png"
     p2 = tmp_path / "b.png"

@@ -14,9 +14,7 @@ FAKE_PNG = base64.b64encode(b"fake-png-bytes").decode()
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(cs, "COUNTERFACTUALS_DIR", str(tmp_path / "counterfactuals"))
-    monkeypatch.setattr(cs, "COUNTERFACTUALS_FILE", str(tmp_path / "user_counterfactuals.json"))
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setenv("RUNPOD_API_KEY", "fake-key")
     (tmp_path / "counterfactuals").mkdir()
     (tmp_path / "scored_manifest.json").write_text("[]")

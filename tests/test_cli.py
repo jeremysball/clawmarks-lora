@@ -13,11 +13,19 @@ def test_build_is_no_longer_a_valid_subcommand():
     assert "invalid choice" in result.stderr or "invalid choice" in result.stdout
 
 
-def test_run_allnight_round_argument_parses():
+def test_run_allnight_expedition_and_leg_arguments_parse():
     parser = build_parser()
-    args = parser.parse_args(["run", "allnight", "--round", "2"])
+    args = parser.parse_args(["run", "allnight", "--expedition", "uncanny_frontier", "--leg", "round2"])
     assert args.command == "run"
-    assert args.round == 2
+    assert args.expedition == "uncanny_frontier"
+    assert args.leg == "round2"
+
+
+def test_run_allnight_requires_both_expedition_and_leg():
+    import pytest
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "allnight", "--expedition", "uncanny_frontier"])
 
 
 def test_serve_subcommand_parses():

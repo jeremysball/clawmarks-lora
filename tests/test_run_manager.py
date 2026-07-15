@@ -28,7 +28,7 @@ def test_current_run_clears_stale_lock_for_dead_pid(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
-    lock_file.write_text(json.dumps({"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}))
+    lock_file.write_text(json.dumps({"pid": proc.pid, "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
     assert run_manager.current_run() is None
@@ -37,7 +37,7 @@ def test_current_run_clears_stale_lock_for_dead_pid(tmp_path, monkeypatch):
 
 def test_current_run_returns_info_for_live_pid(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
-    info = {"pid": os.getpid(), "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": os.getpid(), "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
@@ -79,13 +79,13 @@ def test_verify_backup_fails_closed_on_count_mismatch(tmp_path):
 
 def test_launch_run_refuses_when_a_run_is_already_in_progress(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
-    info = {"pid": os.getpid(), "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": os.getpid(), "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
     calls = []
     with pytest.raises(run_manager.LaunchError):
-        run_manager.launch_run(1, tmp_path / "sweep", "fake-key",
+        run_manager.launch_run("demo", "leg1", tmp_path / "sweep", "fake-key",
                                 popen_fn=lambda *a, **k: calls.append((a, k)),
                                 balance_fn=lambda key: 100.0)
     assert calls == []
@@ -96,7 +96,7 @@ def test_launch_run_refuses_when_balance_below_floor(tmp_path, monkeypatch):
     calls = []
 
     with pytest.raises(run_manager.LaunchError):
-        run_manager.launch_run(1, tmp_path / "sweep", "fake-key",
+        run_manager.launch_run("demo", "leg1", tmp_path / "sweep", "fake-key",
                                 popen_fn=lambda *a, **k: calls.append((a, k)),
                                 balance_fn=lambda key: 0.01)
     assert calls == []
@@ -112,12 +112,13 @@ def test_launch_run_backs_up_verifies_and_writes_lock(tmp_path, monkeypatch):
     class FakeProc:
         pid = 12345
 
-    info = run_manager.launch_run(1, out_dir, "fake-key",
+    info = run_manager.launch_run("demo", "leg1", out_dir, "fake-key",
                                    popen_fn=lambda *a, **k: FakeProc(),
                                    balance_fn=lambda key: 100.0)
 
     assert info["pid"] == 12345
-    assert info["round"] == 1
+    assert info["expedition"] == "demo"
+    assert info["leg"] == "leg1"
     assert info["out_dir"] == str(out_dir)
     assert json.loads(lock_file.read_text()) == info
     backups = list(tmp_path.glob("sweep_backup_*"))
@@ -133,7 +134,7 @@ def test_launch_run_skips_backup_when_out_dir_does_not_exist_yet(tmp_path, monke
     class FakeProc:
         pid = 99999
 
-    info = run_manager.launch_run(1, out_dir, "fake-key",
+    info = run_manager.launch_run("demo", "leg1", out_dir, "fake-key",
                                    popen_fn=lambda *a, **k: FakeProc(),
                                    balance_fn=lambda key: 100.0)
 
@@ -148,13 +149,14 @@ def test_status_reports_not_running_with_no_lock(tmp_path, monkeypatch):
 
 def test_status_reports_running_with_live_lock(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
-    info = {"pid": os.getpid(), "round": 2, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": os.getpid(), "expedition": "demo", "leg": "leg2", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
     result = run_manager.status()
     assert result["running"] is True
-    assert result["round"] == 2
+    assert result["expedition"] == "demo"
+    assert result["leg"] == "leg2"
 
 
 def test_stop_run_is_noop_when_nothing_running(tmp_path, monkeypatch):
@@ -166,7 +168,7 @@ def test_stop_run_sends_sigterm_and_removes_lock(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
     time.sleep(0.2)
-    info = {"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": proc.pid, "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
@@ -191,7 +193,7 @@ def test_stop_run_kills_the_whole_process_group_not_just_the_leader(tmp_path, mo
         "time.sleep(30)",
     ], start_new_session=True, stdout=subprocess.PIPE, text=True)
     child_pid = int(proc.stdout.readline().strip())
-    info = {"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": proc.pid, "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
@@ -236,15 +238,15 @@ def test_build_report_reads_novelty_trajectory_and_plateau_count_from_state(tmp_
     assert report["start_balance"] == 10.0
 
 
-def test_build_report_reads_round2_state_file_name(tmp_path):
-    out_dir = tmp_path / "sweep2"
+def test_build_report_reads_allnight_state_file_name(tmp_path):
+    out_dir = tmp_path / "sweep"
     out_dir.mkdir()
     state = {
         "generation": 1, "stage": 0, "plateau_count": 0,
         "novelty_history": [0.4], "gpt55_subjects": [],
         "start_balance": 1.0, "start_time": 1.0,
     }
-    (out_dir / "allnight2_state.json").write_text(json.dumps(state))
+    (out_dir / "allnight_state.json").write_text(json.dumps(state))
 
     report = run_manager.build_report(out_dir)
 
@@ -291,7 +293,7 @@ def test_stop_run_sigkills_after_grace_period_if_process_ignores_sigterm(tmp_pat
         "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
         start_new_session=True)
     time.sleep(0.2)
-    info = {"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": proc.pid, "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
@@ -323,7 +325,7 @@ def test_launch_run_is_race_free_under_concurrent_calls(tmp_path, monkeypatch):
     def attempt():
         try:
             results.append(("ok", run_manager.launch_run(
-                1, out_dir, "fake-key", popen_fn=popen_fn, balance_fn=lambda key: 100.0)))
+                "demo", "leg1", out_dir, "fake-key", popen_fn=popen_fn, balance_fn=lambda key: 100.0)))
         except run_manager.LaunchError as e:
             results.append(("error", str(e)))
 
@@ -362,7 +364,7 @@ def test_launch_run_reaps_the_child_and_clears_the_lock_if_writing_the_lock_fail
     monkeypatch.setattr(run_manager.json, "dump", broken_dump)
 
     with pytest.raises(OSError):
-        run_manager.launch_run(1, out_dir, "fake-key",
+        run_manager.launch_run("demo", "leg1", out_dir, "fake-key",
                                 popen_fn=popen_fn, balance_fn=lambda key: 100.0)
 
     assert not lock_file.exists()
@@ -376,7 +378,7 @@ def test_launch_run_reaps_the_child_and_clears_the_lock_if_writing_the_lock_fail
 def test_current_run_treats_a_pid_reused_by_an_unrelated_process_as_stale(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
     info = {
-        "pid": os.getpid(), "round": 1, "started_at": 1.0, "out_dir": "x",
+        "pid": os.getpid(), "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x",
         "start_time_ticks": -1,  # cannot match this process's real start time
     }
     lock_file.write_text(json.dumps(info))
@@ -397,7 +399,7 @@ def test_stop_run_reaps_the_process_promptly_instead_of_blocking_the_full_grace_
     # must exit and become a zombie *before* run_manager ever touches it.
     proc = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
     time.sleep(0.5)
-    info = {"pid": proc.pid, "round": 1, "started_at": 1.0, "out_dir": "x"}
+    info = {"pid": proc.pid, "expedition": "demo", "leg": "leg1", "started_at": 1.0, "out_dir": "x"}
     lock_file.write_text(json.dumps(info))
     monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
 
@@ -417,7 +419,7 @@ def test_launch_run_records_pid_start_time_for_reuse_detection(tmp_path, monkeyp
     class FakeProc:
         pid = os.getpid()
 
-    info = run_manager.launch_run(1, out_dir, "fake-key",
+    info = run_manager.launch_run("demo", "leg1", out_dir, "fake-key",
                                    popen_fn=lambda *a, **k: FakeProc(),
                                    balance_fn=lambda key: 100.0)
 

@@ -17,7 +17,7 @@ services:
     pull_policy: always
     network_mode: "service:tailscale"
     environment:
-      - CLAWMARKS_SWEEP_DIR=${CLAWMARKS_SWEEP_DIR:-/app/notes/uncanny_sweep}
+      - CLAWMARKS_STATE_DIR=/app/state/clawmarks
       - RUNPOD_API_KEY=${RUNPOD_API_KEY}
       - CIVITAI_TOKEN=${CIVITAI_TOKEN}
       - CIVITAI_MODEL_ID=${CIVITAI_MODEL_ID}
@@ -28,9 +28,12 @@ services:
     # Bind mounts, not named volumes: these hold irreplaceable RunPod-billed generation output
     # and real training images (CLAUDE.md's data-integrity rule). A bind mount keeps them
     # directly on the host filesystem where the project's existing backup/verify workflow can
-    # reach them; a named volume would hide them inside Docker's storage driver.
+    # reach them; a named volume would hide them inside Docker's storage driver. ./state holds
+    # expeditions/legs (CLAWMARKS_STATE_DIR above); without this mount every generated PNG and
+    # manifest lands on ephemeral container storage and is lost on the next watchtower recreate.
     volumes:
       - ./notes:/app/notes
+      - ./state:/app/state/clawmarks
       - ./corrected_dataset_extract:/app/corrected_dataset_extract:ro
     depends_on:
       - tailscale

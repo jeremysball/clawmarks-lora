@@ -8,12 +8,14 @@ Served live at /preference_status.html by curation_server.py.
 """
 import json
 import os
+from pathlib import Path
 
 from clawmarks.search import embed_cache, preference_pairwise_model, preference_settings
 from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
 def compute_data(sweep_dir):
+    sweep_dir = Path(sweep_dir)
     comparisons_path = f"{sweep_dir}/user_comparisons.json"
     if os.path.exists(comparisons_path):
         with open(comparisons_path) as f:
@@ -27,7 +29,7 @@ def compute_data(sweep_dir):
     # submissions of the *same* pair now consolidates to 1 usable pair (see issue #13), and a
     # gate keyed on the raw count would tell the user they're "ready to train" right before the
     # actual retrain call refuses for the same data.
-    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(sweep_dir))
     _, usable_y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
     n_usable = len(usable_y) // 2
 
@@ -38,10 +40,12 @@ def compute_data(sweep_dir):
     else:
         gate_message = ""
 
-    has_model = os.path.exists(preference_pairwise_model.MODEL_FILE)
+    model_path = preference_pairwise_model.model_file(sweep_dir)
+    model_meta_path = preference_pairwise_model.model_meta_file(sweep_dir)
+    has_model = os.path.exists(model_path)
     model_meta = None
-    if has_model and os.path.exists(preference_pairwise_model.MODEL_META_FILE):
-        with open(preference_pairwise_model.MODEL_META_FILE) as f:
+    if has_model and os.path.exists(model_meta_path):
+        with open(model_meta_path) as f:
             model_meta = json.load(f)
 
     new_comparisons_since_train = 0
@@ -66,7 +70,7 @@ def compute_data(sweep_dir):
         "model_meta": model_meta,
         "new_comparisons_since_train": new_comparisons_since_train,
         "comparisons_changed_since_train": comparisons_changed_since_train,
-        "use_predicted_preference": preference_settings.load()["use_predicted_preference"],
+        "use_predicted_preference": preference_settings.load(sweep_dir)["use_predicted_preference"],
     }
 
 

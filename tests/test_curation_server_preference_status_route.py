@@ -14,15 +14,8 @@ from clawmarks.search import embed_cache, preference_settings
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
-    monkeypatch.setattr(preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
-    monkeypatch.setattr(cs.preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-    monkeypatch.setattr(cs.preference_pairwise_model, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(cs, "COMPARISONS_FILE", str(tmp_path / "user_comparisons.json"))
-    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
     (tmp_path / "scored_manifest.json").write_text(json.dumps([]))
     (tmp_path / "user_comparisons.json").write_text(json.dumps([]))
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
@@ -74,7 +67,7 @@ def test_post_preference_toggle_accepts_enable_with_model_and_persists(running_s
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read().decode())
     assert data["use_predicted_preference"] is True
-    assert preference_settings.load()["use_predicted_preference"] is True
+    assert preference_settings.load(tmp_path)["use_predicted_preference"] is True
 
 
 def test_archive_html_uses_persisted_setting_not_query_param(running_server, monkeypatch):
@@ -87,7 +80,7 @@ def test_archive_html_uses_persisted_setting_not_query_param(running_server, mon
         resp.read()
     assert calls == [False]
 
-    preference_settings.save(True)
+    preference_settings.save(True, tmp_path)
     (tmp_path / "preference_pairwise_model.joblib").write_text("fake model")
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/archive.html") as resp:
         resp.read()
@@ -186,15 +179,8 @@ def threaded_running_server(tmp_path, monkeypatch):
     """Same setup as running_server, but backed by cs.ThreadingHTTPServer (what main() actually
     serves with) instead of the plain single-threaded HTTPServer: concurrency tests need real
     concurrent request handling, which the shared fixture's HTTPServer serializes away."""
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
-    monkeypatch.setattr(preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
-    monkeypatch.setattr(cs.preference_settings, "PREFERENCE_SETTINGS_FILE", tmp_path / "preference_settings.json")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
-    monkeypatch.setattr(cs.preference_pairwise_model, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(cs, "COMPARISONS_FILE", str(tmp_path / "user_comparisons.json"))
-    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
     (tmp_path / "scored_manifest.json").write_text(json.dumps([]))
     (tmp_path / "user_comparisons.json").write_text(json.dumps([]))
     server = cs.ThreadingHTTPServer(("127.0.0.1", 0), cs.Handler)
@@ -221,7 +207,7 @@ def test_post_preference_retrain_does_not_hold_lock_during_training(threaded_run
     release_training = threading.Event()
     retrain_errors = []
 
-    def slow_train_and_save(comparisons):
+    def slow_train_and_save(comparisons, out_dir):
         training_started.set()
         # Long enough that a blocked compare request would clearly time out the assertion below;
         # release_training.set() (in the test's finally) cuts this short once compare has
@@ -266,7 +252,7 @@ def test_post_preference_retrain_returns_500_on_training_crash(running_server, m
     embeddings = np.random.RandomState(0).normal(size=(len(tags), 2)).astype(np.float32)
     embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
 
-    def crashing_train(comparisons):
+    def crashing_train(comparisons, out_dir):
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(cs.preference_pairwise_model, "train_and_save", crashing_train)
