@@ -33,3 +33,14 @@ def test_json_script_escapes_close_script_sequence():
 def test_json_script_round_trips_normal_data():
     payload = {"tag": "gen1_foo", "novelty": 0.5, "sim": ["a", "b"]}
     assert json.loads(json_script(payload)) == payload
+
+
+def test_nav_bar_shows_active_leg():
+    html = nav_bar_html("compare.html", active_expedition="uncanny_frontier", active_leg="round2")
+    assert "uncanny_frontier" in html
+    assert "round2" in html
+
+
+def test_nav_bar_omits_label_when_no_selection():
+    html = nav_bar_html("compare.html")
+    assert "nav-activeleg" not in html

@@ -43,7 +43,7 @@ def compute_data(sweep_dir, deps):
     return {"sim_scored": sim_scored, "thumbs": thumbs, "meta": meta}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     sim_scored = data["sim_scored"]
     thumbs = data["thumbs"]
     meta = data["meta"]
@@ -103,7 +103,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('redundancy.html')}
+{nav_bar_html('redundancy.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Redundancy clusters{cluster_tip}</h1>
 <p class="sub">Connected components over each image's top-16 DINOv2 nearest neighbors, using
 only edges at or above the similarity threshold below. Higher threshold = stricter "near-

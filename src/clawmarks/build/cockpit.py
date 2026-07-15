@@ -53,7 +53,7 @@ MISSIONS = {
 }
 
 
-def render_html(expeditions=None, current_expedition=None):
+def render_html(expeditions=None, current_expedition=None, active_expedition=None, active_leg=None):
     expeditions = expeditions or []
     options = "".join(
         f'<option value="{html.escape(e)}"{" selected" if e == current_expedition else ""}>{html.escape(e)}</option>'
@@ -355,7 +355,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 </style>
 </head>
 <body>
-{nav_bar_html('cockpit.html')}
+{nav_bar_html('cockpit.html', active_expedition=active_expedition, active_leg=active_leg)}
 <main>
 {selector}
 <div class="eyebrow">Interactive trial workbench</div>

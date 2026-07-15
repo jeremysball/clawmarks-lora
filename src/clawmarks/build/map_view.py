@@ -31,7 +31,7 @@ def compute_data(sweep_dir, deps):
     }
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     points = data["points"]
     real_points = data["real_points"]
     max_gen = data["max_gen"]
@@ -101,7 +101,7 @@ button.playbtn {{ background:var(--panel); color:var(--text); border:1px solid v
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('map.html')}
+{nav_bar_html('map.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Solution map{umap_tip}</h1>
 <p class="sub">UMAP projection of the full DINOv2 embedding space: every generated image plus the
 31 real training images (gold stars), not just the two faithfulness/novelty scalars. Distance

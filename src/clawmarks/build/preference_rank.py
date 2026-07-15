@@ -51,7 +51,7 @@ def compute_data(sweep_dir):
     return {"has_model": True, "items": items}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     if not data["has_model"]:
         return (f'<!doctype html><html><body>no trained model at {data["model_file"]}; run `python -m '
                 f"clawmarks.search.preference_pairwise_model` first (needs 50+ comparisons)</body></html>")
@@ -83,7 +83,7 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_rank.html')}
+{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Predicted preference{rank_tip}</h1>
 <p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="grid"></div>

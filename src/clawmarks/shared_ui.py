@@ -42,14 +42,21 @@ NAV_OPTIONS = [
 ]
 
 
-def nav_bar_html(current):
+def nav_bar_html(current, active_expedition=None, active_leg=None):
     opts = "".join(
         f'<option value="{href}"{" selected" if href == current else ""}>{label}</option>'
         for href, label in NAV_OPTIONS
     )
+    active_label = ""
+    if active_expedition and active_leg:
+        active_label = (
+            f'<span id="nav-activeleg" class="nav-activeleg" '
+            f'title="active workspace">{active_expedition}/{active_leg}</span>'
+        )
     return (
         '<div id="topnav" class="topnav" data-autohide>'
         '<a class="navlink" href="explore.html">&larr; all tools</a>'
+        f'{active_label}'
         '<select onchange="if(this.value) location.href=this.value;">'
         f'<option value="">jump to...</option>{opts}</select></div>'
     )
@@ -62,6 +69,8 @@ TOPNAV_CSS = """
 .topnav.navhidden { transform: translateY(-100%); }
 .topnav select { background:var(--panel-2,#1d1d22); color:var(--text,#eaeaee); border:1px solid var(--border,#2a2a30);
   border-radius:6px; padding:5px 9px; font-size:12.5px; max-width:220px; }
+.topnav .nav-activeleg { color:var(--text-dim,#9a9aa4); font-size:12px; font-family:monospace;
+  padding:2px 8px; background:rgba(154,154,164,0.12); border-radius:5px; white-space:nowrap; }
 @media (max-width: 640px) {
   .topnav { padding:8px 10px; gap:8px; font-size:12px; }
   .topnav select { flex:1; min-width:0; max-width:none; }

@@ -15,7 +15,7 @@ Run: python3 -m clawmarks.build.seed_browser
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None):
     seeds_tip = info_btn(
         "A candidate seed is a short subject/texture description (e.g. \"empty parking garage at "
         "night, one flickering light\") that an \"explore\" job can draw when building a fresh, "
@@ -72,7 +72,7 @@ p.sub {{ color:var(--text-dim); font-size:13px; line-height:1.6; margin:0 0 20px
 }}
 </style></head><body>
 
-{nav_bar_html('seeds.html')}
+{nav_bar_html('seeds.html', active_expedition=active_expedition, active_leg=active_leg)}
 
 <main>
 <h1>Candidate seeds{seeds_tip}</h1>

@@ -18,7 +18,7 @@ Served live at /runs.html by curation_server.py.
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS search runs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -54,7 +54,7 @@ button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 .live {{ color:var(--up); }}
 </style></head><body>
 
-{nav_bar_html('runs.html')}
+{nav_bar_html('runs.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Search runs</h1>
 <p class="sub">Launch an overnight search round from here instead of SSHing in. Every launch
 backs up the round's out_dir first and refuses to start if that backup can't be verified by file

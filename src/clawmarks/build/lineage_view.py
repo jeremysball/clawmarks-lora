@@ -33,7 +33,7 @@ def compute_data(sweep_dir):
     return {"has_lineage": True, "by_tag": by_tag, "children_by_parent": children_by_parent}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     if not data["has_lineage"]:
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS lineage tree</title>
@@ -47,7 +47,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
 </style></head><body>
-{nav_bar_html('lineage.html')}
+{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Lineage tree</h1>
 <p>No image in this dataset carries a <code>parent_tag</code> yet, so there's nothing to draw a
 tree from (placeholder page). Round 1's driver never recorded which parent an exploit step mutated near, and while
@@ -89,7 +89,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
 </style></head><body>
-{nav_bar_html('lineage.html')}
+{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg)}
 <h1>Lineage tree</h1>
 {tree_html}
 <script>
