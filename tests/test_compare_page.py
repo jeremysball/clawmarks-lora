@@ -82,3 +82,26 @@ def test_render_html_supports_keyboard_choice_and_metric_blinding():
     assert "e.key !== 'Enter'" in html
     assert "e.key !== ' '" in html
     assert "e.key === 'Escape'" in html
+
+
+def test_render_html_accepts_at_most_one_successful_choice_per_pair():
+    html = compare_page.render_html()
+    choose_body = html.split("function choose(side) {", 1)[1].split(
+        "document.getElementById('pane1')", 1
+    )[0]
+
+    assert "let choiceSubmitted = false;" in html
+    assert "if (!current || choiceSubmitted || zoomOpen) return;" in choose_body
+    assert choose_body.index("choiceSubmitted = true;") < choose_body.index("fetch('/api/compare'")
+    assert "choiceSubmitted = false;" in choose_body
+    assert "choiceSubmitted = false;" in html.split("function loadNext() {", 1)[1]
+
+
+def test_render_html_blocks_choices_while_zoom_is_open():
+    html = compare_page.render_html()
+    choose_body = html.split("function choose(side) {", 1)[1].split(
+        "document.getElementById('pane1')", 1
+    )[0]
+
+    assert "if (!current || choiceSubmitted || zoomOpen) return;" in choose_body
+    assert choose_body.index("zoomOpen") < choose_body.index("fetch('/api/compare'")

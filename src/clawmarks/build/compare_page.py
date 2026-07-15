@@ -125,6 +125,7 @@ a corner to inspect that image at full resolution; tap again to close.</p>
 
 <script>
 let current = null;
+let choiceSubmitted = false;
 let comparedThisSession = 0;
 let totalCount = 0;
 let lastAccuracy = null;
@@ -224,6 +225,7 @@ function loadNext() {{
       return;
     }}
     current = d;
+    choiceSubmitted = false;
     document.getElementById('pair').style.display = 'flex';
     document.getElementById('done').style.display = 'none';
     const img1 = document.getElementById('img1');
@@ -240,9 +242,10 @@ function loadNext() {{
 }}
 
 function choose(side) {{
-  if (!current) return;
+  if (!current || choiceSubmitted || zoomOpen) return;
   const winner = side === 1 ? current.img1.tag : current.img2.tag;
   const loser = side === 1 ? current.img2.tag : current.img1.tag;
+  choiceSubmitted = true;
   fetch('/api/compare', {{method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{winner, loser}})}})
     .then(r => {{
@@ -265,6 +268,7 @@ function choose(side) {{
       revealSamplingDetails();
       setTimeout(loadNext, 1000);
     }}).catch(() => {{
+      choiceSubmitted = false;
       document.getElementById('done').textContent =
         "Couldn't reach the server. Check your connection and try again.";
       document.getElementById('done').style.display = 'block';
