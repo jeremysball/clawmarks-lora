@@ -1734,11 +1734,11 @@ def _reconcile_stuck_trials():
 
 
 def _check_manifest_images():
-    """Sanity-check that scored_manifest.json's file paths actually resolve, so a stale-path
-    manifest (e.g. after the project directory was renamed or moved) fails at startup instead
-    of hanging or 500ing on the first page that tries to open an image."""
-    manifest_path = _active_out_dir() / "scored_manifest.json"
-    if not os.path.exists(manifest_path):
+    active_dir = _active_out_dir()
+    if active_dir is None:
+        return  # nothing selected yet; the empty-state hub handles this case
+    manifest_path = active_dir / "scored_manifest.json"
+    if not manifest_path.exists():
         print(f"warning: no scored_manifest.json at {manifest_path}, skipping image check", flush=True)
         return
     with open(manifest_path) as f:
@@ -1753,8 +1753,8 @@ def _check_manifest_images():
             f"FATAL: none of {n_total} images in {manifest_path} exist on disk "
             f"(e.g. {example!r} is missing). This usually means the manifest's paths are "
             "stale, most likely from the project directory being renamed or moved. Fix the "
-            "manifest's 'file' paths (or point CLAWMARKS_SWEEP_DIR at wherever the images "
-            "actually live) before starting the server.",
+            "manifest's 'file' paths, or select a different expedition/leg via "
+            "POST /api/active-leg, before starting the server.",
             file=sys.stderr, flush=True,
         )
         sys.exit(1)

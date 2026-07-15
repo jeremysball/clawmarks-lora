@@ -2097,3 +2097,13 @@ coverage for both a 49-entry history at generation 50 and the actual historical 
 51-entry history at generation 50. The latter proves the removed round-1 shim no longer accepts
 `generation + 1` history entries. Renamed the shared state filename test to describe its current
 leg-independent behavior. The targeted driver-state suite passes with 29 tests.
+
+### 2026-07-14 (session 6): made startup safe before leg selection
+
+Task 11 added a regression test for starting `curation_server.py` with no active expedition or
+leg. Before the fix, `_check_manifest_images()` dereferenced the `None` returned by
+`_active_out_dir()` and raised a `TypeError`. The function now returns immediately in that empty
+state, allowing the empty-state hub to handle startup. The RED test failed with the expected
+`TypeError`; the GREEN test passed with one test. The full suite still has 276 passing tests,
+21 failures, and 47 errors from older tests that still monkeypatch the removed `SWEEP_DIR` and
+related legacy configuration names.
