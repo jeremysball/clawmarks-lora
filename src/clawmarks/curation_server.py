@@ -979,6 +979,17 @@ a {{ color:var(--accent); }}
 <h1>clawmarks curation server</h1>
 <p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
 <p>{html.escape(manifest_summary)}</p>
+<p id="cmpStat" class="sub">&nbsp;</p>
+<script>
+fetch('/api/preference_status').then(r => r.json()).then(d => {{
+  const el = document.getElementById('cmpStat');
+  if (typeof d.n_comparisons === 'number') {{
+    const acc = (d.model_meta && typeof d.model_meta.cv_accuracy === 'number')
+      ? `, model at ${{(d.model_meta.cv_accuracy * 100).toFixed(0)}}%` : '';
+    el.textContent = `${{d.n_comparisons}} comparisons${{acc}}`;
+  }}
+}}).catch(() => {{}});
+</script>
 <p>{links}</p>
 </body></html>""".encode()
 
