@@ -48,6 +48,19 @@ def test_scan_html_reflects_manifest_change_without_rebuild(running_server, monk
     assert '"prompt_name": "fox"' not in second
 
 
+def test_scan_html_serves_with_filter_state_query_string(running_server, monkeypatch):
+    """scan.html mirrors its filter/sort controls into the URL's query string (so a reload or
+    back-navigation restores them); the route must still match with that query string attached
+    instead of 404ing on anything but a bare /scan.html."""
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    monkeypatch.setattr(cs.similarity_index, "compute_data", lambda sweep_dir: {})
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/scan.html?sortKey=gen_desc&typeFilter=style") as resp:
+        html = resp.read().decode()
+    assert '"prompt_name": "fox"' in html
+
+
 def test_scan_data_json_route(running_server, monkeypatch):
     server, tmp_path = running_server
     port = server.server_address[1]

@@ -273,6 +273,32 @@ fetch('/api/favorites').then(r => r.json()).then(f => {{
     names.map(n => `<option value="${{escHtml(n)}}">${{escHtml(n)}}</option>`).join('');
 }})();
 
+// Every control that shapes `view` gets mirrored into the URL's query string, so a filtered/
+// sorted view survives a reload or a browser-back navigation instead of resetting to defaults.
+const FILTER_IDS = ['sortKey', 'typeFilter', 'catFilter', 'promptFilter', 'faithMin', 'faithMax',
+  'search', 'pickedOnly', 'favoritedOnly'];
+
+function syncStateToUrl() {{
+  const params = new URLSearchParams();
+  FILTER_IDS.forEach(id => {{
+    const el = document.getElementById(id);
+    const val = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value;
+    if (val) params.set(id, val);
+  }});
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? `${{location.pathname}}?${{qs}}` : location.pathname);
+}}
+
+function syncStateFromUrl() {{
+  const params = new URLSearchParams(location.search);
+  FILTER_IDS.forEach(id => {{
+    if (!params.has(id)) return;
+    const el = document.getElementById(id);
+    if (el.type === 'checkbox') el.checked = params.get(id) === '1';
+    else el.value = params.get(id);
+  }});
+}}
+
 function applyFilters() {{
   const type = document.getElementById('typeFilter').value;
   const cat = document.getElementById('catFilter').value;
@@ -307,6 +333,7 @@ function applyFilters() {{
       case 'prompt_desc': return b.prompt_name.localeCompare(a.prompt_name);
     }}
   }});
+  syncStateToUrl();
   withViewTransition(render);
 }}
 
@@ -402,6 +429,12 @@ document.addEventListener('lightbox:favorite', e => {{
   withViewTransition(render);
 }});
 
+window.addEventListener('popstate', () => {{
+  syncStateFromUrl();
+  applyFilters();
+}});
+
+syncStateFromUrl();
 applyFilters();
 </script>
 </body></html>"""

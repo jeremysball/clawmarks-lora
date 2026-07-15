@@ -1176,7 +1176,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        if self.path == "/scan.html":
+        if self.path == "/scan.html" or self.path.startswith("/scan.html?"):
             html = scan_gallery.render_html(_get_scan_items())
             body = html.encode()
             self.send_response(200)
