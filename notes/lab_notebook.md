@@ -2107,3 +2107,14 @@ state, allowing the empty-state hub to handle startup. The RED test failed with 
 `TypeError`; the GREEN test passed with one test. The full suite still has 276 passing tests,
 21 failures, and 47 errors from older tests that still monkeypatch the removed `SWEEP_DIR` and
 related legacy configuration names.
+
+### 2026-07-14 (session 7): replaced the hardcoded round launch hub with expedition and leg selection
+
+Task 12 added `_list_expeditions` and `_create_expedition` to the curation server. Creating an
+expedition now writes its shared `expedition.json` atomically, scaffolds an empty `cockpit` leg
+configuration, and creates that leg's runtime directory. The server now exposes `GET /api/expeditions`
+and `POST /api/expeditions`, and the empty-state page lists every configured leg and selects one
+through the existing `/api/active-leg` route instead of offering hardcoded Round 1 and Round 2
+launch buttons. The new four-test expedition route slice passed after the expected RED failure.
+The clean import check passed. The full suite remains blocked by the known older tests that still
+reference removed `SWEEP_DIR` and related legacy configuration names.

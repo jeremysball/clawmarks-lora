@@ -151,6 +151,45 @@ def _set_active_selection(expedition, leg):
     atomic_json_write(config.ACTIVE_LEG_FILE, dict(_active_selection))
 
 
+def _list_expeditions():
+    if not config.EXPEDITIONS_DIR.exists():
+        return []
+    result = []
+    for expedition_dir in sorted(config.EXPEDITIONS_DIR.iterdir()):
+        if not (expedition_dir / "expedition.json").exists():
+            continue
+        legs_dir = expedition_dir / "legs"
+        legs = sorted(p.stem for p in legs_dir.glob("*.json")) if legs_dir.exists() else []
+        result.append({"name": expedition_dir.name, "legs": legs})
+    return result
+
+
+def _create_expedition(payload):
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("'name' is required")
+    expedition_dir = config.EXPEDITIONS_DIR / name
+    if expedition_dir.exists():
+        raise ValueError(f"expedition {name!r} already exists")
+
+    expedition_fields = {
+        "trigger_word": payload.get("trigger_word", ""),
+        "negative_prompt": payload.get("negative_prompt", ""),
+        "textures": payload.get("textures", []),
+        "fallback_subjects": payload.get("fallback_subjects", []),
+        "budget_usd_cap": payload.get("budget_usd_cap", 1.0),
+        "budget_safety_margin": payload.get("budget_safety_margin", 0.1),
+        "gen_batch_size": payload.get("gen_batch_size", 20),
+        "explore_fraction": payload.get("explore_fraction", 0.5),
+        "max_generations": payload.get("max_generations", 60),
+    }
+    (expedition_dir / "legs").mkdir(parents=True)
+    atomic_json_write(expedition_dir / "expedition.json", expedition_fields)
+    atomic_json_write(expedition_dir / "legs" / "cockpit.json", {})
+    config.leg_dir(name, "cockpit").mkdir(parents=True, exist_ok=True)
+    return {"ok": True, "name": name}
+
+
 def _manifest_path():
     return str(_active_out_dir() / "scored_manifest.json")
 
@@ -876,6 +915,17 @@ a {{ color:var(--accent); }}
 </body></html>""".encode()
 
     def _status_page_empty_body(self, manifest_summary):
+        expeditions = _list_expeditions()
+        rows = "".join(
+            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
+            + " ".join(
+                f'<button class="leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
+                for leg in e["legs"]
+            )
+            + "</div>"
+            for e in expeditions
+        )
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -890,64 +940,44 @@ code {{ color:var(--text); }}
 a {{ color:var(--accent); }}
 .panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
   padding:16px; margin-top:16px; max-width:640px; }}
-.launchrow {{ display:flex; gap:12px; margin-top:12px; }}
-button {{ font-size:13px; padding:8px 16px; border-radius:6px; border:1px solid var(--border);
+.exp-row {{ margin:8px 0; }}
+button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
   background:var(--accent); color:#0b0b0d; font-weight:600; cursor:pointer; }}
 button:disabled {{ opacity:0.4; cursor:not-allowed; }}
-#launchError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
-#launchNote {{ font-size:12.5px; margin-top:8px; }}
-.tools {{ margin-top:20px; font-size:12.5px; }}
+#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 <h1>clawmarks curation server</h1>
-<p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
+<p>{html.escape(manifest_summary)}</p>
 <div class="panel">
-<p class="sub">No search data yet. Launch a search round to start generating and scoring
-images &mdash; this backs up the round's out_dir, verifies the backup, checks the RunPod
-balance floor, and launches <code>search/driver.py</code> detached.</p>
-<div class="launchrow">
-<button id="launch1">Launch Round 1</button>
-<button id="launch2">Launch Round 2</button>
+<p class="sub">No expedition/leg selected. Pick an existing leg below, or create a new
+expedition first if this is a genuinely new line of work.</p>
+{rows or '<p class="sub">No expeditions exist yet.</p>'}
+<div id="pickError"></div>
 </div>
-<div id="launchError"></div>
-<div id="launchNote"></div>
-</div>
-<p class="tools">or browse tools once a round has produced images:
-{" &middot; ".join(f'<a href="{path}">{label}</a>' for path, label in _ROUTES)}</p>
 <script>
-function launch(round, btn) {{
-  document.getElementById('launchError').textContent = '';
-  document.getElementById('launchNote').textContent = '';
-  btn.disabled = true;
-  const originalText = btn.textContent;
-  btn.textContent = 'Backing up and launching...';
-  fetch('/api/searchrun/launch', {{
+document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
+  document.getElementById('pickError').textContent = '';
+  fetch('/api/active-leg', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{round: round}}),
+    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
   }}).then(async r => {{
     const d = await r.json();
     if (!r.ok) {{
-      document.getElementById('launchError').textContent = d.error || 'launch failed';
-      btn.textContent = originalText;
-      btn.disabled = false;
+      document.getElementById('pickError').textContent = d.error || 'selection failed';
     }} else {{
-      document.getElementById('launchNote').innerHTML =
-        'Launched. Track progress on <a href="/runs.html">the runs page</a>.';
-      btn.textContent = originalText;
+      location.reload();
     }}
-  }}).catch(e => {{
-    document.getElementById('launchError').textContent = String(e);
-    btn.textContent = originalText;
-    btn.disabled = false;
   }});
-}}
-document.getElementById('launch1').addEventListener('click', e => launch(1, e.target));
-document.getElementById('launch2').addEventListener('click', e => launch(2, e.target));
+}}));
 </script>
 </body></html>""".encode()
 
     def _do_GET(self):
         if self.path == "/api/active-leg":
             self._json_response(200, dict(_active_selection))
+            return
+        if self.path == "/api/expeditions":
+            self._json_response(200, {"expeditions": _list_expeditions()})
             return
         if self.path == "/api/searchrun/status":
             self._json_response(200, run_manager.status())
@@ -1245,6 +1275,15 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 self._json_response(400, {"error": str(e)})
                 return
             self._json_response(200, dict(_active_selection))
+            return
+
+        if self.path == "/api/expeditions":
+            try:
+                result = _create_expedition(payload)
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
+                return
+            self._json_response(200, result)
             return
 
         if self.path == "/api/compare":
