@@ -127,6 +127,7 @@ let current = null;
 let comparedThisSession = 0;
 let totalCount = 0;
 let rawCount = 0;
+let statusStale = false;
 let lastAccuracy = null;
 let modelMeta = null;
 
@@ -172,6 +173,9 @@ function renderProgress() {{
     sub.textContent = `${{refresh}} · coin-flip 50% → 100%`;
     if (modelMeta) renderWork(work);
   }}
+  if (statusStale) {{
+    sub.textContent += " · couldn't refresh, counts may be stale";
+  }}
 }}
 
 function renderWork(work) {{
@@ -196,8 +200,10 @@ function renderWork(work) {{
 }}
 
 function fetchStatus(after) {{
+  const prevTotalCount = totalCount;
   fetch('/api/preference_status').then(r => r.ok ? r.json() : null).then(d => {{
     if (d) {{
+      statusStale = false;
       if (typeof d.n_usable === 'number') totalCount = d.n_usable;
       else if (typeof d.n_comparisons === 'number') totalCount = d.n_comparisons;
       rawCount = typeof d.n_comparisons === 'number' ? d.n_comparisons : totalCount;
@@ -205,10 +211,12 @@ function fetchStatus(after) {{
         lastAccuracy = d.model_meta.cv_accuracy;
         modelMeta = d.model_meta;
       }}
+    }} else {{
+      statusStale = true;
     }}
     renderProgress();
-    if (after) after();
-  }}).catch(() => {{ renderProgress(); if (after) after(); }});
+    if (after) after(prevTotalCount);
+  }}).catch(() => {{ statusStale = true; renderProgress(); if (after) after(prevTotalCount); }});
 }}
 
 function loadNext() {{
@@ -259,8 +267,13 @@ function choose(side) {{
       // res.count is the raw store size, not the usable (deduplicated) pair count the retrain
       // gate actually uses, so re-derive totalCount from /api/preference_status rather than
       // trusting it directly.
-      fetchStatus(() => {{
-        const crossedRetrain = totalCount >= MIN_COMPARISONS && totalCount % RETRAIN_EVERY === 0;
+      fetchStatus((prevTotalCount) => {{
+        // Compare buckets rather than a single modulo snapshot: n_usable can jump by 0 or more
+        // than 1 per vote (deduplication), so a bare `totalCount % RETRAIN_EVERY === 0` check
+        // can step over the exact boundary and miss a crossing entirely.
+        const prevBucket = prevTotalCount >= MIN_COMPARISONS ? Math.floor(prevTotalCount / RETRAIN_EVERY) : -1;
+        const bucket = totalCount >= MIN_COMPARISONS ? Math.floor(totalCount / RETRAIN_EVERY) : -1;
+        const crossedRetrain = totalCount >= MIN_COMPARISONS && bucket !== prevBucket;
         if (crossedRetrain || totalCount < MIN_COMPARISONS) bumpBar();
       }});
       loadNext();

@@ -97,6 +97,24 @@ def test_render_html_progress_uses_usable_comparisons():
     assert "totalCount = res.count" not in html
 
 
+def test_render_html_surfaces_stale_status_on_fetch_failure():
+    html = compare_page.render_html()
+    # A failed /api/preference_status fetch (network error or non-OK response) must not silently
+    # leave stale counts on screen with no indication anything went wrong.
+    assert "let statusStale = false;" in html
+    assert "statusStale = true;" in html
+    assert "couldn't refresh" in html.lower()
+
+
+def test_render_html_detects_retrain_boundary_by_bucket_crossing():
+    html = compare_page.render_html()
+    # n_usable can jump by 0 or more than 1 per vote (deduplication), so comparing a single
+    # modulo snapshot can miss a crossed RETRAIN_EVERY boundary. Comparing the bucket before and
+    # after the fetch catches a crossing regardless of jump size.
+    assert "Math.floor(totalCount / RETRAIN_EVERY)" in html
+    assert "Math.floor(prevTotalCount / RETRAIN_EVERY)" in html
+
+
 def test_render_html_captions_avoid_innerhtml_injection():
     html = compare_page.render_html()
     # prompt_name is model-controlled; captions must be set via textContent, never innerHTML.
