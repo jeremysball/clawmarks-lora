@@ -56,7 +56,8 @@ def compute_data(sweep_dir, deps):
             "file": os.path.basename(m["file"]),
             "thumb": thumb_path if has_thumb else os.path.basename(m["file"]),
             "tag": m["tag"],
-            "gen": sortable_generation(m["tag"]),
+            "gen": generation_of(m["tag"]),
+            "sort_gen": sortable_generation(m["tag"]),
             "category": m["category"],
             "prompt_name": m["prompt_name"],
             "prompt_type": m["prompt_type"],
@@ -264,7 +265,7 @@ fetch('/api/favorites').then(r => r.json()).then(f => {{
   favorites = f;
   picks = {{}};
   Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
-}}).catch(() => {{}}).then(render);
+}}).catch(() => {{}}).then(applyFilters);
 
 (function populatePromptFilter() {{
   const names = Array.from(new Set(DATA.map(d => d.prompt_name))).sort();
@@ -327,8 +328,8 @@ function applyFilters() {{
       case 'novelty_desc': return b.novelty - a.novelty;
       case 'faith_desc': return b.faith - a.faith;
       case 'faith_asc': return a.faith - b.faith;
-      case 'gen_desc': return b.gen - a.gen;
-      case 'gen_asc': return a.gen - b.gen;
+      case 'gen_desc': return b.sort_gen - a.sort_gen;
+      case 'gen_asc': return a.sort_gen - b.sort_gen;
       case 'prompt_asc': return a.prompt_name.localeCompare(b.prompt_name);
       case 'prompt_desc': return b.prompt_name.localeCompare(a.prompt_name);
     }}
