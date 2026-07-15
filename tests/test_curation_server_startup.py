@@ -46,7 +46,7 @@ def test_status_page_shows_no_leg_selected_without_error_string(running_server_n
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
         body = resp.read().decode()
     assert resp.status == 200
-    assert "no expedition/leg selected" in body
+    assert "no expedition/leg selected" in body.lower()
     assert "could not read manifest" not in body
 
 

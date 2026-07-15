@@ -937,9 +937,9 @@ class Handler(SimpleHTTPRequestHandler):
             pass  # client already gone; nothing left to send
 
     def _send_status_page(self):
-        if _active_out_dir() is None:
-            manifest_summary = "no expedition/leg selected"
-            has_data = False
+        selection = _active_selection
+        if selection["expedition"] is None:
+            body = self._status_page_no_selection_body()
         else:
             try:
                 manifest = load_manifest()
@@ -947,14 +947,15 @@ class Handler(SimpleHTTPRequestHandler):
                 n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
                 manifest_summary = f"{n_present}/{n_entries} manifest images present on disk"
                 has_data = n_present > 0
-            except Exception as e:
-                manifest_summary = f"could not read manifest: {e}"
+            except FileNotFoundError:
+                manifest_summary = (
+                    f"{selection['expedition']}/{selection['leg']} has no scored manifest yet"
+                )
                 has_data = False
-
-        if has_data:
-            body = self._status_page_data_body(manifest_summary)
-        else:
-            body = self._status_page_empty_body(manifest_summary)
+            if has_data:
+                body = self._status_page_data_body(manifest_summary)
+            else:
+                body = self._status_page_selected_empty_body(selection, manifest_summary)
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -981,7 +982,7 @@ a {{ color:var(--accent); }}
 <p>{links}</p>
 </body></html>""".encode()
 
-    def _status_page_empty_body(self, manifest_summary):
+    def _status_page_no_selection_body(self):
         expeditions = _list_expeditions()
         rows = "".join(
             f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
@@ -1014,10 +1015,67 @@ button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 #pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 <h1>clawmarks curation server</h1>
-<p>{html.escape(manifest_summary)}</p>
 <div class="panel">
 <p class="sub">No expedition/leg selected. Pick an existing leg below, or create a new
 expedition first if this is a genuinely new line of work.</p>
+{rows or '<p class="sub">No expeditions exist yet.</p>'}
+<div id="pickError"></div>
+</div>
+<script>
+document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
+  document.getElementById('pickError').textContent = '';
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
+  }}).then(async r => {{
+    const d = await r.json();
+    if (!r.ok) {{
+      document.getElementById('pickError').textContent = d.error || 'selection failed';
+    }} else {{
+      location.reload();
+    }}
+  }});
+}}));
+</script>
+</body></html>""".encode()
+
+    def _status_page_selected_empty_body(self, selection, manifest_summary):
+        expeditions = _list_expeditions()
+        rows = "".join(
+            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
+            + " ".join(
+                f'<button class="leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
+                for leg in e["legs"]
+            )
+            + "</div>"
+            for e in expeditions
+        )
+        return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>clawmarks curation server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
+  --text-dim:#9a9aa4; --accent:#7c9eff; --down:#e0605e; }}
+body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; }}
+p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+p.sub {{ max-width:640px; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:16px; margin-top:16px; max-width:640px; }}
+.exp-row {{ margin:8px 0; }}
+button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
+  background:var(--accent); color:#0b0b0d; font-weight:600; cursor:pointer; }}
+button:disabled {{ opacity:0.4; cursor:not-allowed; }}
+#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+</style></head><body>
+<h1>clawmarks curation server</h1>
+<p>Active: <code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code>,
+{html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>
+or pick a different leg below.</p>
+<div class="panel">
 {rows or '<p class="sub">No expeditions exist yet.</p>'}
 <div id="pickError"></div>
 </div>
