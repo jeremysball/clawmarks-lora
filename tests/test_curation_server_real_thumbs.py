@@ -13,7 +13,7 @@ from clawmarks import curation_server as cs
 def running_server(tmp_path, monkeypatch):
     real_dir = tmp_path / "real_images"
     real_dir.mkdir()
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "REAL_DIR", str(real_dir))
     (tmp_path / "scored_manifest.json").write_text("[]")
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)

@@ -1,4 +1,10 @@
-from clawmarks.build.elite_archive import build_item_summary, elite_sort_key
+import json
+
+import joblib
+import numpy as np
+
+from clawmarks.build.elite_archive import build_item_summary, compute_data, elite_sort_key
+from clawmarks.search import embed_cache, preference_pairwise_model
 
 
 def _item(tag, tmp_path, novelty=0.5):
@@ -40,3 +46,25 @@ def test_sorting_a_cell_with_predicted_scores_puts_highest_score_first(tmp_path)
     predicted_scores = {"a": 0.2, "b": 0.95}
     ranked = sorted(items, key=lambda m: elite_sort_key(m, predicted_scores))
     assert [m["tag"] for m in ranked] == ["b", "a"]
+
+
+class _FakeModel:
+    def decision_function(self, embeddings):
+        return np.arange(len(embeddings), dtype=float)
+
+
+def test_compute_data_reads_the_out_dir_scoped_embeddings_cache_when_predicted_preference_on(tmp_path):
+    # Regression test: compute_data used to call embed_cache.EMBEDDINGS_FILE, a module
+    # attribute removed by the expedition/leg migration, which raised AttributeError as soon as
+    # use_predicted_preference was on and a trained model existed. Uncovered by the pure
+    # elite_sort_key/build_item_summary tests above.
+    manifest = [_item("a", tmp_path, novelty=0.2), _item("b", tmp_path, novelty=0.8)]
+    with open(tmp_path / "scored_manifest.json", "w") as f:
+        json.dump(manifest, f)
+    embed_cache.save_cache(embed_cache.embeddings_file(tmp_path), ["a", "b"], np.zeros((2, 4)))
+    joblib.dump(_FakeModel(), preference_pairwise_model.model_file(tmp_path))
+
+    data = compute_data(tmp_path, use_predicted_preference=True)
+
+    all_tags = {it["tag"] for cell in data["cells"] for it in cell["items"]}
+    assert all_tags == {"a", "b"}

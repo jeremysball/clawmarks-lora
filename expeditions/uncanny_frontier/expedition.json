@@ -1,0 +1,24 @@
+{
+  "trigger_word": "trentbuckle style, ",
+  "negative_prompt": "low quality, blurry, watermark",
+  "textures": [
+    "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
+    "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, thick acrylic dry-brush texture, raw outsider-art painting"
+  ],
+  "fallback_subjects": [
+    "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
+    "close-up owl portrait", "close-up horse portrait",
+    "close-up human face, pale skin, hand pressed beside cheek",
+    "close-up cyborg face, half exposed circuitry and wiring, clawed metal hand pressed beside cheek",
+    "close-up face mid-transformation, skin splitting to reveal clawed fingers pushing through the cheek",
+    "figure standing alone in an empty fluorescent-lit hallway, clawed hand pressed against the wall",
+    "dental x-ray radiograph of a jaw", "empty concrete stairwell viewed from below",
+    "television weather map with swirling storm system", "crowd of human faces packed close together"
+  ],
+  "budget_usd_cap": 10.0,
+  "budget_safety_margin": 1.5,
+  "gen_batch_size": 60,
+  "explore_fraction": 0.5,
+  "max_generations": 400,
+  "description": "Reference expedition: round 1 and round 2 of the original uncanny-frontier search (2026-07-09). Both rounds' full-resolution images are permanently gone (see the lab notebook's 2026-07-09 and 2026-07-14 entries); these files preserve the parameter record as a worked example only, not usable image data."
+}

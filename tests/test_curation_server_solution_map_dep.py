@@ -2,7 +2,7 @@ from clawmarks import curation_server as cs
 
 
 def test_get_solution_map_data_uses_live_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 
@@ -13,7 +13,7 @@ def test_get_solution_map_data_uses_live_cache(tmp_path, monkeypatch):
 
 
 def test_get_solution_map_data_watches_the_final_embeddings_file_too(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
     embs_file = tmp_path / "solution_map_final_embs.pt"

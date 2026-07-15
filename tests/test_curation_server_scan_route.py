@@ -10,7 +10,7 @@ from clawmarks import curation_server as cs
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     manifest = [
         {"file": "/x/a.png", "tag": "a", "category": "seedrun1", "prompt_name": "fox",

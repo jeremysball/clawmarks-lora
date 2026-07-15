@@ -1,25 +1,19 @@
 """
 Merged all-night driver for the CLAWMARKS liminal-band / uncanny-frontier search
-(lab_notebook.md Section 3b). Combines notes/run_uncanny_allnight.py (round 1) and
-notes/run_uncanny_allnight2.py (round 2) into a single --round-parameterized entry point so
-the two scripts' 90%-duplicated bodies stop drifting apart.
+(lab_notebook.md Section 3b). Runs one named "leg" of generation within a named "expedition"
+(see docs/superpowers/specs/2026-07-14-expedition-leg-generation-design.md): the expedition
+holds shared prompt vocab and budget defaults (expedition.json); the leg holds whatever
+overrides make this run different (legs/<leg>.json), merged via load_leg_config.
 
-Round 1 (notes/run_uncanny_allnight.py): staged-escalation plateau handling (widen vocabulary
-first, then hand off to GPT-5.5), 50/50 explore/exploit, no parent_tag, no shared seed pool.
+Novelty for a leg's new images is scored against the real training set plus every *other*
+leg's already-generated images within the same expedition (see _load_sibling_leg_manifests),
+so retreading a sibling leg's already-explored region no longer counts as novel.
 
-Round 2 (notes/run_uncanny_allnight2.py): explore-heavy 85/15 split, GPT-5.5 seeds from
-generation 1, user-picks-first exploit pool with parent_tag, prior-round exclusion
-embeddings, shared seed pool read/write.
-
-Per-round config lives in ROUND_CONFIGS. Per the plan, round 2's build_generation_jobs is a
-strict generalization of round 1's: at explore_fraction=0.5 and with empty user_picks, it
-reproduces round 1's 50/50 split exactly.
-
-Run with: uv run clawmarks run allnight --round 1
-          uv run clawmarks run allnight --round 2
+Run with: uv run clawmarks run allnight --expedition <name> --leg <name>
 """
 import argparse
 import base64
+import copy
 import json
 import math
 import os
@@ -30,8 +24,8 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 
+from clawmarks import config as clawmarks_config
 from clawmarks.atomic_io import atomic_json_write as _atomic_json_write
-from clawmarks.config import SEEDS_FILE, SWEEP2_DIR, SWEEP_DIR
 from clawmarks.search.scoring import bin_edges, bin_of, novelty_from_similarity
 from clawmarks.search.seed_pool import merge as seed_pool_merge, load as seed_pool_load, save as seed_pool_save
 
@@ -43,9 +37,20 @@ PLATEAU_WINDOW = 3
 PLATEAU_EPSILON = 0.01
 
 
+_LEG_CONFIG_DEFAULTS = {
+    "wall_clock_cap_hours": 7.5, "budget_usd_cap": 10.0, "budget_safety_margin": 1.5,
+    "gen_batch_size": 60, "explore_fraction": 0.5, "max_generations": 400,
+    "textures": [], "fallback_subjects": [], "seed_from_start": False,
+    "style_subject_count": 4, "description": "",
+    "widened_textures": [], "widened_subjects": [],
+}
+
+
 @dataclass
-class RoundConfig:
-    round: int
+class LegConfig:
+    expedition: str
+    leg: str
+    dir: object  # pathlib.Path; typed loosely to avoid a circular import-time annotation
     wall_clock_cap_hours: float
     budget_usd_cap: float
     budget_safety_margin: float
@@ -55,78 +60,37 @@ class RoundConfig:
     textures: list
     fallback_subjects: list
     seed_from_start: bool
-    exclude_prev_round: bool
-    out_dir_name: str
-    # round 1's two-stage escalation vocabularies (the merged driver only uses them when
-    # cfg.seed_from_start is False, mirroring round 1's stage-0/1 plateau handling)
+    style_subject_count: int = 4
+    description: str = ""
     widened_textures: list = field(default_factory=list)
     widened_subjects: list = field(default_factory=list)
 
 
-ROUND_CONFIGS = {
-    1: RoundConfig(
-        round=1, wall_clock_cap_hours=7.5, budget_usd_cap=10.0, budget_safety_margin=1.5,
-        gen_batch_size=60, explore_fraction=0.5, max_generations=400,
-        textures=[
-            "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
-            "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, "
-            "thick acrylic dry-brush texture, raw outsider-art painting",
-        ],
-        widened_textures=[
-            "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
-            "heavy black ink crosshatching over torn found-paper collage edges, raw "
-            "outsider-art painting",
-        ],
-        fallback_subjects=[
-            "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
-            "close-up owl portrait", "close-up horse portrait",
-            "close-up human face, pale skin, hand pressed beside cheek",
-            "close-up cyborg face, half exposed circuitry and wiring, clawed metal hand pressed beside cheek",
-            "close-up face mid-transformation, skin splitting to reveal clawed fingers pushing through the cheek",
-            "figure standing alone in an empty fluorescent-lit hallway, clawed hand pressed against the wall",
-            "dental x-ray radiograph of a jaw",
-            "empty concrete stairwell viewed from below",
-            "television weather map with swirling storm system",
-            "crowd of human faces packed close together",
-        ],
-        widened_subjects=[
-            "dollhouse interior seen through a broken window",
-            "empty parking garage at night, one flickering light",
-            "wall of surveillance camera monitors, mostly static",
-            "vending machine humming alone in a dark hallway",
-            "mannequin display missing its head",
-            "storm drain grate half-submerged in still water",
-            "airport terminal at night, all gates empty",
-            "abandoned playground, swing set mid-motion with no one on it",
-            "elevator interior, doors closing on an empty hallway",
-            "waiting room with rows of identical empty chairs",
-        ],
-        seed_from_start=False, exclude_prev_round=False, out_dir_name="uncanny_round1",
-    ),
-    2: RoundConfig(
-        round=2, wall_clock_cap_hours=1.0, budget_usd_cap=1.00, budget_safety_margin=0.10,
-        gen_batch_size=20, explore_fraction=0.85, max_generations=60,
-        textures=[
-            "marker and ink linework, colored pencil shading, raw sketchbook page, mixed media",
-            "dark-rimmed eyes glowing pale blue, dense dark-blue vertical brush-dash background, "
-            "thick acrylic dry-brush texture, raw outsider-art painting",
-            "loose watercolor wash bleeding at the edges, raw sketchbook page, mixed media",
-            "heavy black ink crosshatching over torn found-paper collage edges, raw "
-            "outsider-art painting",
-        ],
-        fallback_subjects=[
-            "close-up cat portrait", "close-up wolf portrait", "close-up fox portrait",
-            "close-up human face, pale skin, hand pressed beside cheek",
-            "dollhouse interior seen through a broken window",
-            "empty parking garage at night, one flickering light",
-            "wall of surveillance camera monitors, mostly static",
-            "vending machine humming alone in a dark hallway",
-            "abandoned playground, swing set mid-motion with no one on it",
-            "waiting room with rows of identical empty chairs",
-        ],
-        seed_from_start=True, exclude_prev_round=True, out_dir_name="uncanny_round2",
-    ),
-}
+def load_leg_config(expedition, leg):
+    """Loads expeditions/<expedition>/expedition.json, merges legs/<leg>.json field-by-field
+    on top (leg wins), and fills in any field neither file sets from _LEG_CONFIG_DEFAULTS.
+    Missing expedition.json is a hard error: launching into a typo'd expedition name must
+    never silently create an empty one."""
+    expedition_file = clawmarks_config.EXPEDITIONS_DIR / expedition / "expedition.json"
+    if not expedition_file.exists():
+        raise RuntimeError(
+            f"unknown expedition {expedition!r}: {expedition_file} does not exist. "
+            f"Create it via the curation server's expedition-creation form first."
+        )
+    with open(expedition_file) as f:
+        merged = json.load(f)
+
+    leg_file = clawmarks_config.EXPEDITIONS_DIR / expedition / "legs" / f"{leg}.json"
+    if leg_file.exists():
+        with open(leg_file) as f:
+            leg_overrides = json.load(f)
+        merged.update(leg_overrides)
+
+    fields = copy.deepcopy(_LEG_CONFIG_DEFAULTS)
+    fields.update({key: value for key, value in merged.items() if key in fields})
+    return LegConfig(
+        expedition=expedition, leg=leg, dir=clawmarks_config.leg_dir(expedition, leg), **fields
+    )
 
 
 def build_generation_jobs(gen_idx, subjects, textures, elites, user_picks, batch_size,
@@ -214,16 +178,11 @@ def _spent_or_none(start_balance):
 
 
 def _out_dir(cfg):
-    return SWEEP_DIR if cfg.out_dir_name == "uncanny_round1" else SWEEP2_DIR
+    return cfg.dir
 
 
 def _state_file(cfg):
-    """Round 1's original script (notes/run_uncanny_allnight.py) wrote its state to
-    allnight_state.json with no round-number suffix; round 2's (run_uncanny_allnight2.py) wrote
-    allnight2_state.json. Preserve those exact names so this merged driver resumes from the
-    state files that already exist on disk instead of silently starting over at generation 0."""
-    suffix = "" if cfg.round == 1 else str(cfg.round)
-    return _out_dir(cfg) / f"allnight{suffix}_state.json"
+    return cfg.dir / "allnight_state.json"
 
 
 def load_state(cfg):
@@ -235,11 +194,7 @@ def load_state(cfg):
             state = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"cannot resume: persisted state {state_file} is unreadable: {e}") from e
-    if cfg.seed_from_start and isinstance(state, dict) and "stage" not in state:
-        # Round 2's historical state predates the stage field. Normalize only this known schema
-        # difference in memory; every other required field remains mandatory.
-        state["stage"] = 0
-    _validate_state(state, state_file, allow_legacy_round1_baseline=cfg.round == 1)
+    _validate_state(state, state_file)
     return state
 
 
@@ -251,7 +206,7 @@ def _new_state():
     }
 
 
-def _validate_state(state, state_file, allow_legacy_round1_baseline=False):
+def _validate_state(state, state_file):
     required = {
         "generation", "stage", "plateau_count", "novelty_history", "gpt55_subjects",
         "start_balance", "start_time",
@@ -269,14 +224,7 @@ def _validate_state(state, state_file, allow_legacy_round1_baseline=False):
         for value in state["novelty_history"]
     ):
         raise RuntimeError(f"cannot resume: persisted state {state_file} has invalid novelty_history")
-    history_length = len(state["novelty_history"])
-    expected_lengths = {state["generation"]}
-    if allow_legacy_round1_baseline:
-        # The original round-1 run stored a fixed generation-0 baseline at index zero, so its
-        # surviving state has one more history value than completed generations. Keep that value
-        # because the plateau detector consumes novelty_history as an ordered history.
-        expected_lengths.add(state["generation"] + 1)
-    if history_length not in expected_lengths:
+    if len(state["novelty_history"]) != state["generation"]:
         raise RuntimeError(
             f"cannot resume: persisted state {state_file} has generation/history mismatch"
         )
@@ -300,7 +248,7 @@ def _validate_state(state, state_file, allow_legacy_round1_baseline=False):
 
 def save_state(cfg, state):
     state_file = _state_file(cfg)
-    _validate_state(state, state_file, allow_legacy_round1_baseline=cfg.round == 1)
+    _validate_state(state, state_file)
     _atomic_json_write(state_file, state)
 
 
@@ -362,8 +310,8 @@ def _validate_manifest(manifest, manifest_path):
                 raise RuntimeError(f"cannot resume: persisted manifest {manifest_path} has invalid {name}")
 
 
-def _validate_resume_agreement(state, manifest, state_file, manifest_path, allow_legacy_round1_baseline=False):
-    _validate_state(state, state_file, allow_legacy_round1_baseline=allow_legacy_round1_baseline)
+def _validate_resume_agreement(state, manifest, state_file, manifest_path):
+    _validate_state(state, state_file)
     _validate_manifest(manifest, manifest_path)
     generations = [
         generation for entry in manifest
@@ -393,7 +341,7 @@ def request_gpt55_subjects(cfg, existing_subjects, n=30):
     """Plateau escalation / seed-from-start: hand creative-idea generation to GPT-5.5 via
     opencode, so fresh prompt variety doesn't depend on this script's own fixed vocabulary
     or on the Claude session that launched it staying alive."""
-    out_dir = _out_dir(cfg)
+    out_dir = cfg.dir
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "gpt55_subjects.json"
     prompt = (
@@ -410,7 +358,7 @@ def request_gpt55_subjects(cfg, existing_subjects, n=30):
     )
     try:
         result = subprocess.run(
-            ["opencode", "run", "--dir", str(SWEEP_DIR.parent), "--dangerously-skip-permissions",
+            ["opencode", "run", "--dir", str(clawmarks_config.ROOT), "--dangerously-skip-permissions",
              "-m", "openai/gpt-5.5", "--", prompt],
             capture_output=True, text=True, timeout=300,
         )
@@ -430,14 +378,14 @@ def request_gpt55_subjects(cfg, existing_subjects, n=30):
     return []
 
 
-def _load_favorited_images():
+def _load_favorited_images(out_dir):
     """Favorites supersede raw novelty for what the exploit step mutates near, the same role
     yes/no ratings used to play before head-to-head comparisons replaced them (see
     docs/superpowers/specs/2026-07-11-head-to-head-preference-design.md). Unlike the old ratings
     store, user_favorites.json already holds a full item object per tag (tag, prompt_name,
     prompt, strength, cfg, ...), so favorited items can be returned directly without joining
     against scored_manifest.json."""
-    favorites_path = SWEEP_DIR / "user_favorites.json"
+    favorites_path = out_dir / "user_favorites.json"
     if not favorites_path.exists():
         return []
     with open(favorites_path) as f:
@@ -445,7 +393,7 @@ def _load_favorited_images():
     return list(favorites.values())
 
 
-def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
+def _predicted_preference_pool(manifest, model_path, embed_model, out_dir, top_n=15):
     """Stage 5b (opt-in via --use-predicted-preference): ranks this round's own generated
     images by the trained preference model's score instead of favorite membership. Extends the
     shared embedding cache with any new images first, so an image is never re-embedded across
@@ -464,7 +412,9 @@ def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
     def image_path_for(tag):
         return by_tag[tag]["file"]
 
-    tags, embeddings = embed_cache.sync(manifest, embed_cache.EMBEDDINGS_FILE, embed_model, image_path_for)
+    tags, embeddings = embed_cache.sync(
+        manifest, embed_cache.embeddings_file(out_dir), embed_model, image_path_for
+    )
     model = joblib.load(model_path)
     scores = pairwise_score(model, embeddings)
     ranked = sorted(
@@ -474,16 +424,23 @@ def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
     return [m for m, _ in ranked[:top_n]]
 
 
-def _load_prev_round_state(cfg):
-    """Round 1's body still reads its own state file (see _state_file) and the
-    first-run fixed-sweep manifest. Round 2 reads round 1's manifest as the exclusion set.
-    Returns (manifest, prev_embs_or_None) tuple."""
-    if cfg.exclude_prev_round:
-        prev_manifest_path = SWEEP_DIR / "scored_manifest.json"
-        if prev_manifest_path.exists():
-            with open(prev_manifest_path) as f:
-                return json.load(f), None  # actual embeddings computed inside main()
-    return [], None
+def _load_sibling_leg_manifests(cfg):
+    """Every *other* leg directory within cfg's own expedition, concatenated, as the
+    "already explored" exclusion pool -- generalizes round 2's one-off "exclude round 1"
+    special case to any number of sibling legs. A brand-new expedition (or a leg with no
+    sibling that has produced a manifest yet) returns []."""
+    expedition_root = cfg.dir.parent
+    manifests = []
+    if not expedition_root.exists():
+        return manifests
+    for sibling_dir in sorted(expedition_root.iterdir()):
+        if not sibling_dir.is_dir() or sibling_dir.name == cfg.leg:
+            continue
+        manifest_path = sibling_dir / "scored_manifest.json"
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                manifests.extend(json.load(f))
+    return manifests
 
 
 def submit_and_collect(cfg, jobs, out_dir, label, timeout_s=600):
@@ -619,14 +576,8 @@ def build_gallery(cfg, manifest, real_ref):
         f'<figcaption>{m["prompt_name"]} | faith={m["centroid_sim"]:.3f} novelty={m["novelty"]:.3f}</figcaption></figure>'
         for m in top
     )
-    title = f"CLAWMARKS uncanny frontier atlas (round {cfg.round})"
-    intro = {
-        1: "Round 1: staged-escalation plateau handling (widen vocabulary first, then GPT-5.5), "
-           "50/50 explore/exploit. Novelty scored against the real training set only.",
-        2: "Round 2: explore-heavy rerun (85% fresh recombination, 15% mutation), GPT-5.5-seeded "
-           "from generation 1, novelty scored against both the real training set and round 1's "
-           "3392 images, so retreading round 1's already-explored region no longer counts as novel.",
-    }[cfg.round]
+    title = f"CLAWMARKS uncanny frontier atlas: {cfg.expedition}/{cfg.leg}"
+    intro = cfg.description or f"Leg {cfg.leg} of expedition {cfg.expedition}."
     html = f"""<!doctype html><html><head><meta charset="utf-8"><title>{title}</title>
 <style>
 body {{ background:#111; color:#eee; font-family: -apple-system, sans-serif; margin:0; padding:24px; }}
@@ -657,16 +608,18 @@ body {{ background:#111; color:#eee; font-family: -apple-system, sans-serif; mar
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--round", type=int, choices=list(ROUND_CONFIGS.keys()), required=True)
+    parser.add_argument("--expedition", required=True)
+    parser.add_argument("--leg", required=True)
     parser.add_argument(
         "--use-predicted-preference", action="store_true", default=False,
-        help="Stage 5b (opt-in, requires notes/uncanny_sweep/preference_pairwise_model.joblib "
-             "and human validation via preference_rank.html first): rank the exploit pool by "
-             "the trained model's predicted preference instead of favorited images. Defaults "
-             "off; do not enable without having browsed preference_rank.html first.",
+        help="Stage 5b (opt-in, requires a trained preference_pairwise_model.joblib in this "
+             "leg's directory and human validation via preference_rank.html first): rank the "
+             "exploit pool by the trained model's predicted preference instead of favorited "
+             "images. Defaults off; do not enable without having browsed preference_rank.html "
+             "first.",
     )
     args = parser.parse_args(argv)
-    cfg = ROUND_CONFIGS[args.round]
+    cfg = load_leg_config(args.expedition, args.leg)
 
     import torch
     from clawmarks.search.score_manifest import (
@@ -674,18 +627,12 @@ def main(argv=None):
     )
     from transformers import AutoModel
 
-    out_dir = _out_dir(cfg)
+    out_dir = cfg.dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     state = load_state(cfg)
     manifest = _load_resumable_manifest(out_dir)
-    _validate_resume_agreement(
-        state,
-        manifest,
-        _state_file(cfg),
-        out_dir / "scored_manifest.json",
-        allow_legacy_round1_baseline=cfg.round == 1,
-    )
+    _validate_resume_agreement(state, manifest, _state_file(cfg), out_dir / "scored_manifest.json")
     if state["start_balance"] is None:
         state["start_balance"] = get_balance()
         save_state(cfg, state)
@@ -707,28 +654,20 @@ def main(argv=None):
     real_ref = (sum(loo_sims) / len(loo_sims), min(loo_sims), max(loo_sims))
     print(f"real-image reference band: {real_ref}", flush=True)
 
-    # Round 2's prior-round exclusion embeddings: embed round 1's already-explored images so
-    # novelty for a new image can be measured against the union of (real set, round 1 set).
-    # Round 1 has no prior round, so it skips this entirely.
-    prev_embs = None
-    if cfg.exclude_prev_round:
-        print("embedding the prior round's already-explored images as the exclusion set...", flush=True)
-        prev_manifest, _ = _load_prev_round_state(cfg)
-        prev_paths = [m["file"] for m in prev_manifest if os.path.exists(m["file"])]
-        if prev_paths:
-            prev_embs = embed_images(prev_paths, model=model)
-            print(f"embedded {len(prev_paths)} prior-round images as the exclusion set", flush=True)
-        else:
-            print("no prior-round manifest found; running without exclusion embeddings", flush=True)
-            prev_embs = None
+    print("embedding every sibling leg's already-explored images as the exclusion set...", flush=True)
+    prev_manifest = _load_sibling_leg_manifests(cfg)
+    prev_paths = [m["file"] for m in prev_manifest if os.path.exists(m["file"])]
+    prev_embs = embed_images(prev_paths, model=model) if prev_paths else None
+    print(f"embedded {len(prev_paths)} sibling-leg images as the exclusion set" if prev_paths
+          else "no sibling-leg manifests found yet; running without exclusion embeddings", flush=True)
 
     # Round 2: seed the subject pool from the shared candidate_seeds.json pool AND from
     # GPT-5.5 at startup (no plateau wait). Round 1: just start with the base vocabulary
     # and let the plateau-detection stage logic widen it later.
     if cfg.seed_from_start:
-        shared_pool_dict = seed_pool_load(SEEDS_FILE)
+        shared_pool_dict = seed_pool_load(out_dir / "seed_pool.json")
         shared_pool = list(shared_pool_dict.keys())
-        print(f"loaded {len(shared_pool)} subjects from the shared candidate seed pool ({SEEDS_FILE})", flush=True)
+        print(f"loaded {len(shared_pool)} subjects from this leg's seed pool ({out_dir / 'seed_pool.json'})", flush=True)
         if not state["gpt55_subjects"]:
             print("seeding subject pool with GPT-5.5 from generation 1 (no plateau wait)...", flush=True)
             gpt_subjects = request_gpt55_subjects(cfg, cfg.fallback_subjects + shared_pool, n=30)
@@ -736,9 +675,10 @@ def main(argv=None):
             if gpt_subjects:
                 updated, _added = seed_pool_merge(
                     shared_pool_dict, gpt_subjects,
-                    source=f"gpt5.5-round{cfg.round}", created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    source=f"gpt5.5-{cfg.expedition}-{cfg.leg}",
+                    created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 )
-                seed_pool_save(SEEDS_FILE, updated)
+                seed_pool_save(out_dir / "seed_pool.json", updated)
             save_state(cfg, state)
         subjects = cfg.fallback_subjects + state["gpt55_subjects"] + shared_pool
         if not state["gpt55_subjects"]:
@@ -746,12 +686,6 @@ def main(argv=None):
     else:
         subjects = list(cfg.fallback_subjects)
     textures = list(cfg.textures)
-    # round 1's main loop indexes the first 5 base subjects to decide style-vs-conflict
-    # tagging; round 2 uses the first 4. The tests exercise the round 2 path with
-    # style_subject_count=4 by default. Round 1's main loop calls the function with
-    # style_subject_count=5 below.
-    style_subject_count = 5 if cfg.round == 1 else 4
-
     while True:
         elapsed_h = (time.time() - start_time) / 3600
         if elapsed_h > cfg.wall_clock_cap_hours:
@@ -773,18 +707,18 @@ def main(argv=None):
         gen = state["generation"]
         liminal_band_all = [m for m in manifest if real_ref[1] <= m["centroid_sim"] <= real_ref[2]]
         elites = sorted(liminal_band_all, key=lambda m: -m["novelty"])[:15]
-        if not elites and cfg.round == 1:
+        if not elites and not cfg.seed_from_start:
             elites = manifest[-30:] if manifest else []
-        user_picks = _load_favorited_images() if cfg.seed_from_start else []
+        user_picks = _load_favorited_images(out_dir) if cfg.seed_from_start else []
         if args.use_predicted_preference:
             predicted_pool = _predicted_preference_pool(
-                manifest, SWEEP_DIR / "preference_pairwise_model.joblib", model,
+                manifest, out_dir / "preference_pairwise_model.joblib", model, out_dir,
             )
             if predicted_pool:
                 user_picks = predicted_pool
             else:
                 print("--use-predicted-preference set but no trained model found yet "
-                       "(or nothing generated so far this round); using favorited images "
+                       "(or nothing generated so far this leg); using favorited images "
                        "instead", flush=True)
 
         print(f"\n=== generation {gen} | elapsed {elapsed_h:.2f}h | spend ${abs(spent):.3f} | "
@@ -792,7 +726,7 @@ def main(argv=None):
 
         jobs = build_generation_jobs(gen, subjects, textures, elites, user_picks,
                                       cfg.gen_batch_size, cfg.explore_fraction,
-                                      style_subject_count=style_subject_count)
+                                      style_subject_count=cfg.style_subject_count)
         new_manifest = submit_and_collect(cfg, jobs, out_dir, f"gen{gen}")
         new_scored = score_batch(model, real_embs, real_centroid, new_manifest, prev_embs=prev_embs)
         manifest.extend(new_scored)
@@ -839,15 +773,15 @@ def main(argv=None):
                     if more:
                         subjects = subjects + more
                         state["gpt55_subjects"] = state["gpt55_subjects"] + more
-                        shared_dict = seed_pool_load(SEEDS_FILE)
+                        shared_dict = seed_pool_load(out_dir / "seed_pool.json")
                         updated, _added = seed_pool_merge(
-                            shared_dict, more, source=f"gpt5.5-round{cfg.round}",
+                            shared_dict, more, source=f"gpt5.5-{cfg.expedition}-{cfg.leg}",
                             created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         )
-                        seed_pool_save(SEEDS_FILE, updated)
+                        seed_pool_save(out_dir / "seed_pool.json", updated)
         save_state(cfg, state)
 
-    print(f"\nROUND {cfg.round} RUN ENDED at generation {state['generation']}, "
+    print(f"\nLEG {cfg.expedition}/{cfg.leg} RUN ENDED at generation {state['generation']}, "
           f"{len(manifest)} total images, gallery at {out_dir / 'gallery.html'}", flush=True)
 
 

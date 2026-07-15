@@ -4,19 +4,22 @@ the preference model (search/preference_model.py) can train on frozen features w
 re-running the (slow) DINOv2 model every time. Runs locally, no RunPod cost. See
 docs/superpowers/specs/2026-07-09-preference-classifier-design.md, Component 1.
 
-Run with: python -m clawmarks.search.embed_cache
+Run with: python -m clawmarks.search.embed_cache <out_dir>
 """
 import json
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image
 
-from clawmarks.config import SWEEP_DIR
-
 MODEL_ID = "facebook/dinov2-base"
-EMBEDDINGS_FILE = SWEEP_DIR / "embeddings.npz"
+
+
+def embeddings_file(out_dir):
+    return out_dir / "embeddings.npz"
 
 IMAGE_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
 IMAGE_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
@@ -104,22 +107,29 @@ def sync(manifest, cache_path, model, image_path_for):
 def main(argv=None):
     from transformers import AutoModel
 
-    with open(SWEEP_DIR / "scored_manifest.json") as f:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        raise SystemExit("usage: python -m clawmarks.search.embed_cache <out_dir>")
+    out_dir = Path(argv[0])
+
+    with open(out_dir / "scored_manifest.json") as f:
         manifest = json.load(f)
     by_tag = {m["tag"]: m for m in manifest}
 
     def image_path_for(tag):
         # Falls back to the thumbnail when the full-res file is missing.
-        full_res = str(SWEEP_DIR / by_tag[tag]["file"])
+        full_res = str(out_dir / by_tag[tag]["file"])
         if os.path.exists(full_res):
             return full_res
-        return str(SWEEP_DIR / "thumbs" / f"{tag}.jpg")
+        return str(out_dir / "thumbs" / f"{tag}.jpg")
 
     print("loading DINOv2 model...", flush=True)
     model = AutoModel.from_pretrained(MODEL_ID)
     model.eval()
-    tags, _ = sync(manifest, EMBEDDINGS_FILE, model, image_path_for)
-    print(f"embedding cache now covers {len(tags)} images at {EMBEDDINGS_FILE}", flush=True)
+    cache_path = embeddings_file(out_dir)
+    tags, _ = sync(manifest, cache_path, model, image_path_for)
+    print(f"embedding cache now covers {len(tags)} images at {cache_path}", flush=True)
 
 
 if __name__ == "__main__":

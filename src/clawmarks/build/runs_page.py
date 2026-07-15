@@ -3,11 +3,14 @@ Generates runs.html: launch, monitor, and stop an overnight search run (search/d
 from the browser instead of an SSH session, per
 docs/superpowers/specs/2026-07-12-overnight-search-launch-design.md. Bakes in no data at
 render time; every dynamic piece is a live fetch against curation_server.py:
-  GET  /api/searchrun/status         -> {running, pid, round, started_at, out_dir} | {running: false}
-  GET  /api/searchrun/report?round=N -> novelty trajectory, plateau count, spend, pick rate,
-                                         explore/exploit split
-  POST /api/searchrun/launch  body: {round: int} -> backs up out_dir, verifies, balance-checks,
-                                                      launches driver.py detached
+  GET  /api/expeditions                          -> [{name, legs: [...]}] to populate the pickers
+  GET  /api/searchrun/status                      -> {running, pid, expedition, leg, started_at,
+                                                        out_dir} | {running: false}
+  GET  /api/searchrun/report?expedition=&leg=     -> novelty trajectory, plateau count, spend,
+                                                        pick rate, explore/exploit split
+  POST /api/searchrun/launch  body: {expedition, leg} -> backs up out_dir, verifies,
+                                                           balance-checks, launches driver.py
+                                                           detached
   POST /api/searchrun/stop            -> SIGTERM, SIGKILL after a grace period
 
 Served live at /runs.html by curation_server.py.
@@ -60,11 +63,10 @@ already running.</p>
 
 <div class="panel">
   <div class="row">
-    <label for="round">Round</label>
-    <select id="round">
-      <option value="1">Round 1</option>
-      <option value="2">Round 2</option>
-    </select>
+    <label for="expedition">Expedition</label>
+    <select id="expedition"></select>
+    <label for="leg">Leg</label>
+    <select id="leg"></select>
     <button id="launchBtn" class="primary">Back up and launch</button>
     <button id="stopBtn" class="danger" disabled>Stop</button>
   </div>
@@ -93,9 +95,28 @@ function escHtml(s) {{
 
 const launchBtn = document.getElementById('launchBtn');
 const stopBtn = document.getElementById('stopBtn');
-const roundSel = document.getElementById('round');
+const expeditionSel = document.getElementById('expedition');
+const legSel = document.getElementById('leg');
 const statusLine = document.getElementById('statusLine');
 const launchError = document.getElementById('launchError');
+let expeditionsData = [];
+
+function populateLegs() {{
+  const exp = expeditionsData.find(e => e.name === expeditionSel.value);
+  const legs = exp ? exp.legs : [];
+  legSel.innerHTML = legs.map(l => `<option value="${{escHtml(l)}}">${{escHtml(l)}}</option>`).join('');
+}}
+
+function loadExpeditions() {{
+  return fetch('/api/expeditions').then(r => r.json()).then(d => {{
+    expeditionsData = d.expeditions || [];
+    expeditionSel.innerHTML = expeditionsData.map(e =>
+      `<option value="${{escHtml(e.name)}}">${{escHtml(e.name)}}</option>`).join('');
+    populateLegs();
+  }});
+}}
+
+expeditionSel.addEventListener('change', () => {{ populateLegs(); refreshReport(); }});
 
 function renderSpark(points) {{
   const svg = document.getElementById('spark');
@@ -110,7 +131,9 @@ function renderSpark(points) {{
 }}
 
 function refreshReport() {{
-  fetch('/api/searchrun/report?round=' + roundSel.value).then(r => r.json()).then(d => {{
+  if (!expeditionSel.value || !legSel.value) return;
+  const params = new URLSearchParams({{expedition: expeditionSel.value, leg: legSel.value}});
+  fetch('/api/searchrun/report?' + params).then(r => r.json()).then(d => {{
     document.getElementById('statGen').textContent = d.generation;
     document.getElementById('statPlateau').textContent = d.plateau_count;
     document.getElementById('statImages').textContent = d.total_images;
@@ -121,7 +144,7 @@ function refreshReport() {{
     document.getElementById('categoryBreakdown').innerHTML = cats.length ? cats.map(cat =>
       `<div class="catrow"><span>${{escHtml(cat)}}</span><span>${{escHtml(d.explore_exploit_split[cat])}} images, ` +
       `${{escHtml((d.pick_rate_by_category[cat] * 100).toFixed(0))}}% picked</span></div>`
-    ).join('') : '<span style="color:var(--text-dim);font-size:12.5px;">No images scored for this round yet.</span>';
+    ).join('') : '<span style="color:var(--text-dim);font-size:12.5px;">No images scored for this leg yet.</span>';
   }});
 }}
 
@@ -129,7 +152,7 @@ function refreshStatus() {{
   fetch('/api/searchrun/status').then(r => r.json()).then(d => {{
     if (d.running) {{
       statusLine.className = 'live';
-      statusLine.textContent = `Running round ${{d.round}} (pid ${{d.pid}}), started ${{new Date(d.started_at * 1000).toLocaleString()}}.`;
+      statusLine.textContent = `Running ${{escHtml(d.expedition)}}/${{escHtml(d.leg)}} (pid ${{d.pid}}), started ${{new Date(d.started_at * 1000).toLocaleString()}}.`;
       launchBtn.disabled = true;
       stopBtn.disabled = false;
     }} else {{
@@ -143,11 +166,15 @@ function refreshStatus() {{
 
 launchBtn.addEventListener('click', () => {{
   launchError.textContent = '';
+  if (!expeditionSel.value || !legSel.value) {{
+    launchError.textContent = 'pick an expedition and leg first';
+    return;
+  }}
   launchBtn.disabled = true;
   launchBtn.textContent = 'Backing up and launching...';
   fetch('/api/searchrun/launch', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{round: parseInt(roundSel.value, 10)}}),
+    body: JSON.stringify({{expedition: expeditionSel.value, leg: legSel.value}}),
   }}).then(async r => {{
     const d = await r.json();
     if (!r.ok) {{ launchError.textContent = d.error || 'launch failed'; }}
@@ -166,10 +193,9 @@ stopBtn.addEventListener('click', () => {{
     .then(() => refreshStatus());
 }});
 
-roundSel.addEventListener('change', refreshReport);
+legSel.addEventListener('change', refreshReport);
 
-refreshStatus();
-refreshReport();
+loadExpeditions().then(() => {{ refreshStatus(); refreshReport(); }});
 setInterval(() => {{ refreshStatus(); refreshReport(); }}, 4000);
 </script>
 <script src="scrollnav.js"></script>

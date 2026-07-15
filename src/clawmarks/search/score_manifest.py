@@ -9,18 +9,20 @@ standalone script, run once per search round after notes/run_uncanny_sweep.py fi
 than part of the live per-request rendering path curation_server.py's page views belong to.
 
 Run after notes/run_uncanny_sweep.py finishes (or on manifest_partial.json if run early):
-    python3 -m clawmarks.search.score_manifest [manifest_path]
+    python -m clawmarks.search.score_manifest <out_dir> [manifest_path]
 """
 import os
 import sys
 import json
+from pathlib import Path
+
 import torch
 import numpy as np
 from PIL import Image
 from transformers import AutoModel
 
 from clawmarks.atomic_io import atomic_json_write
-from clawmarks.config import ROOT, SWEEP_DIR
+from clawmarks.config import ROOT
 
 MODEL_ID = "facebook/dinov2-base"
 REAL_DIR = f"{ROOT}/corrected_dataset_extract"
@@ -78,23 +80,26 @@ def merge_quarantine_entries(prior, new):
     return list(merged.values())
 
 
-def _default_manifest():
-    full = f"{SWEEP_DIR}/manifest.json"
-    partial = f"{SWEEP_DIR}/manifest_partial.json"
-    if os.path.exists(full):
-        return full
-    if os.path.exists(partial):
+def _default_manifest(out_dir):
+    full = out_dir / "manifest.json"
+    partial = out_dir / "manifest_partial.json"
+    if full.exists():
+        return str(full)
+    if partial.exists():
         print(f"NOTE: {full} not found yet, building from partial results ({partial}). "
               f"Some planned jobs may still be missing; that's fine, this doesn't wait for "
               f"100% completion.", flush=True)
-        return partial
+        return str(partial)
     raise FileNotFoundError("neither manifest.json nor manifest_partial.json exists yet")
 
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
-    manifest_path = argv[0] if argv else _default_manifest()
+    if not argv:
+        raise SystemExit("usage: python -m clawmarks.search.score_manifest <out_dir> [manifest_path]")
+    out_dir = Path(argv[0])
+    manifest_path = argv[1] if len(argv) > 1 else _default_manifest(out_dir)
     print("loading DINOv2...", flush=True)
     model = AutoModel.from_pretrained(MODEL_ID)
     model.eval()
@@ -129,7 +134,7 @@ def main(argv=None):
 
     manifest, quarantined = partition_by_existing_file(manifest)
     if quarantined:
-        quarantine_file = f"{SWEEP_DIR}/manifest_quarantine.json"
+        quarantine_file = f"{out_dir}/manifest_quarantine.json"
         prior_quarantined = []
         if os.path.exists(quarantine_file):
             with open(quarantine_file) as f:
@@ -152,11 +157,11 @@ def main(argv=None):
         m["novelty"] = 1 - ns
         m["prompt_type"] = "style" if m["prompt_name"].startswith("style_") else "conflict"
 
-    atomic_json_write(f"{SWEEP_DIR}/scored_manifest.json", manifest)
-    atomic_json_write(f"{SWEEP_DIR}/real_ref.json",
+    atomic_json_write(f"{out_dir}/scored_manifest.json", manifest)
+    atomic_json_write(f"{out_dir}/real_ref.json",
                        {"mean": real_ref_mean, "min": real_ref_min, "max": real_ref_max})
 
-    print(f"DONE: wrote {SWEEP_DIR}/scored_manifest.json ({len(manifest)} images scored)", flush=True)
+    print(f"DONE: wrote {out_dir}/scored_manifest.json ({len(manifest)} images scored)", flush=True)
 
 
 if __name__ == "__main__":

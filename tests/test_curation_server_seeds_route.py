@@ -14,15 +14,14 @@ def test_save_store_accepts_path_object(tmp_path):
     # SEEDS_FILE (clawmarks.config) is a pathlib.Path, unlike every other *_FILE constant in
     # curation_server.py (which are f-strings). save_store used to do `path + ".tmp"`, a TypeError
     # on Path, which silently discarded the seeds a real GPT-5.5 call had already produced.
-    path = tmp_path / "candidate_seeds.json"
+    path = tmp_path / "seed_pool.json"
     cs.save_store(path, {"a scene": {"source": "gpt5.5"}})
     assert cs.load_store(path) == {"a scene": {"source": "gpt5.5"}}
 
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(cs, "SEEDS_FILE", tmp_path / "candidate_seeds.json")
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

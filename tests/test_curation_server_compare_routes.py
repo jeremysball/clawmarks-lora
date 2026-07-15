@@ -24,11 +24,8 @@ def _post_json(url, payload=None):
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
-    monkeypatch.setattr(cs, "COMPARISONS_FILE", str(tmp_path / "user_comparisons.json"))
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
     manifest = [
         {"tag": f"t{i}", "prompt_name": "p", "prompt_type": "style", "centroid_sim": i / 20,
          "novelty": 1 - i / 20, "strength": 1.0, "cfg": 7.0, "file": f"{i}.png"}
@@ -48,11 +45,8 @@ def threaded_running_server(tmp_path, monkeypatch):
     """Same setup as running_server, but backed by cs.ThreadingHTTPServer (what main() actually
     serves with) instead of the plain single-threaded HTTPServer: concurrency tests need real
     concurrent request handling, which the shared fixture's HTTPServer serializes away."""
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
-    monkeypatch.setattr(cs, "COMPARISONS_FILE", str(tmp_path / "user_comparisons.json"))
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_FILE", tmp_path / "preference_pairwise_model.joblib")
-    monkeypatch.setattr(cs.preference_pairwise_model, "MODEL_META_FILE", tmp_path / "preference_pairwise_model_meta.json")
     manifest = [
         {"tag": f"t{i}", "prompt_name": "p", "prompt_type": "style", "centroid_sim": i / 20,
          "novelty": 1 - i / 20, "strength": 1.0, "cfg": 7.0, "file": f"{i}.png"}
@@ -115,7 +109,6 @@ def test_post_compare_retrains_and_caches_model_at_retrain_interval(running_serv
     tags = [f"t{i}" for i in range(20)]
     embeddings = np.random.RandomState(0).normal(size=(20, 2)).astype(np.float32)
     embed_cache.save_cache(embeddings_path, tags, embeddings)
-    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", embeddings_path)
     monkeypatch.setitem(cs._pairwise_model_cache, "model", None)
 
     # Distinct pairs, not the same pair repeated: repeated judgments on one pair now consolidate
@@ -133,7 +126,7 @@ def test_post_compare_retrains_and_caches_model_at_retrain_interval(running_serv
 
     assert data["count"] == comparison_sampler.MIN_COMPARISONS
     assert cs._pairwise_model_cache["model"] is not None
-    assert preference_pairwise_model.MODEL_FILE.exists()
+    assert preference_pairwise_model.model_file(tmp_path).exists()
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/compare/next") as resp:
         next_pair = json.loads(resp.read().decode())
     assert next_pair["img1"]["tag"] != next_pair["img2"]["tag"]
@@ -149,7 +142,6 @@ def test_post_compare_does_not_hold_lock_during_auto_retrain(threaded_running_se
     tags = [f"t{i}" for i in range(20)]
     embeddings = np.random.RandomState(0).normal(size=(20, 2)).astype(np.float32)
     embed_cache.save_cache(tmp_path / "embeddings.npz", tags, embeddings)
-    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", tmp_path / "embeddings.npz")
     monkeypatch.setitem(cs._pairwise_model_cache, "model", None)
 
     # Seed MIN_COMPARISONS - 1 distinct-pair comparisons directly on disk so the next /api/compare
@@ -167,7 +159,7 @@ def test_post_compare_does_not_hold_lock_during_auto_retrain(threaded_running_se
     release_training = threading.Event()
     retrain_errors = []
 
-    def slow_train_and_save(comparisons):
+    def slow_train_and_save(comparisons, out_dir):
         training_started.set()
         # Long enough that a blocked concurrent compare would clearly time out the assertion
         # below; release_training.set() (in the test's finally) cuts this short once the
@@ -240,7 +232,6 @@ def test_compare_next_falls_back_to_random_when_model_has_no_embedded_tags(runni
     stale_tags = [f"gone{i}" for i in range(5)]
     embeddings = np.random.RandomState(0).normal(size=(5, 2)).astype(np.float32)
     embed_cache.save_cache(embeddings_path, stale_tags, embeddings)
-    monkeypatch.setattr(embed_cache, "EMBEDDINGS_FILE", embeddings_path)
     monkeypatch.setitem(cs._pairwise_model_cache, "model", object())
 
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/compare/next") as resp:

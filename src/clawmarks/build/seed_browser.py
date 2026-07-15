@@ -5,7 +5,8 @@ subjects on plateau; this page exposes the same mechanism (via curation_server.p
 /api/seeds/generate) so the pool can be reviewed and topped up between runs, not just mid-run.
 
 Unlike the other tool pages, this one bakes in no data at build time: the seed pool lives on the
-server (notes/uncanny_sweep/candidate_seeds.json) and grows over time, so the page fetches
+server (the active leg's out_dir/seed_pool.json, shared with search/driver.py) and grows over
+time, so the page fetches
 /api/seeds live instead. Run this script once to (re)write the static shell; no rebuild needed
 after that, since new seeds show up via the API without a rebuild.
 

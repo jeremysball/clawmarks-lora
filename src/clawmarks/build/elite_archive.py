@@ -18,9 +18,10 @@ Run after scored_manifest.json exists: python3 -m clawmarks.build.elite_archive
 """
 import json
 import os
+from pathlib import Path
 
+from clawmarks.search import preference_pairwise_model
 from clawmarks.search.manifest_index import item_summary
-from clawmarks.search.preference_pairwise_model import MODEL_FILE as PREFERENCE_MODEL_FILE
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
 
 N_BINS = 4  # matches gallery.html's display grid
@@ -45,6 +46,7 @@ def build_item_summary(m, sweep_dir, predicted_scores):
 
 
 def compute_data(sweep_dir, use_predicted_preference=False):
+    sweep_dir = Path(sweep_dir)
     with open(f"{sweep_dir}/scored_manifest.json") as f:
         manifest = json.load(f)
 
@@ -55,14 +57,15 @@ def compute_data(sweep_dir, use_predicted_preference=False):
             picks = json.load(f)
 
     predicted_scores = {}
-    if use_predicted_preference and os.path.exists(PREFERENCE_MODEL_FILE):
+    model_path = preference_pairwise_model.model_file(sweep_dir)
+    if use_predicted_preference and os.path.exists(model_path):
         import joblib
 
         from clawmarks.search import embed_cache
         from clawmarks.search.preference_pairwise_model import score as pairwise_score
 
-        tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
-        model = joblib.load(PREFERENCE_MODEL_FILE)
+        tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(sweep_dir))
+        model = joblib.load(model_path)
         scores = pairwise_score(model, embeddings)
         predicted_scores = dict(zip(tags, scores))
 
