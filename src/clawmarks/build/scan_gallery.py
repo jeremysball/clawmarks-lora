@@ -65,7 +65,7 @@ def compute_data(sweep_dir, deps):
     return items
 
 
-def render_html(items):
+def render_html(items, active_expedition=None, active_leg=None):
     data_json = json_script(items)
 
     faith_tip = info_btn(
@@ -184,7 +184,7 @@ body {{
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('scan.html')}
+{nav_bar_html('scan.html', active_expedition, active_leg)}
 <div id="bar">
    <h1>CLAWMARKS <span>uncanny scan</span></h1>
   <label>Sort{novelty_tip} <select id="sortKey">

@@ -122,7 +122,7 @@ def compute_data(sweep_dir, use_predicted_preference=False):
             "faith_bins": faith_bins, "novelty_bins": novelty_bins}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     cells = data["cells"]
     data_json = json_script(cells)
     faith_bins_json = json_script(data.get("faith_bins", []))
@@ -188,7 +188,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('archive.html')}
+{nav_bar_html('archive.html', active_expedition, active_leg)}
 <h1>Elite archive{elite_tip}</h1>
 <p class="sub">One image per occupied cell of the faithfulness x novelty grid: the actual
 MAP-Elites archive, not the full population. Gold-bordered cells are favorited winners;

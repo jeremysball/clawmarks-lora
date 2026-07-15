@@ -151,7 +151,7 @@ def neighbor_tags(data, fb, nb):
     return tags
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     cells_json = data["cells"]
     max_count = data["max_count"]
     data_json = json_script(cells_json)
@@ -220,7 +220,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('coverage.html')}
+{nav_bar_html('coverage.html', active_expedition, active_leg)}
 <h1>Coverage / void map{axes_tip}</h1>
 <p class="sub">Same faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
 grid and colored by image count instead of showing thumbnails per cell. Gold-outlined cells are

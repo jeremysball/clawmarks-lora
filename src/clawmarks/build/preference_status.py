@@ -74,7 +74,7 @@ def compute_data(sweep_dir):
     }
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     gate_html = (f'<p class="gate">{data["comparisons_gate_message"]}</p>'
                  if data["comparisons_gate_message"] else '<p class="gate ok">ready to train.</p>')
 
@@ -139,7 +139,7 @@ table.meta td:first-child {{ color:var(--text); }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_status.html')}
+{nav_bar_html('preference_status.html', active_expedition, active_leg)}
 <h1>Preference classifier status</h1>
 <p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}).</p>
 <p class="sub"><a href="compare.html">Compare more images</a> or <a href="preference_rank.html">review the ranking</a>.</p>

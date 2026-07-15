@@ -2304,3 +2304,20 @@ paths before they exist. The page can therefore render its no-model state immedi
 after the manifest or model is created. Focused tests passed (40 tests); the Playwright desktop
 and mobile checks showed the tools hub, shared navigation, no-model page, and root Tools link
 without console errors.
+
+### 2026-07-15 (session 14): review fix 1 for active report context
+
+The shared navigation already accepted an expedition and leg, but live server routes rendered
+every tool page with only its current-page argument, so the active context never appeared. The
+live render paths now pass the current active selection while renderer arguments remain optional
+for direct unit tests. Completed-run links in `runs.html` now POST the selected report expedition
+and leg to `/api/active-leg` before opening scan, coverage, or novelty decay, preventing a report
+for one leg from opening the globally active leg instead. Focused regression and affected-page
+tests passed (68 tests), and Ruff passed on the changed files.
+
+### 2026-07-15 (session 15): review fix 1 badge route correction
+
+The active-context badge introduced in session 14 linked to `/?expedition=...&leg=...`, but the
+server serves the status page only at the exact `/` path and persists the active selection itself.
+The badge now links to `/` while preserving its expedition/leg label. Focused tests passed (69
+tests), and Ruff passed on the changed files.

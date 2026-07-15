@@ -20,6 +20,12 @@ def test_nav_bar_html_marks_preference_status_selected_when_current():
     assert 'value="preference_status.html" selected' in html
 
 
+def test_nav_bar_html_omits_active_leg_without_selection():
+    html = nav_bar_html("scan.html")
+
+    assert 'class="nav-activeleg"' not in html
+
+
 def test_nav_bar_groups_tools_and_links_active_context_to_home():
     html = nav_bar_html(
         "compare.html", active_expedition="demo", active_leg="round1"
@@ -29,7 +35,14 @@ def test_nav_bar_groups_tools_and_links_active_context_to_home():
     assert '<optgroup label="Curate">' in html
     assert '<optgroup label="Understand search">' in html
     assert '<optgroup label="Preference model">' in html
-    assert 'href="/?expedition=demo&amp;leg=round1"' in html
+    assert 'href="/"' in html
+    assert "demo/round1" in html
+
+
+def test_nav_bar_active_context_badge_uses_served_root_route():
+    html = nav_bar_html("scan.html", active_expedition="demo", active_leg="leg-b")
+
+    assert '<a class="nav-activeleg" href="/">demo/leg-b</a>' in html
 
 
 def test_json_script_escapes_close_script_sequence():

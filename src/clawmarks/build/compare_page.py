@@ -10,7 +10,7 @@ Served live at /compare.html by curation_server.py.
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None):
     compare_tip = info_btn(
         "Trains the preference model by comparison: pick whichever of the two images you "
         "prefer, as many times as you can stand. Early comparisons are sampled to spread across "
@@ -86,7 +86,7 @@ table.work-table td:first-child {{ color:var(--text); }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('compare.html')}
+{nav_bar_html('compare.html', active_expedition, active_leg)}
 <h1>Compare{compare_tip}</h1>
 <p class="sub">Tap or click the image you prefer (or press &larr;/&rarr;). Tap the magnifier in
 a corner to inspect that image at full resolution; tap again to close.</p>

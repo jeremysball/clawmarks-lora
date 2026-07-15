@@ -51,11 +51,11 @@ def compute_data(sweep_dir):
     return {"has_model": True, "items": items}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     if not data["has_model"]:
         return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>:root {{ color-scheme:dark; --bg:#0b0b0d; --text:#eaeaee; --text-dim:#9a9aa4; --border:#2a2a30; }} body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }} {TOPNAV_CSS} {MOBILE_BASE_CSS} p {{ color:var(--text-dim); }}</style>
-</head><body>{nav_bar_html('preference_rank.html')}<h1>Predicted preference</h1><p>No trained model at <code>{data["model_file"]}</code>. Run <code>python -m clawmarks.search.preference_pairwise_model</code> first. It needs 50 or more comparisons.</p></body></html>"""
+</head><body>{nav_bar_html('preference_rank.html', active_expedition, active_leg)}<h1>Predicted preference</h1><p>No trained model at <code>{data["model_file"]}</code>. Run <code>python -m clawmarks.search.preference_pairwise_model</code> first. It needs 50 or more comparisons.</p></body></html>"""
 
     items = data["items"]
 
@@ -87,7 +87,7 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_rank.html')}
+{nav_bar_html('preference_rank.html', active_expedition, active_leg)}
 <h1>Predicted preference{rank_tip}</h1>
 <p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="review-controls"><label><input id="reviewMode" type="checkbox"> Review top, middle, and bottom</label><span id="reviewCount"></span></div>

@@ -13,7 +13,6 @@ module fetches scan_data.json itself.
 """
 import html
 import json
-import urllib.parse
 
 
 def json_script(data):
@@ -55,9 +54,7 @@ def nav_bar_html(current, active_expedition=None, active_leg=None):
     active = ""
     if active_expedition and active_leg:
         label = html.escape(f"{active_expedition}/{active_leg}")
-        expedition = urllib.parse.quote(str(active_expedition), safe="")
-        leg = urllib.parse.quote(str(active_leg), safe="")
-        active = f'<a class="nav-activeleg" href="/?expedition={expedition}&amp;leg={leg}">{label}</a>'
+        active = f'<a class="nav-activeleg" href="/">{label}</a>'
     return (
         '<div id="topnav" class="topnav" data-autohide>'
         '<a class="navlink" href="explore.html">&larr; all tools</a>'

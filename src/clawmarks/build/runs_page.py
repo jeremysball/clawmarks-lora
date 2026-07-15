@@ -18,7 +18,7 @@ Served live at /runs.html by curation_server.py.
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS search runs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -54,7 +54,7 @@ button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 .live {{ color:var(--up); }}
 </style></head><body>
 
-{nav_bar_html('runs.html')}
+{nav_bar_html('runs.html', active_expedition, active_leg)}
 <h1>Search runs</h1>
 <p class="sub">Launch an overnight search round from here instead of SSHing in. Every launch
 backs up the round's out_dir first and refuses to start if that backup can't be verified by file
@@ -86,7 +86,7 @@ already running.</p>
     <svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
   </div>
   <div id="categoryBreakdown" style="margin-top:10px;"></div>
-  <p id="completedLinks" class="idle" style="display:none;"><a href="scan.html">Scan images</a> · <a href="coverage.html">Check coverage</a> · <a href="novelty_decay.html">Review novelty decay</a></p>
+  <p id="completedLinks" class="idle" style="display:none;"><a href="scan.html" onclick="openReportTool(event, 'scan.html')">Scan images</a> · <a href="coverage.html" onclick="openReportTool(event, 'coverage.html')">Check coverage</a> · <a href="novelty_decay.html" onclick="openReportTool(event, 'novelty_decay.html')">Review novelty decay</a></p>
 </div>
 
 <script>
@@ -148,6 +148,18 @@ function refreshReport() {{
     ).join('') : '<span style="color:var(--text-dim);font-size:12.5px;">No images scored for this leg yet.</span>';
     document.getElementById('completedLinks').style.display = d.total_images ? 'block' : 'none';
   }});
+}}
+
+function openReportTool(event, path) {{
+  event.preventDefault();
+  if (!expeditionSel.value || !legSel.value) return;
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: expeditionSel.value, leg: legSel.value}}),
+  }}).then(async r => {{
+    if (!r.ok) throw new Error((await r.json()).error || 'selection failed');
+    location.href = path;
+  }}).catch(e => {{ launchError.textContent = String(e); }});
 }}
 
 function refreshStatus() {{

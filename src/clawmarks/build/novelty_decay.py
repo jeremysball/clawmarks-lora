@@ -47,7 +47,7 @@ def compute_data(sweep_dir):
     return {"series": series}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None):
     series = data["series"]
 
     if not series:
@@ -63,7 +63,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
 </style></head><body>
-{nav_bar_html('novelty_decay.html')}
+{nav_bar_html('novelty_decay.html', active_expedition, active_leg)}
 <h1>Novelty decay watchlist</h1>
 <p>No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
 to plot (placeholder page). This chart tracks each prompt's mean novelty generation over
@@ -112,7 +112,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('novelty_decay.html')}
+{nav_bar_html('novelty_decay.html', active_expedition, active_leg)}
 <h1>Novelty decay watchlist{trend_tip}</h1>
 <p class="sub">Mean novelty per generation, one line per prompt family that has appeared in 2+
 generations, sorted worst-trending first. A flat or falling line means that prompt has stopped

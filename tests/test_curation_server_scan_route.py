@@ -56,3 +56,17 @@ def test_scan_data_json_route(running_server, monkeypatch):
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/scan_data.json") as resp:
         data = json.loads(resp.read().decode())
     assert data[0]["tag"] == "a"
+
+
+def test_scan_html_shows_the_active_expedition_and_leg(running_server, monkeypatch):
+    server, _tmp_path = running_server
+    port = server.server_address[1]
+    monkeypatch.setitem(cs._active_selection, "expedition", "demo")
+    monkeypatch.setitem(cs._active_selection, "leg", "leg-b")
+    monkeypatch.setattr(cs.similarity_index, "compute_data", lambda sweep_dir: {})
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/scan.html") as resp:
+        body = resp.read().decode()
+
+    assert 'href="/"' in body
+    assert "demo/leg-b" in body
