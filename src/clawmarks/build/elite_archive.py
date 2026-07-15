@@ -170,7 +170,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 .badge.human {{ background:rgba(245,197,66,0.18); color:var(--pick); }}
 .badge.predicted {{ background:rgba(124,158,255,0.18); color:var(--predicted); }}
 .badge.auto {{ background:rgba(154,154,164,0.15); color:var(--text-dim); }}
-.cell .viewall {{ display:block; width:100%; background:var(--panel-2,#1d1d22); color:var(--text);
+.cell .viewall {{ display:block; width:100%; background:var(--panel-2); color:var(--text);
   border:1px solid var(--border); border-top:none; border-radius:0 0 10px 10px; padding:6px;
   font-size:11px; cursor:pointer; }}
 .cell .viewall:hover {{ color:#7c9eff; }}

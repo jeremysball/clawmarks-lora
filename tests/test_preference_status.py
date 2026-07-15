@@ -187,3 +187,12 @@ def test_render_html_omits_staleness_banner_when_model_is_current_or_missing():
 
     assert "Retrain to include them" not in preference_status.render_html(current_data)
     assert "Retrain to include them" not in preference_status.render_html(missing_data)
+
+
+def test_render_html_uses_panel_token_for_secondary_button():
+    data = {"n_comparisons": 0, "n_usable": 0, "min_comparisons": 50, "comparisons_gate_message": "not enough comparisons",
+            "has_model": False, "model_meta": None, "new_comparisons_since_train": 0,
+            "comparisons_changed_since_train": False, "use_predicted_preference": False}
+    html = preference_status.render_html(data)
+
+    assert ".secondary { background:var(--panel-2);" in html

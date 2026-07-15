@@ -35,13 +35,13 @@ a.navlink {{ color:var(--accent); font-size:12.5px; text-decoration:none; }}
   padding:16px; margin-top:16px; max-width:760px; }}
 .row {{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }}
 select, button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
-  background:#1f1f24; color:var(--text); }}
+  background:var(--panel-2); color:var(--text); }}
 button {{ cursor:pointer; }}
 button.danger {{ background:var(--down); color:#0b0b0d; border-color:var(--down); font-weight:600; }}
 button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 #launchError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
 .statgrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-top:10px; }}
-.stat {{ background:#1f1f24; border-radius:6px; padding:10px 12px; }}
+.stat {{ background:var(--panel-2); border-radius:6px; padding:10px 12px; }}
 .stat .label {{ color:var(--text-dim); font-size:11px; text-transform:uppercase; letter-spacing:0.03em; }}
 .stat .value {{ font-size:18px; margin-top:2px; }}
 #sparkwrap {{ margin-top:14px; }}

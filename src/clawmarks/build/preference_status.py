@@ -143,7 +143,7 @@ table.meta td {{ padding:3px 10px 3px 0; color:var(--text-dim); }}
 table.meta td:first-child {{ color:var(--text); }}
 .interpretation {{ color:var(--text-dim); margin-left:6px; }}
 .toggle-row {{ margin-top:14px; display:flex; align-items:center; gap:8px; }}
-.secondary {{ background:#24242a; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
+.secondary {{ background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
 #toggle-status, #retrain-status {{ font-size:12px; color:var(--text-dim); margin-left:8px; }}
 {INFOTIP_CSS}
 </style></head><body>
