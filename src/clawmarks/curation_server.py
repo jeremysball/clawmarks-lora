@@ -565,11 +565,34 @@ def _cockpit_scoring_context():
                 _cockpit_scoring_state["real_centroid"])
 
 
+def _sibling_leg_exclusion_embeddings(expedition, leg, model):
+    """Mirrors driver.py's _load_sibling_leg_manifests + embedding step, but scoped to the
+    curation server's own long-lived DINOv2 instance (see _cockpit_scoring_context) instead
+    of loading a fresh model per call."""
+    from clawmarks.search.driver import _load_sibling_leg_manifests
+    from clawmarks.search.score_manifest import embed_images
+
+    class _Cfg:
+        pass
+    fake_cfg = _Cfg()
+    fake_cfg.dir = config.leg_dir(expedition, leg)
+    fake_cfg.leg = leg
+
+    sibling_manifest = _load_sibling_leg_manifests(fake_cfg)
+    paths = [m["file"] for m in sibling_manifest if os.path.exists(m["file"])]
+    if not paths:
+        return None
+    return embed_images(paths, model=model)
+
+
 def score_cockpit_batch(results, trial):
     from clawmarks.search.driver import score_batch
 
     model, real_embs, real_centroid = _cockpit_scoring_context()
-    scored = score_batch(model, real_embs, real_centroid, results, prev_embs=None)
+    prev_embs = _sibling_leg_exclusion_embeddings(
+        _active_selection["expedition"], _active_selection["leg"], model,
+    )
+    scored = score_batch(model, real_embs, real_centroid, results, prev_embs=prev_embs)
     for m in scored:
         m["prompt_type"] = "cockpit"
         m["category"] = "cockpit"
@@ -1185,7 +1208,10 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/cockpit.html":
-            body = cockpit.render_html().encode()
+            body = cockpit.render_html(
+                expeditions=[e["name"] for e in _list_expeditions()],
+                current_expedition=_active_selection["expedition"],
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))

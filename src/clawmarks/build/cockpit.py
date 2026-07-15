@@ -15,6 +15,7 @@ content). Every dynamic piece is a live fetch against curation_server.py:
 
 Served live at /cockpit.html by curation_server.py.
 """
+import html
 import json
 
 from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
@@ -52,7 +53,25 @@ MISSIONS = {
 }
 
 
-def render_html():
+def render_html(expeditions=None, current_expedition=None):
+    expeditions = expeditions or []
+    options = "".join(
+        f'<option value="{html.escape(e)}"{" selected" if e == current_expedition else ""}>{html.escape(e)}</option>'
+        for e in expeditions
+    )
+    selector = f"""<div class="expedition-picker">
+<label>Expedition: <select id="expeditionSelect">{options}</select></label>
+<button id="expeditionSwitch">Switch</button>
+</div>
+<script>
+document.getElementById('expeditionSwitch').addEventListener('click', () => {{
+  const expedition = document.getElementById('expeditionSelect').value;
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition, leg: 'cockpit'}}),
+  }}).then(() => location.reload());
+}});
+</script>"""
     missions_json_keys = "".join(
         f'<button class="mission striate{" active" if key == "gap" else ""}" data-mission="{key}">'
         f'<span>Mission</span><b>{m["name"]}</b><span>{m["title"]}</span></button>'
@@ -71,7 +90,7 @@ def render_html():
         "current target."
     )
 
-    html = f"""<!doctype html>
+    page_html = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -338,6 +357,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 <body>
 {nav_bar_html('cockpit.html')}
 <main>
+{selector}
 <div class="eyebrow">Interactive trial workbench</div>
 <h1>Generation cockpit</h1>
 <p class="sub">Choose an intent, record a small test, then generate deliberately. Evidence describes nearby work already in the manifest. It does not predict an unmade image.</p>
@@ -674,4 +694,4 @@ updateEstimate();
 <script src="infotip.js"></script>
 </body>
 </html>"""
-    return html
+    return page_html
