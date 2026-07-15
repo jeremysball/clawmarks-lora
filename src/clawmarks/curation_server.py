@@ -152,23 +152,23 @@ def _set_active_selection(expedition, leg):
 
 
 def _manifest_path():
-    return f"{SWEEP_DIR}/scored_manifest.json"
+    return str(_active_out_dir() / "scored_manifest.json")
 
 
 def _get_scan_items():
     _live_cache.get(
         "similarity", similarity_index.compute_data,
-        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+        watched_files=[_manifest_path()], sweep_dir=str(_active_out_dir()),
     )
     return _live_cache.get(
         "scan", scan_gallery.compute_data,
-        watched_files=[_manifest_path()], depends_on=["similarity"], sweep_dir=str(SWEEP_DIR),
+        watched_files=[_manifest_path()], depends_on=["similarity"], sweep_dir=str(_active_out_dir()),
     )
 
 
 def _solution_map_watched_files():
     files = [_manifest_path()]
-    embs_file = f"{SWEEP_DIR}/solution_map_final_embs.pt"
+    embs_file = str(_active_out_dir() / "solution_map_final_embs.pt")
     if os.path.exists(embs_file):
         files.append(embs_file)
     return files
@@ -177,7 +177,7 @@ def _solution_map_watched_files():
 def _get_solution_map_data():
     return _live_cache.get(
         "solution-map", solution_map.compute_data,
-        watched_files=_solution_map_watched_files(), sweep_dir=str(SWEEP_DIR),
+        watched_files=_solution_map_watched_files(), sweep_dir=str(_active_out_dir()),
     )
 
 
@@ -185,7 +185,7 @@ def _get_map_data():
     _get_solution_map_data()
     return _live_cache.get(
         "map", map_view.compute_data,
-        watched_files=[], depends_on=["solution-map"], sweep_dir=str(SWEEP_DIR),
+        watched_files=[], depends_on=["solution-map"], sweep_dir=str(_active_out_dir()),
     )
 
 
@@ -193,14 +193,14 @@ def _get_redundancy_data():
     _get_solution_map_data()
     return _live_cache.get(
         "redundancy", redundancy_view.compute_data,
-        watched_files=[], depends_on=["solution-map"], sweep_dir=str(SWEEP_DIR),
+        watched_files=[], depends_on=["solution-map"], sweep_dir=str(_active_out_dir()),
     )
 
 
 def _get_manifest_cached(target_name, compute_fn):
     return _live_cache.get(
         target_name, compute_fn,
-        watched_files=[_manifest_path()], sweep_dir=str(SWEEP_DIR),
+        watched_files=[_manifest_path()], sweep_dir=str(_active_out_dir()),
     )
 
 
@@ -229,7 +229,7 @@ def _preference_status_watched_files():
         preference_pairwise_model.model_meta_file(out_dir),
         out_dir / "preference_settings.json",
     ) if out_dir else ()
-    for f in (COMPARISONS_FILE, *leg_files):
+    for f in (_comparisons_file(), *leg_files):
         if os.path.exists(f):
             files.append(str(f))
     return files
@@ -238,7 +238,7 @@ def _preference_status_watched_files():
 def _get_preference_status_data():
     return _live_cache.get(
         "preference-status", preference_status.compute_data,
-        watched_files=_preference_status_watched_files(), sweep_dir=str(SWEEP_DIR),
+        watched_files=_preference_status_watched_files(), sweep_dir=str(_active_out_dir()),
     )
 
 
@@ -270,11 +270,30 @@ def _preference_retrain_gate_error():
                 f"via compare.html first.")
     return ""
 
-FAVORITES_FILE = f"{SWEEP_DIR}/user_favorites.json"
-COMPARISONS_FILE = f"{SWEEP_DIR}/user_comparisons.json"
-COUNTERFACTUALS_DIR = f"{SWEEP_DIR}/counterfactuals"
-COUNTERFACTUALS_FILE = f"{SWEEP_DIR}/user_counterfactuals.json"
-COCKPIT_QUEUE_FILE = f"{SWEEP_DIR}/cockpit_queue.json"
+def _favorites_file():
+    return _active_out_dir() / "user_favorites.json"
+
+
+def _comparisons_file():
+    return _active_out_dir() / "user_comparisons.json"
+
+
+def _counterfactuals_dir():
+    return _active_out_dir() / "counterfactuals"
+
+
+def _counterfactuals_file():
+    return _active_out_dir() / "user_counterfactuals.json"
+
+
+def _cockpit_queue_file():
+    return _active_out_dir() / "cockpit_queue.json"
+
+
+def _seeds_file():
+    return _active_out_dir() / "candidate_seeds.json"
+
+
 DEFAULT_PORT = 8420
 
 COMFY_ENDPOINT_ID = "uix4vdb2cec7sb"  # same serverless endpoint the search uses
@@ -284,7 +303,6 @@ GENERATION_TIMEOUT_S = 330  # a cold endpoint (scaled to zero) took ~215s to spi
 SEED_GEN_TIMEOUT_S = 300  # matches search/driver.py's request_gpt55_subjects timeout
 NEG_DEFAULT = "low quality, blurry, watermark"
 
-os.makedirs(COUNTERFACTUALS_DIR, exist_ok=True)
 _lock = threading.Lock()
 
 
@@ -339,17 +357,17 @@ def save_store(path, store):
 
 
 def load_comparisons():
-    if os.path.exists(COMPARISONS_FILE):
-        with open(COMPARISONS_FILE) as f:
+    if os.path.exists(_comparisons_file()):
+        with open(_comparisons_file()) as f:
             return json.load(f)
     return []
 
 
 def save_comparisons(comparisons):
-    tmp = f"{COMPARISONS_FILE}.tmp"
+    tmp = f"{_comparisons_file()}.tmp"
     with open(tmp, "w") as f:
         json.dump(comparisons, f, indent=1)
-    os.replace(tmp, COMPARISONS_FILE)
+    os.replace(tmp, _comparisons_file())
 
 
 def record_comparison(comparisons, winner, loser, now):
@@ -420,7 +438,8 @@ def next_compare_response(manifest, comparisons):
     if pair is None:
         return {"done": True}
     a, b = pair
-    return {"img1": item_summary(a, SWEEP_DIR), "img2": item_summary(b, SWEEP_DIR)}
+    return {"img1": item_summary(a, _active_out_dir()),
+            "img2": item_summary(b, _active_out_dir())}
 
 
 SAMPLERS = ("ddim", "dpmpp_2m", "euler")
@@ -522,7 +541,7 @@ def score_cockpit_batch(results, trial):
 
 
 def _load_scored_manifest():
-    path = f"{SWEEP_DIR}/scored_manifest.json"
+    path = _active_out_dir() / "scored_manifest.json"
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -530,7 +549,7 @@ def _load_scored_manifest():
 
 
 def _save_scored_manifest(manifest):
-    path = f"{SWEEP_DIR}/scored_manifest.json"
+    path = _active_out_dir() / "scored_manifest.json"
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
         json.dump(manifest, f, indent=1)
@@ -544,7 +563,7 @@ def _run_cockpit_trial(trial_id, api_key):
     and marks the trial completed or failed. Any exception here becomes the trial's stored
     error string rather than an unhandled thread crash, since nothing is left to catch it."""
     with _lock:
-        trials = load_store(COCKPIT_QUEUE_FILE)
+        trials = load_store(_cockpit_queue_file())
         trial = trials[trial_id]
 
     try:
@@ -572,7 +591,7 @@ def _run_cockpit_trial(trial_id, api_key):
                     images = res.get("output", {}).get("images", [])
                     if not images:
                         raise RuntimeError(f"job {tag} completed with no image output")
-                    fname = f"{SWEEP_DIR}/{tag}.png"
+                    fname = str(_active_out_dir() / f"{tag}.png")
                     with open(fname, "wb") as f:
                         f.write(base64.b64decode(images[0]["data"]))
                     job["file"] = fname
@@ -587,23 +606,23 @@ def _run_cockpit_trial(trial_id, api_key):
 
         scored = score_cockpit_batch(results, trial)
         for m in scored:
-            generate_thumbnail(m["file"], f"{SWEEP_DIR}/thumbs/{m['tag']}.jpg")
+            generate_thumbnail(m["file"], _active_out_dir() / "thumbs" / f"{m['tag']}.jpg")
 
         with _lock:
             manifest = _load_scored_manifest()
             manifest.extend(scored)
             _save_scored_manifest(manifest)
 
-            trials = load_store(COCKPIT_QUEUE_FILE)
+            trials = load_store(_cockpit_queue_file())
             trials[trial_id]["status"] = "completed"
             trials[trial_id]["result_tags"] = [m["tag"] for m in scored]
-            save_store(COCKPIT_QUEUE_FILE, trials)
+            save_store(_cockpit_queue_file(), trials)
     except Exception as e:
         with _lock:
-            trials = load_store(COCKPIT_QUEUE_FILE)
+            trials = load_store(_cockpit_queue_file())
             trials[trial_id]["status"] = "failed"
             trials[trial_id]["error"] = str(e)
-            save_store(COCKPIT_QUEUE_FILE, trials)
+            save_store(_cockpit_queue_file(), trials)
 
 
 def build_autopilot_context(coverage_data, manifest, favorites, comparisons, n_cells=3):
@@ -693,7 +712,7 @@ def cockpit_evidence(manifest, prompt, favorites, comparisons, top_n=3, cell_tag
     scored.sort(key=lambda pair: -pair[0])
     out = []
     for ratio, m in scored[:top_n]:
-        summary = item_summary(m, SWEEP_DIR)
+        summary = item_summary(m, _active_out_dir())
         summary["similarity"] = round(ratio, 4)
         summary["status"] = status_of(m["tag"])
         out.append(summary)
@@ -705,7 +724,7 @@ _manifest_cache_lock = threading.Lock()
 
 
 def load_manifest():
-    path = f"{SWEEP_DIR}/scored_manifest.json"
+    path = _active_out_dir() / "scored_manifest.json"
     with _manifest_cache_lock:
         mtime = os.path.getmtime(path)
         if _manifest_cache["manifest"] is None or _manifest_cache["mtime"] != mtime:
@@ -745,7 +764,8 @@ class Handler(SimpleHTTPRequestHandler):
                                      # connection per image
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=SWEEP_DIR, **kwargs)
+        active_dir = _active_out_dir()
+        super().__init__(*args, directory=str(active_dir) if active_dir else str(config.STATE_DIR), **kwargs)
 
     def end_headers(self):
         if self.path.endswith((".jpg", ".jpeg", ".png")):
@@ -850,7 +870,7 @@ code {{ color:var(--text); }}
 a {{ color:var(--accent); }}
 </style></head><body>
 <h1>clawmarks curation server</h1>
-<p>sweep dir: <code>{html.escape(str(SWEEP_DIR))}</code></p>
+<p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
 <p>{html.escape(manifest_summary)}</p>
 <p>{links}</p>
 </body></html>""".encode()
@@ -879,7 +899,7 @@ button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 .tools {{ margin-top:20px; font-size:12.5px; }}
 </style></head><body>
 <h1>clawmarks curation server</h1>
-<p>sweep dir: <code>{html.escape(str(SWEEP_DIR))}</code></p>
+<p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
 <div class="panel">
 <p class="sub">No search data yet. Launch a search round to start generating and scoring
 images &mdash; this backs up the round's out_dir, verifies the backup, checks the RunPod
@@ -943,8 +963,8 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 self._json_response(400, {"error": f"unknown round {round_num!r}"})
                 return
             cfg = ROUND_CONFIGS[round_num]
-            out_dir = SWEEP_DIR if cfg.out_dir_name == "uncanny_round1" else SWEEP2_DIR
-            favorites = load_store(FAVORITES_FILE)
+            out_dir = _active_out_dir()
+            favorites = load_store(_favorites_file())
             self._json_response(200, run_manager.build_report(out_dir, favorites=favorites))
             return
         if self.path == "/api/compare/next":
@@ -955,15 +975,15 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
         if self.path == "/api/favorites":
             with _lock:
-                self._json_response(200, load_store(FAVORITES_FILE))
+                self._json_response(200, load_store(_favorites_file()))
             return
         if self.path == "/api/counterfactuals":
             with _lock:
-                self._json_response(200, load_store(COUNTERFACTUALS_FILE))
+                self._json_response(200, load_store(_counterfactuals_file()))
             return
         if self.path == "/api/seeds":
             with _lock:
-                self._json_response(200, load_store(SEEDS_FILE))
+                self._json_response(200, load_store(_seeds_file()))
             return
         if self.path == "/api/cockpit/target_cells":
             coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
@@ -975,7 +995,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
         if self.path == "/api/cockpit/queue":
             with _lock:
-                trials = load_store(COCKPIT_QUEUE_FILE)
+                trials = load_store(_cockpit_queue_file())
             self._json_response(200, {"trials": sorted(trials.values(), key=lambda t: t["created_at"])})
             return
         if self.path == "/":
@@ -1072,7 +1092,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             data = _live_cache.get(
                 target_name,
                 lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
-                watched_files=watched, sweep_dir=str(SWEEP_DIR),
+                watched_files=watched, sweep_dir=str(_active_out_dir()),
             )
             html = elite_archive.render_html(data)
             body = html.encode()
@@ -1086,7 +1106,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
         if self.path == "/preference_rank.html":
             data = _live_cache.get(
                 "preference_rank", preference_rank.compute_data,
-                watched_files=_prediction_watched_files(), sweep_dir=str(SWEEP_DIR),
+                watched_files=_prediction_watched_files(), sweep_dir=str(_active_out_dir()),
             )
             html = preference_rank.render_html(data)
             body = html.encode()
@@ -1176,7 +1196,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
 
         if self.path.startswith("/thumbs/") and self.path.endswith(".jpg"):
-            thumb_path = f"{SWEEP_DIR}{self.path}"
+            thumb_path = str(_active_out_dir() / self.path.lstrip("/"))
             if not os.path.exists(thumb_path):
                 tag = os.path.basename(self.path)[: -len(".jpg")]
                 match = manifest_entry_by_tag(tag)
@@ -1189,10 +1209,10 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
 
         if self.path.startswith("/real_thumbs/"):
             # Mirrors /thumbs/ above but for REAL_DIR (corrected_dataset_extract/, read-only
-            # reference data): cache writes go to SWEEP_DIR/real_thumbs/, never into REAL_DIR
+            # reference data): cache writes go to the active leg's real_thumbs/, never into REAL_DIR
             # itself. basename() strips any path traversal the same way /real/ does.
             name = os.path.basename(urllib.parse.unquote(self.path[len("/real_thumbs/"):]))
-            thumb_path = f"{SWEEP_DIR}/real_thumbs/{name}"
+            thumb_path = str(_active_out_dir() / "real_thumbs" / name)
             if not name or not os.path.exists(thumb_path):
                 real_path = os.path.join(REAL_DIR, name) if name else ""
                 if not name or not os.path.isfile(real_path):
@@ -1292,19 +1312,19 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 self._json_response(400, {"error": "missing 'tag'"})
                 return
             with _lock:
-                favorites = load_store(FAVORITES_FILE)
+                favorites = load_store(_favorites_file())
                 payload["favorited_at"] = datetime.now(timezone.utc).isoformat()
                 favorites[tag] = payload
-                save_store(FAVORITES_FILE, favorites)
+                save_store(_favorites_file(), favorites)
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
         if self.path == "/api/unfavorite":
             tag = payload.get("tag")
             with _lock:
-                favorites = load_store(FAVORITES_FILE)
+                favorites = load_store(_favorites_file())
                 favorites.pop(tag, None)
-                save_store(FAVORITES_FILE, favorites)
+                save_store(_favorites_file(), favorites)
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
@@ -1316,9 +1336,9 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 self._json_response(400, {"error": str(e)})
                 return
             with _lock:
-                trials = load_store(COCKPIT_QUEUE_FILE)
+                trials = load_store(_cockpit_queue_file())
                 trials[trial_id] = trial
-                save_store(COCKPIT_QUEUE_FILE, trials)
+                save_store(_cockpit_queue_file(), trials)
             self._json_response(200, {"ok": True, "id": trial_id})
             return
 
@@ -1365,10 +1385,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
 
         cfg = ROUND_CONFIGS[round_num]
-        # Use this module's own SWEEP_DIR/SWEEP2_DIR (both overridable via CLAWMARKS_SWEEP_DIR
-        # for tests) rather than driver._out_dir, which resolves against clawmarks.config
-        # directly and would ignore a monkeypatch made only on this module.
-        out_dir = SWEEP_DIR if cfg.out_dir_name == "uncanny_round1" else SWEEP2_DIR
+        out_dir = _active_out_dir()
         try:
             info = run_manager.launch_run(
                 round_num, out_dir, api_key,
@@ -1399,7 +1416,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
                 cell_tags = coverage_map.neighbor_tags(coverage_data, fb, nb)
         with _lock:
-            favorites = load_store(FAVORITES_FILE)
+            favorites = load_store(_favorites_file())
             comparisons = load_comparisons()
         nearest = cockpit_evidence(load_manifest(), prompt, favorites, comparisons, cell_tags=cell_tags)
         self._json_response(200, {"nearest": nearest})
@@ -1411,7 +1428,7 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
 
         with _lock:
-            trials = load_store(COCKPIT_QUEUE_FILE)
+            trials = load_store(_cockpit_queue_file())
             trial = trials.get(trial_id)
             if trial is None:
                 self._json_response(404, {"error": f"no such trial {trial_id!r}"})
@@ -1422,14 +1439,14 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             prev_status = trial["status"]
             trial["status"] = "running"
             trial["error"] = None
-            save_store(COCKPIT_QUEUE_FILE, trials)
+            save_store(_cockpit_queue_file(), trials)
 
         def _revert(error):
             with _lock:
-                trials = load_store(COCKPIT_QUEUE_FILE)
+                trials = load_store(_cockpit_queue_file())
                 trials[trial_id]["status"] = prev_status
                 trials[trial_id]["error"] = error
-                save_store(COCKPIT_QUEUE_FILE, trials)
+                save_store(_cockpit_queue_file(), trials)
 
         try:
             balance = runpod_balance(api_key)
@@ -1534,7 +1551,8 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                 # uuid suffix (not just batch_index) avoids two concurrent requests for the same
                 # origin_tag racing on the same filename and corrupting each other's PNG.
                 new_tag = f"cf_{int(time.time())}_{batch_index}_{uuid.uuid4().hex[:8]}_{origin_tag[:30]}"
-                fname = f"{COUNTERFACTUALS_DIR}/{new_tag}.png"
+                os.makedirs(_counterfactuals_dir(), exist_ok=True)
+                fname = str(_counterfactuals_dir() / f"{new_tag}.png")
                 with open(fname, "wb") as f:
                     f.write(base64.b64decode(images[0]["data"]))
                 record = {
@@ -1546,9 +1564,9 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 with _lock:
-                    records = load_store(COUNTERFACTUALS_FILE)
+                    records = load_store(_counterfactuals_file())
                     records[new_tag] = record
-                    save_store(COUNTERFACTUALS_FILE, records)
+                    save_store(_counterfactuals_file(), records)
                 return record
             if status in ("FAILED", "CANCELLED"):
                 raise RuntimeError(f"generation job {status.lower()}: {res}")
@@ -1560,10 +1578,10 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
         n = int(payload.get("n", 20))
         n = max(1, min(n, 40))
         with _lock:
-            seeds = load_store(SEEDS_FILE)
+            seeds = load_store(_seeds_file())
         existing = list(seeds.keys())
 
-        tmp_path = f"{SWEEP_DIR}/candidate_seeds_gen_{int(time.time())}.json"
+        tmp_path = str(_active_out_dir() / f"candidate_seeds_gen_{int(time.time())}.json")
         prompt = (
             f"Write {n} short, vivid, concrete visual scene or subject descriptions (5-15 words "
             f"each, no artist-style words, no medium words) suitable for testing where a "
@@ -1609,24 +1627,24 @@ document.getElementById('launch2').addEventListener('click', e => launch(2, e.ta
             return
 
         with _lock:
-            seeds = load_store(SEEDS_FILE)
+            seeds = load_store(_seeds_file())
             updated, added = seed_pool_merge(
                 seeds, new_subjects,
                 source="gpt5.5",
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
-            save_store(SEEDS_FILE, updated)
+            save_store(_seeds_file(), updated)
         self._json_response(200, {"ok": True, "added": added, "count": len(updated)})
 
     def _handle_cockpit_autopilot(self):
         with _lock:
-            favorites = load_store(FAVORITES_FILE)
+            favorites = load_store(_favorites_file())
             comparisons = load_comparisons()
         manifest = load_manifest()
         coverage_data = _get_manifest_cached("coverage", coverage_map.compute_data)
         context = build_autopilot_context(coverage_data, manifest, favorites, comparisons)
 
-        tmp_path = f"{SWEEP_DIR}/cockpit_autopilot_{int(time.time())}.json"
+        tmp_path = str(_active_out_dir() / f"cockpit_autopilot_{int(time.time())}.json")
         prompt = (
             "You are proposing 2-3 next generation trials for a LoRA style-transfer search tool "
             "called CLAWMARKS. Ground every suggestion ONLY in the data below; do not invent "
@@ -1704,7 +1722,7 @@ def _reconcile_stuck_trials():
     is running to ever move it to completed/failed, and the UI's 409 "already running" check
     blocks every retry forever. Called once at startup to fail those out so they're retriable."""
     with _lock:
-        trials = load_store(COCKPIT_QUEUE_FILE)
+        trials = load_store(_cockpit_queue_file())
         changed = False
         for trial in trials.values():
             if trial.get("status") == "running":
@@ -1712,14 +1730,14 @@ def _reconcile_stuck_trials():
                 trial["error"] = "interrupted by a server restart"
                 changed = True
         if changed:
-            save_store(COCKPIT_QUEUE_FILE, trials)
+            save_store(_cockpit_queue_file(), trials)
 
 
 def _check_manifest_images():
     """Sanity-check that scored_manifest.json's file paths actually resolve, so a stale-path
     manifest (e.g. after the project directory was renamed or moved) fails at startup instead
     of hanging or 500ing on the first page that tries to open an image."""
-    manifest_path = f"{SWEEP_DIR}/scored_manifest.json"
+    manifest_path = _active_out_dir() / "scored_manifest.json"
     if not os.path.exists(manifest_path):
         print(f"warning: no scored_manifest.json at {manifest_path}, skipping image check", flush=True)
         return
@@ -1754,7 +1772,7 @@ def main(argv=None):
     _reconcile_stuck_trials()
     host = os.environ.get("CLAWMARKS_HOST") or tailscale_ip()
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"serving {SWEEP_DIR} + ratings API on {host}:{port}", flush=True)
+    print(f"serving on {host}:{port} (active leg: {_active_out_dir() or 'none selected'})", flush=True)
     server.serve_forever()
 
 
