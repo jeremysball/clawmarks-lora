@@ -8,7 +8,7 @@ from clawmarks import curation_server as cs
 
 
 def test_load_manifest_re_reads_when_file_changes(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_manifest_cache", {"manifest": None, "mtime": None})
 
     path = tmp_path / "scored_manifest.json"
@@ -31,7 +31,7 @@ def test_load_manifest_re_reads_when_file_changes(tmp_path, monkeypatch):
 
 
 def test_load_manifest_parses_only_once_under_concurrent_access(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_manifest_cache", {"manifest": None, "mtime": None})
 
     path = tmp_path / "scored_manifest.json"
@@ -57,7 +57,7 @@ def test_load_manifest_parses_only_once_under_concurrent_access(tmp_path, monkey
 
 
 def test_manifest_entry_by_tag_finds_existing_and_missing_tags(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_manifest_cache", {"manifest": None, "mtime": None, "by_tag": None})
 
     manifest = [{"tag": f"t{i}", "file": f"f{i}.png"} for i in range(50)]
@@ -68,7 +68,7 @@ def test_manifest_entry_by_tag_finds_existing_and_missing_tags(tmp_path, monkeyp
 
 
 def test_manifest_entry_by_tag_index_rebuilds_on_manifest_change(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_manifest_cache", {"manifest": None, "mtime": None, "by_tag": None})
 
     path = tmp_path / "scored_manifest.json"

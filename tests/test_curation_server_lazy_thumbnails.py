@@ -8,7 +8,7 @@ from clawmarks import curation_server as cs
 
 
 def test_thumb_generated_on_first_request(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     manifest = [{"file": str(tmp_path / "a.png"), "tag": "a"}]
     (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
     Image.new("RGB", (500, 500), color="red").save(tmp_path / "a.png")

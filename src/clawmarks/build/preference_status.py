@@ -29,7 +29,7 @@ def compute_data(sweep_dir):
     # submissions of the *same* pair now consolidates to 1 usable pair (see issue #13), and a
     # gate keyed on the raw count would tell the user they're "ready to train" right before the
     # actual retrain call refuses for the same data.
-    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(sweep_dir))
     _, usable_y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
     n_usable = len(usable_y) // 2
 

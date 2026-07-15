@@ -291,7 +291,7 @@ def _preference_retrain_gate_error():
     a different fix, and pointing someone at the wrong one wastes their time."""
     comparisons = load_comparisons()
     n_raw_comparisons = len(comparisons)
-    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(_active_out_dir()))
     _, y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
     n_usable = len(y) // 2
     if n_usable < preference_pairwise_model.MIN_COMPARISONS:
@@ -419,7 +419,7 @@ _pairwise_model_cache = {"model": None}
 
 
 def _embeddings_for(items):
-    tags, embeddings = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(_active_out_dir()))
     tag_to_row = {t: i for i, t in enumerate(tags)}
     idx = [tag_to_row[m["tag"]] for m in items if m["tag"] in tag_to_row]
     return embeddings[idx]
@@ -434,7 +434,7 @@ def _maybe_retrain_pairwise_model(comparisons):
     if n < comparison_sampler.MIN_COMPARISONS or n % comparison_sampler.RETRAIN_EVERY != 0:
         return
     try:
-        result = preference_pairwise_model.train_and_save(comparisons)
+        result = preference_pairwise_model.train_and_save(comparisons, _active_out_dir())
     except Exception as e:
         print(f"pairwise model auto-retrain failed at n={n}, keeping previous model: {e}",
               file=sys.stderr, flush=True)
@@ -454,7 +454,7 @@ def next_compare_response(manifest, comparisons):
     model = _pairwise_model_cache["model"]
     candidate_manifest = manifest
     if model is not None:
-        tags, _ = embed_cache.load_cache(embed_cache.EMBEDDINGS_FILE)
+        tags, _ = embed_cache.load_cache(embed_cache.embeddings_file(_active_out_dir()))
         embedded = set(tags)
         embedded_manifest = [m for m in manifest if m["tag"] in embedded]
         if embedded_manifest:
@@ -1356,7 +1356,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 # Fit outside _lock: a full model fit can take a while, and every other route
                 # (favorites, compare, cockpit) shares this same lock, so holding it here blocks
                 # them for the fit's whole duration instead of just the state swap below.
-                result = preference_pairwise_model.train_and_save(comparisons)
+                result = preference_pairwise_model.train_and_save(comparisons, _active_out_dir())
                 if result is None:
                     self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
                     return

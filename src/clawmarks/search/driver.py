@@ -412,7 +412,9 @@ def _predicted_preference_pool(manifest, model_path, embed_model, top_n=15):
     def image_path_for(tag):
         return by_tag[tag]["file"]
 
-    tags, embeddings = embed_cache.sync(manifest, embed_cache.EMBEDDINGS_FILE, embed_model, image_path_for)
+    tags, embeddings = embed_cache.sync(
+        manifest, embed_cache.embeddings_file(out_dir), embed_model, image_path_for
+    )
     model = joblib.load(model_path)
     scores = pairwise_score(model, embeddings)
     ranked = sorted(

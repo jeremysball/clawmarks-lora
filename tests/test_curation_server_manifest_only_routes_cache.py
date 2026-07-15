@@ -2,7 +2,7 @@ from clawmarks import curation_server as cs
 
 
 def test_get_manifest_cached_reuses_cache_across_calls(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 
@@ -21,7 +21,7 @@ def test_get_manifest_cached_reuses_cache_across_calls(tmp_path, monkeypatch):
 
 
 def test_get_manifest_cached_keeps_targets_independent(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 
@@ -33,7 +33,7 @@ def test_get_manifest_cached_keeps_targets_independent(tmp_path, monkeypatch):
 
 
 def test_archive_route_caches_actual_and_predicted_preference_separately(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     (tmp_path / "scored_manifest.json").write_text("[]")
 

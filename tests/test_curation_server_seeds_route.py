@@ -21,8 +21,7 @@ def test_save_store_accepts_path_object(tmp_path):
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(cs, "SWEEP_DIR", tmp_path)
-    monkeypatch.setattr(cs, "SEEDS_FILE", tmp_path / "candidate_seeds.json")
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
     monkeypatch.setattr(cs, "_live_cache", cs.LiveCache())
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
