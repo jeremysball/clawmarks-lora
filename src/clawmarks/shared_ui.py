@@ -11,6 +11,7 @@ with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(t
 `window.open('scan.html?open=...')`: no new tab, no page load, works from any page because the
 module fetches scan_data.json itself.
 """
+import html
 import json
 
 
@@ -24,32 +25,64 @@ def json_script(data):
     return json.dumps(data).replace("<", "\\u003c")
 
 
-NAV_OPTIONS = [
-    ("explore.html", "all tools (hub)"),
-    ("cockpit.html", "generation cockpit"),
-    ("runs.html", "search runs"),
-    ("compare.html", "compare images (head-to-head)"),
-    ("scan.html", "scan gallery"),
-    ("map.html", "solution map (UMAP)"),
-    ("coverage.html", "coverage / void map"),
-    ("archive.html", "elite archive"),
-    ("preference_rank.html", "predicted preference"),
-    ("preference_status.html", "preference status"),
-    ("redundancy.html", "redundancy clusters"),
-    ("novelty_decay.html", "novelty decay watchlist"),
-    ("lineage.html", "lineage tree"),
-    ("seeds.html", "candidate seeds"),
+NAV_GROUPS = [
+    ("Generate", [("cockpit.html", "generation cockpit"), ("runs.html", "search runs"),
+                  ("seeds.html", "candidate seeds")]),
+    ("Curate", [("compare.html", "compare images (head-to-head)"),
+                ("scan.html", "scan gallery"), ("archive.html", "elite archive")]),
+    ("Understand search", [("map.html", "solution map (UMAP)"),
+                           ("coverage.html", "coverage / void map"),
+                           ("redundancy.html", "redundancy clusters"),
+                           ("novelty_decay.html", "novelty decay watchlist"),
+                           ("lineage.html", "lineage tree")]),
+    ("Preference model", [("preference_status.html", "preference status"),
+                          ("preference_rank.html", "predicted preference")]),
+]
+NAV_OPTIONS = [("explore.html", "all tools (hub)")] + [
+    option for _group, options in NAV_GROUPS for option in options
 ]
 
 
-def nav_bar_html(current):
-    opts = "".join(
-        f'<option value="{href}"{" selected" if href == current else ""}>{label}</option>'
-        for href, label in NAV_OPTIONS
+DARK_TOKENS = """
+:root { color-scheme:dark; --bg:#0b0b0d; --panel:#16161a; --panel-2:#1d1d22; --border:#2a2a30;
+  --text:#eaeaee; --text-dim:#9a9aa4; --text-faint:#6a6a74; --accent:#7c9eff; --pick:#f5c542;
+  --up:#5ec98a; --down:#e0605e; }
+"""
+
+BTN_CSS = """
+.btn { font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
+  background:var(--panel-2); color:var(--text); cursor:pointer; }
+.btn--primary { background:var(--accent); color:#0b0b0d; font-weight:600; border-color:var(--accent); }
+.btn--secondary { background:var(--panel-2); color:var(--text); border:1px solid var(--border); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+"""
+
+
+def nav_bar_html(current, active_expedition=None, active_leg=None, running=None):
+    opts = '<option value="explore.html">all tools (hub)</option>' + "".join(
+        f'<optgroup label="{group}">' + "".join(
+            f'<option value="{href}"{" selected" if href == current else ""}>{label}</option>'
+            for href, label in options
+        ) + '</optgroup>'
+        for group, options in NAV_GROUPS
     )
+    active_label = ""
+    if active_expedition and active_leg:
+        label = html.escape(f"{active_expedition}/{active_leg}")
+        active_label = f'<a class="nav-activeleg" href="/">{label}</a>'
+    running_label = ""
+    if running:
+        r_exp, r_leg = running
+        running_label = (
+            f'<span id="nav-running" class="nav-running" '
+            f'title="an overnight search run is live">RUNNING: {r_exp}/{r_leg}</span>'
+        )
     return (
-        '<div id="topnav" class="topnav" data-autohide>'
+        f'<div id="topnav" class="topnav" data-autohide '
+        f'data-expedition="{html.escape(active_expedition or "")}" '
+        f'data-leg="{html.escape(active_leg or "")}">'
         '<a class="navlink" href="explore.html">&larr; all tools</a>'
+        f'{active_label}{running_label}'
         '<select onchange="if(this.value) location.href=this.value;">'
         f'<option value="">jump to...</option>{opts}</select></div>'
     )
@@ -62,13 +95,23 @@ TOPNAV_CSS = """
 .topnav.navhidden { transform: translateY(-100%); }
 .topnav select { background:var(--panel-2,#1d1d22); color:var(--text,#eaeaee); border:1px solid var(--border,#2a2a30);
   border-radius:6px; padding:5px 9px; font-size:12.5px; max-width:220px; }
+.topnav .nav-activeleg { color:var(--text-dim,#9a9aa4); font-size:12px; font-family:monospace;
+  text-decoration:none; padding:2px 8px; background:rgba(154,154,164,0.12); border-radius:5px; white-space:nowrap; }
+.topnav .nav-running { color:#0b0b0d; font-size:11.5px; font-weight:700; padding:2px 8px;
+  background:var(--up,#5ec98a); border-radius:5px; white-space:nowrap; letter-spacing:0.02em; }
 @media (max-width: 640px) {
-  .topnav { padding:8px 10px; gap:8px; font-size:12px; }
+  .topnav { padding:8px 10px; gap:8px; font-size:12px; flex-wrap:wrap; }
   .topnav select { flex:1; min-width:0; max-width:none; }
 }
 """
 
 _infotip_counter = 0
+
+DINO_TIP = (
+    "DINOv2 is an open vision model that turns an image into about 768 numbers (an embedding) "
+    "capturing style without human labels; similar style gives similar embeddings, so we measure "
+    "style match without a human."
+)
 
 
 def info_btn(tip):
@@ -223,6 +266,8 @@ _LIGHTBOX_JS = r"""(function(){
   let favorites = {};
   let counterfactuals = {};
   let el = null;
+  let LB_EXPEDITION = null;
+  let LB_LEG = null;
 
   function ensureDom(){
     if (el) return;
@@ -338,6 +383,11 @@ _LIGHTBOX_JS = r"""(function(){
   </div>
   <div class="lb-simlabel">similar images (by DINOv2 embedding)</div>
   <div class="lb-simstrip"></div>`;
+    const context = document.getElementById('topnav');
+    LB_EXPEDITION = context ? context.dataset.expedition : null;
+    LB_LEG = context ? context.dataset.leg : null;
+    el.dataset.expedition = LB_EXPEDITION || '';
+    el.dataset.leg = LB_LEG || '';
     document.body.appendChild(el);
 
     const mainImg = el.querySelector('.lb-main');
@@ -582,14 +632,50 @@ _LIGHTBOX_JS = r"""(function(){
     const d = order[idx];
     const isFav = !!favorites[d.tag];
     const endpoint = isFav ? '/api/unfavorite' : '/api/favorite';
-    const body = isFav ? {tag: d.tag} : Object.assign({}, d);
+    const body = isFav
+      ? {tag: d.tag, expedition: LB_EXPEDITION, leg: LB_LEG}
+      : Object.assign({}, d, {expedition: LB_EXPEDITION, leg: LB_LEG});
+    const removedRecord = isFav ? favorites[d.tag] : null;
     fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-      .then(r => r.json())
-      .then(() => {
+      .then(r => { if (!r.ok) throw new Error('favorite save failed'); return r.json(); })
+      .then(res => {
+        if (res.error) throw new Error(res.error);
         if (isFav) delete favorites[d.tag]; else favorites[d.tag] = body;
         render();
         document.dispatchEvent(new CustomEvent('lightbox:favorite', {detail: {tag: d.tag, favorited: !isFav}}));
+        if (isFav && removedRecord) showUndoFavorite(d.tag, removedRecord);
+      }).catch(() => {
+        const status = el.querySelector('.lb-info');
+        if (status) status.textContent = 'Could not save. Check connection and try again.';
       });
+  }
+  let undoTimer = null;
+  let undoBtn = null;
+  function showUndoFavorite(tag, record){
+    if (undoBtn) { undoBtn.remove(); undoBtn = null; }
+    clearTimeout(undoTimer);
+    const status = el.querySelector('.lb-info');
+    const original = status.textContent;
+    status.textContent = 'Removed favorite. Undo?';
+    undoBtn = document.createElement('button');
+    undoBtn.textContent = 'Undo';
+    undoBtn.onclick = () => {
+      const body = Object.assign({}, record, {expedition: LB_EXPEDITION, leg: LB_LEG});
+      fetch('/api/favorite', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+        .then(r => { if (!r.ok) throw new Error('restore failed'); return r.json(); })
+        .then(res => {
+          if (res.error) throw new Error(res.error);
+          favorites[tag] = record;
+          render();
+          document.dispatchEvent(new CustomEvent('lightbox:favorite', {detail: {tag, favorited: true}}));
+          undoBtn.remove(); undoBtn = null;
+          status.textContent = original;
+        }).catch(() => {
+          status.textContent = 'Could not restore favorite. Try again.';
+        });
+    };
+    el.querySelector('.lb-actions').appendChild(undoBtn);
+    undoTimer = setTimeout(() => { if (undoBtn) { undoBtn.remove(); undoBtn = null; } }, 10000);
   }
   function close(){ el.classList.remove('open'); }
 
@@ -610,34 +696,38 @@ _LIGHTBOX_JS = r"""(function(){
   window.Lightbox = { open };
 
   // Thumbnail grids mark their <img> tags with data-tag="<tag>" (no other wiring needed).
-  // As each thumbnail scrolls into view, fire an async request for its full-size image too,
-  // so by the time a visible thumbnail gets tapped the lightbox already has it cached and
-  // opens instantly instead of showing its own loading spinner. Gated on visibility (not
-  // "every thumbnail on the page") since a filtered grid can hold thousands of entries and
-  // downloading all of their full-size files up front would be wasteful. Unlike a one-shot
-  // "load once visible" observer, this one keeps watching every thumbnail for as long as it
-  // stays in the DOM: scrolling a still-loading image off-screen aborts its prefetch so the
-  // bandwidth goes to whatever's actually on screen, and scrolling back re-starts it.
+  // On hover or keyboard focus, fire an async request for that thumbnail's full-size image
+  // too, so by the time it gets tapped the lightbox already has it cached and opens instantly
+  // instead of showing its own loading spinner. Gated on hover/focus intent, not raw viewport
+  // proximity: the previous IntersectionObserver-based version eagerly prefetched every
+  // thumbnail within 150px of the viewport, which on a dense grid meant dozens of concurrent
+  // 1-2.5MB full-res fetches from scrolling alone (gallery-archive-scale problem 3). A short
+  // hover delay (150ms) avoids firing on a fast mouse pass-through; moving off or blurring
+  // aborts an in-flight prefetch so bandwidth isn't wasted on images the user scrolled past.
   function wireThumbPrefetch(){
-    if (!('IntersectionObserver' in window)) return;
     const observed = new WeakSet();
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(en => {
-        const tag = en.target.dataset.tag;
-        if (!tag) return;
-        if (en.isIntersecting) {
-          loadData().then(() => prefetchImage(byTag[tag])).catch(() => {});
-        } else {
-          abortPrefetch(tag);
-        }
+    const hoverTimers = new Map();
+    function start(tag){
+      loadData().then(() => prefetchImage(byTag[tag])).catch(() => {});
+    }
+    function wireOne(img){
+      if (observed.has(img)) return;
+      observed.add(img);
+      const tag = img.dataset.tag;
+      if (!tag) return;
+      img.addEventListener('mouseenter', () => {
+        clearTimeout(hoverTimers.get(tag));
+        hoverTimers.set(tag, setTimeout(() => start(tag), 150));
       });
-    }, {rootMargin: '150px'});
+      img.addEventListener('mouseleave', () => {
+        clearTimeout(hoverTimers.get(tag));
+        abortPrefetch(tag);
+      });
+      img.addEventListener('focus', () => start(tag));
+      img.addEventListener('blur', () => abortPrefetch(tag));
+    }
     function scan(){
-      document.querySelectorAll('img[data-tag]').forEach(img => {
-        if (observed.has(img)) return;
-        observed.add(img);
-        io.observe(img);
-      });
+      document.querySelectorAll('img[data-tag]').forEach(wireOne);
     }
     scan();
     // Grids re-render on filter changes / pagination / modal opens, so keep watching for

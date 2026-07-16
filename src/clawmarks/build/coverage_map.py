@@ -14,7 +14,17 @@ Run after scored_manifest.json exists: python3 -m clawmarks.build.coverage_map
 import json
 import os
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    DINO_TIP,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    json_script,
+    nav_bar_html,
+)
 
 N_BINS = 8
 
@@ -87,7 +97,7 @@ def compute_data(sweep_dir):
                 "items": [item_summary(m) for m in items],
             })
 
-    return {"cells": cells_json, "max_count": max_count}
+    return {"cells": cells_json, "median_count": median_count, "max_count": max_count}
 
 
 def _fmt_range(lo, hi, decimals=2):
@@ -151,8 +161,9 @@ def neighbor_tags(data, fb, nb):
     return tags
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None, running=None):
     cells_json = data["cells"]
+    median_count = data.get("median_count", 0)
     max_count = data["max_count"]
     data_json = json_script(cells_json)
 
@@ -162,18 +173,22 @@ def render_html(data):
         "image is from everything already explored, so 1 means nothing found so far looks like it. "
         "Every image lands in exactly one cell of this grid based on those two scores; a frontier "
         "cell is an empty one next to a well-populated one, a promising, reachable gap the search "
-        "hasn't filled yet."
+        "hasn't filled yet. The grid uses quantile bins, so each axis is split into ranges with "
+        "roughly equal numbers of images. The median frontier gate only highlights empty cells "
+        "beside occupied cells at or above the median count."
     )
+    dino_tip = info_btn(DINO_TIP)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS coverage map</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --frontier:#f5c542; }}
+{DARK_TOKENS}
+:root {{ --frontier:#f5c542; }}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 #wrap {{ display:flex; gap:24px; margin-top:20px; flex-wrap:wrap; }}
@@ -200,6 +215,7 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 #panel .viewall {{ display:none; margin-top:10px; background:var(--panel); color:var(--text);
   border:1px solid var(--border); border-radius:7px; padding:7px 14px; font-size:12.5px; cursor:pointer; }}
 #panel .viewall:hover {{ border-color:#4a4a54; }}
+#panel .cockpit-link {{ display:none; margin-top:8px; color:var(--accent,#7c9eff); font-size:12.5px; }}
 a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 
 #modal {{ position:fixed; inset:0; background:rgba(8,8,10,0.94); backdrop-filter:blur(6px);
@@ -219,9 +235,9 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('coverage.html')}
+{nav_bar_html('coverage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Coverage / void map{axes_tip}</h1>
-<p class="sub">Same faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
+<p class="sub">Same DINOv2{dino_tip}-based faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
 grid and colored by image count instead of showing thumbnails per cell. Gold-outlined cells are
 empty but sit next to a cell at or above the median occupied-cell count: the shortlist of gaps
 worth targeting, rather than gaps that are empty because nothing in that region is reachable at
@@ -239,6 +255,7 @@ all. Click a cell to preview its top image, or "view all" to see every image in 
     <img id="panelImg">
     <div class="info" id="panelInfo">Click a cell to see its highest-novelty image.</div>
     <button class="viewall" id="viewAllBtn">view all images in this cell</button>
+    <a class="cockpit-link" id="cockpitLink" href="cockpit.html">Target this gap in cockpit</a>
   </div>
 </div>
 <div id="legend"></div>
@@ -250,7 +267,7 @@ all. Click a cell to preview its top image, or "view all" to see every image in 
 </div>
 
 <script>
-// json_script() only protects this declaration from a </script> breakout; it does not
+// json_script() only protects this declaration from a <\\/script> breakout; it does not
 // HTML-escape decoded string values. Every CELLS field written into innerHTML/an attribute
 // below must go through escHtml() first.
 function escHtml(s) {{
@@ -259,6 +276,7 @@ function escHtml(s) {{
 
 const CELLS = {data_json};
 const N_BINS = {N_BINS};
+const MEDIAN_COUNT = {median_count};
 const MAX_COUNT = {max_count};
 
 function colorFor(count) {{
@@ -308,6 +326,7 @@ function showCell(c) {{
     + `<b>count</b> ${{c.count}}${{c.frontier ? ' &mdash; frontier cell' : ''}}<br>`
     + (c.best_tag ? `<b>top image</b> ${{escHtml(c.best_tag)}}` : 'no images in this cell yet');
   viewAllBtn.style.display = c.count > 0 ? 'block' : 'none';
+  document.getElementById('cockpitLink').style.display = c.frontier ? 'inline-block' : 'none';
 }}
 
 document.getElementById('viewAllBtn').addEventListener('click', () => {{
@@ -340,8 +359,9 @@ document.addEventListener('keydown', e => {{
 }});
 
 const legend = document.getElementById('legend');
-legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></span> low count`
-  + `<span class="swatch" style="background:${{colorFor(MAX_COUNT)}}; margin-left:12px;"></span> high count`
+legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></span> 1`
+  + `<span style="margin-left:6px;">median ${{MEDIAN_COUNT}}</span>`
+  + `<span class="swatch" style="background:${{colorFor(MAX_COUNT)}}; margin-left:12px;"></span> max ${{MAX_COUNT}}`
   + `<span class="swatch" style="background:transparent; outline:2px solid #f5c542; margin-left:12px;"></span> frontier (empty, adjacent to a dense cell)`;
 </script>
 <script src="scrollnav.js"></script>

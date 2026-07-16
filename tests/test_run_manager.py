@@ -164,6 +164,21 @@ def test_stop_run_is_noop_when_nothing_running(tmp_path, monkeypatch):
     assert run_manager.stop_run() == {"running": False}
 
 
+def test_stop_run_rejects_a_run_that_does_not_match_confirmation(tmp_path, monkeypatch):
+    lock_file = tmp_path / ".searchrun.lock"
+    lock_file.write_text(json.dumps({"pid": 12345, "start_time_ticks": 999}))
+    monkeypatch.setattr(run_manager, "LOCK_FILE", lock_file)
+    monkeypatch.setattr(run_manager, "is_process_alive", lambda pid: True)
+    monkeypatch.setattr(run_manager, "_process_start_time", lambda pid: 999)
+    signaled = []
+    monkeypatch.setattr(run_manager, "_signal_run", lambda pid, sig: signaled.append((pid, sig)))
+
+    result = run_manager.stop_run(pid=67890, start_time_ticks=999)
+
+    assert result == {"running": True, "error": "run changed since confirmation"}
+    assert signaled == []
+
+
 def test_stop_run_sends_sigterm_and_removes_lock(tmp_path, monkeypatch):
     lock_file = tmp_path / ".searchrun.lock"
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)

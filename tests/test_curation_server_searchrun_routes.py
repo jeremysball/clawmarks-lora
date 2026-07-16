@@ -188,3 +188,24 @@ def test_stop_terminates_a_running_run(running_server, monkeypatch):
 
     assert status == 200
     assert data == {"running": False}
+
+
+def test_stop_passes_confirmed_run_identity_to_manager(running_server, monkeypatch):
+    server, _ = running_server
+    port = server.server_address[1]
+    captured = {}
+
+    def fake_stop_run(**kwargs):
+        captured.update(kwargs)
+        return {"running": True}
+
+    monkeypatch.setattr(run_manager, "stop_run", fake_stop_run)
+
+    status, data = _post_json(
+        f"http://127.0.0.1:{port}/api/searchrun/stop",
+        {"pid": 12345, "start_time_ticks": 999},
+    )
+
+    assert status == 200
+    assert data == {"running": True}
+    assert captured == {"pid": 12345, "start_time_ticks": 999}

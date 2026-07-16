@@ -84,6 +84,7 @@ netns and auto-detection would otherwise fall back to 0.0.0.0 anyway).
 import base64
 import html
 import json
+import logging
 import os
 import random
 import re
@@ -109,7 +110,7 @@ from clawmarks.search.seed_pool import merge as seed_pool_merge
 from clawmarks.search import comparison_sampler, preference_settings, preference_pairwise_model
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import item_summary
-from clawmarks.shared_ui import _LIGHTBOX_JS, SCROLLNAV_JS, INFOTIP_JS
+from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_JS, SCROLLNAV_JS, _LIGHTBOX_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
@@ -122,6 +123,7 @@ with open(os.path.join(os.path.dirname(__file__), "static", "favicon.png"), "rb"
     _FAVICON_PNG = _f.read()
 
 _live_cache = LiveCache()
+_logger = logging.getLogger(__name__)
 
 _active_selection = {"expedition": None, "leg": None}
 
@@ -269,9 +271,7 @@ def _prediction_watched_files():
         preference_pairwise_model.model_file(out_dir),
         preference_pairwise_model.model_meta_file(out_dir),
     ) if out_dir else ()
-    for f in model_files:
-        if os.path.exists(f):
-            files.append(str(f))
+    files.extend(str(f) for f in model_files)
     return files
 
 
@@ -324,12 +324,18 @@ def _preference_retrain_gate_error():
                 f"via compare.html first.")
     return ""
 
-def _favorites_file():
-    return _require_out_dir() / "user_favorites.json"
+def _favorites_file(expedition=None, leg=None):
+    if expedition is None or leg is None:
+        return _require_out_dir() / "user_favorites.json"
+    return config.leg_dir(expedition, leg) / "user_favorites.json"
 
 
 def _comparisons_file():
     return _require_out_dir() / "user_comparisons.json"
+
+
+def _preference_rank_flags_file():
+    return _require_out_dir() / "preference_rank_flags.json"
 
 
 def _counterfactuals_dir():
@@ -846,9 +852,10 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(active_dir) if active_dir else str(config.STATE_DIR), **kwargs)
 
     def end_headers(self):
-        if self.path.endswith((".jpg", ".jpeg", ".png")):
+        path = urllib.parse.urlparse(self.path).path
+        if path.endswith((".jpg", ".jpeg", ".png")):
             self.send_header("Cache-Control", "public, max-age=31536000, immutable")
-        elif self.path.endswith(".html"):
+        elif path.endswith((".html", ".json")):
             self.send_header("Cache-Control", "no-cache, must-revalidate")
         super().end_headers()
 
@@ -911,14 +918,23 @@ class Handler(SimpleHTTPRequestHandler):
         message = f"{type(exc).__name__}: {exc}"
         hint = ""
         if isinstance(exc, FileNotFoundError):
-            hint = (
-                "<p>This usually means <code>scored_manifest.json</code> still points at an "
-                "old absolute path (e.g. after the project directory was renamed or moved) and "
-                "the image no longer lives there. Re-pointing or regenerating the manifest's "
-                "<code>file</code> paths should fix it.</p>"
-            )
+            missing_path = str(exc).split("'")[1] if "'" in str(exc) else ""
+            if missing_path.endswith("scored_manifest.json"):
+                hint = (
+                    "<p>The active leg has no scored manifest yet. "
+                    '<a href="/">Pick a leg that has completed a search round</a>, or '
+                    '<a href="/runs.html">launch a new round for this leg</a>.</p>'
+                )
+            else:
+                hint = (
+                    "<p>This usually means <code>scored_manifest.json</code> still points at an "
+                    "old absolute path (e.g. after the project directory was renamed or moved) "
+                    "and the image no longer lives there. Re-pointing or regenerating the "
+                    "manifest's <code>file</code> paths should fix it.</p>"
+                )
         body = f"""<div style="font-family:sans-serif;max-width:48rem;margin:2rem auto;line-height:1.5">
 <h1 style="color:#b91c1c">Something went wrong</h1>
+<p>Route: <code>{html.escape(self.path)}</code></p>
 <p><strong>{html.escape(message)}</strong></p>
 {hint}
 <details>
@@ -936,25 +952,62 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             pass  # client already gone; nothing left to send
 
+    def _send_404_page(self, path):
+        body = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {{ color-scheme:dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee; --dim:#9a9aa4; --accent:#7c9eff; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+main {{ max-width:42rem; margin:2rem; padding:2rem; border:1px solid var(--border); border-radius:10px; background:var(--panel); }}
+h1 {{ margin-top:0; }}
+p {{ color:var(--dim); line-height:1.5; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+</style></head><body><main>
+<h1>Nothing here</h1>
+<p>Route: <code>{html.escape(path)}</code></p>
+<p>Check the address or return to the status page.</p>
+<p><a href="/">Back to status page</a></p>
+</main></body></html>""".encode()
+        self.send_response(404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 404:
+            if self.path.startswith("/api/"):
+                self._json_response(404, {"error": f"unknown route: {self.path}"})
+                return
+            self._send_404_page(self.path)
+            return
+        super().send_error(code, message, explain)
+
     def _send_status_page(self):
-        if _active_out_dir() is None:
-            manifest_summary = "no expedition/leg selected"
-            has_data = False
+        selection = _active_selection
+        if selection["expedition"] is None:
+            body = self._status_page_no_selection_body()
         else:
+            n_entries = 0
             try:
                 manifest = load_manifest()
                 n_entries = len(manifest)
                 n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
                 manifest_summary = f"{n_present}/{n_entries} manifest images present on disk"
                 has_data = n_present > 0
-            except Exception as e:
-                manifest_summary = f"could not read manifest: {e}"
+            except FileNotFoundError:
+                manifest_summary = (
+                    f"{selection['expedition']}/{selection['leg']} has no scored manifest yet"
+                )
                 has_data = False
-
-        if has_data:
-            body = self._status_page_data_body(manifest_summary)
-        else:
-            body = self._status_page_empty_body(manifest_summary)
+            if has_data:
+                body = self._status_page_data_body(manifest_summary)
+            elif n_entries > 0:
+                body = self._status_page_data_integrity_error_body(selection, n_entries)
+            else:
+                body = self._status_page_selected_empty_body(selection, manifest_summary)
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -967,26 +1020,37 @@ class Handler(SimpleHTTPRequestHandler):
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --accent:#7c9eff; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
 code {{ color:var(--text); }}
 a {{ color:var(--accent); }}
+{BTN_CSS}
 </style></head><body>
 <h1>clawmarks curation server</h1>
 <p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
 <p>{html.escape(manifest_summary)}</p>
+<p id="cmpStat" class="sub">&nbsp;</p>
+<script>
+fetch('/api/preference_status').then(r => r.json()).then(d => {{
+  const el = document.getElementById('cmpStat');
+  if (typeof d.n_comparisons === 'number') {{
+    const acc = (d.model_meta && typeof d.model_meta.cv_accuracy === 'number')
+      ? `, model at ${{(d.model_meta.cv_accuracy * 100).toFixed(0)}}%` : '';
+    el.textContent = `${{d.n_comparisons}} comparisons${{acc}}`;
+  }}
+}}).catch(() => {{}});
+</script>
 <p>{links}</p>
 </body></html>""".encode()
 
-    def _status_page_empty_body(self, manifest_summary):
+    def _status_page_no_selection_body(self):
         expeditions = _list_expeditions()
         rows = "".join(
             f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
             + " ".join(
-                f'<button class="leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
                 f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
                 for leg in e["legs"]
             )
@@ -997,8 +1061,7 @@ a {{ color:var(--accent); }}
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --accent:#7c9eff; --down:#e0605e; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
@@ -1008,16 +1071,126 @@ a {{ color:var(--accent); }}
 .panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
   padding:16px; margin-top:16px; max-width:640px; }}
 .exp-row {{ margin:8px 0; }}
-button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
-  background:var(--accent); color:#0b0b0d; font-weight:600; cursor:pointer; }}
-button:disabled {{ opacity:0.4; cursor:not-allowed; }}
+{BTN_CSS}
 #pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 <h1>clawmarks curation server</h1>
-<p>{html.escape(manifest_summary)}</p>
 <div class="panel">
 <p class="sub">No expedition/leg selected. Pick an existing leg below, or create a new
 expedition first if this is a genuinely new line of work.</p>
+{rows or '<p class="sub">No expeditions exist yet.</p>'}
+<div id="pickError"></div>
+</div>
+<script>
+document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
+  document.getElementById('pickError').textContent = '';
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
+  }}).then(async r => {{
+    const d = await r.json();
+    if (!r.ok) {{
+      document.getElementById('pickError').textContent = d.error || 'selection failed';
+    }} else {{
+      location.reload();
+    }}
+  }});
+}}));
+</script>
+</body></html>""".encode()
+
+    def _status_page_selected_empty_body(self, selection, manifest_summary):
+        expeditions = _list_expeditions()
+        rows = "".join(
+            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
+            + " ".join(
+                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
+                for leg in e["legs"]
+            )
+            + "</div>"
+            for e in expeditions
+        )
+        return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>clawmarks curation server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{DARK_TOKENS}
+body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; }}
+p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+p.sub {{ max-width:640px; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:16px; margin-top:16px; max-width:640px; }}
+.exp-row {{ margin:8px 0; }}
+{BTN_CSS}
+#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+</style></head><body>
+<h1>clawmarks curation server</h1>
+<p>Active: <code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code>,
+{html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>
+or pick a different leg below.</p>
+<div class="panel">
+{rows or '<p class="sub">No expeditions exist yet.</p>'}
+<div id="pickError"></div>
+</div>
+<script>
+document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
+  document.getElementById('pickError').textContent = '';
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
+  }}).then(async r => {{
+    const d = await r.json();
+    if (!r.ok) {{
+      document.getElementById('pickError').textContent = d.error || 'selection failed';
+    }} else {{
+      location.reload();
+    }}
+  }});
+}}));
+</script>
+</body></html>""".encode()
+
+    def _status_page_data_integrity_error_body(self, selection, n_entries):
+        expeditions = _list_expeditions()
+        rows = "".join(
+            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
+            + " ".join(
+                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
+                for leg in e["legs"]
+            )
+            + "</div>"
+            for e in expeditions
+        )
+        return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>clawmarks curation server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{DARK_TOKENS}
+body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; }}
+p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+p.sub {{ max-width:640px; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:16px; margin-top:16px; max-width:640px; }}
+.exp-row {{ margin:8px 0; }}
+{BTN_CSS}
+#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+</style></head><body>
+<h1>clawmarks curation server</h1>
+<div class="panel">
+<p class="sub"><strong>Data integrity warning:</strong> active leg
+<code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code> lists
+{n_entries} manifest images, but none are present on disk. Do not launch a new round. Check
+your backup or the state directory at <code>$XDG_STATE_HOME/clawmarks/</code> before changing
+this leg.</p>
+<p class="sub">Pick a different leg below if needed.</p>
 {rows or '<p class="sub">No expeditions exist yet.</p>'}
 <div id="pickError"></div>
 </div>
@@ -1070,6 +1243,10 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             with _lock:
                 self._json_response(200, load_store(_favorites_file()))
             return
+        if self.path == "/api/preference_rank/flags":
+            with _lock:
+                self._json_response(200, load_store(_preference_rank_flags_file()))
+            return
         if self.path == "/api/counterfactuals":
             with _lock:
                 self._json_response(200, load_store(_counterfactuals_file()))
@@ -1113,8 +1290,10 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        if self.path == "/scan.html":
-            html = scan_gallery.render_html(_get_scan_items())
+        if self.path == "/scan.html" or self.path.startswith("/scan.html?"):
+            html = scan_gallery.render_html(
+                _get_scan_items(), _active_selection["expedition"], _active_selection["leg"]
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1127,7 +1306,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/map.html":
-            html = map_view.render_html(_get_map_data())
+            html = map_view.render_html(_get_map_data(), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1137,7 +1316,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/redundancy.html":
-            html = redundancy_view.render_html(_get_redundancy_data())
+            html = redundancy_view.render_html(_get_redundancy_data(), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1147,7 +1326,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/coverage.html":
-            html = coverage_map.render_html(_get_manifest_cached("coverage", coverage_map.compute_data))
+            html = coverage_map.render_html(_get_manifest_cached("coverage", coverage_map.compute_data), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1157,7 +1336,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/novelty_decay.html":
-            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data))
+            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1167,7 +1346,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/lineage.html":
-            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data))
+            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1187,7 +1366,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
                 watched_files=watched, sweep_dir=str(_active_out_dir()),
             )
-            html = elite_archive.render_html(data)
+            html = elite_archive.render_html(data, active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1201,7 +1380,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 "preference_rank", preference_rank.compute_data,
                 watched_files=_prediction_watched_files(), sweep_dir=str(_active_out_dir()),
             )
-            html = preference_rank.render_html(data)
+            html = preference_rank.render_html(data, active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1211,7 +1390,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/preference_status.html":
-            html = preference_status.render_html(_get_preference_status_data())
+            html = preference_status.render_html(_get_preference_status_data(), active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1234,7 +1413,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/seeds.html":
-            body = seed_browser.render_html().encode()
+            body = seed_browser.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -1243,7 +1422,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/compare.html":
-            body = compare_page.render_html().encode()
+            body = compare_page.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -1265,6 +1444,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             body = cockpit.render_html(
                 expeditions=[e["name"] for e in _list_expeditions()],
                 current_expedition=_active_selection["expedition"],
+                active_expedition=_active_selection["expedition"],
+                active_leg=_active_selection["leg"],
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1274,7 +1456,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/runs.html":
-            body = runs_page.render_html().encode()
+            body = runs_page.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -1358,6 +1540,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             except ValueError as e:
                 self._json_response(400, {"error": str(e)})
                 return
+            _warn_if_manifest_images_missing()
             self._json_response(200, dict(_active_selection))
             return
 
@@ -1406,6 +1589,19 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, _get_preference_status_data())
             return
 
+        if self.path == "/api/preference_rank/flag":
+            tag = payload.get("tag")
+            flag = payload.get("flag")
+            if not tag or flag not in {"matches", "questionable"}:
+                self._json_response(400, {"error": "'tag' and a valid 'flag' are required"})
+                return
+            with _lock:
+                flags = load_store(_preference_rank_flags_file())
+                flags[tag] = {"flag": flag, "flagged_at": datetime.now(timezone.utc).isoformat()}
+                save_store(_preference_rank_flags_file(), flags)
+            self._json_response(200, {"ok": True, "tag": tag, "flag": flag})
+            return
+
         if self.path == "/api/preference_retrain":
             try:
                 with _lock:
@@ -1434,20 +1630,40 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if not tag:
                 self._json_response(400, {"error": "missing 'tag'"})
                 return
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if expedition is None or leg is None:
+                _logger.warning("favorite mutation without expedition/leg is deprecated")
+                favorites_file = _favorites_file()
+            elif (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
+                self._json_response(409, {"error": "favorite mutation targets a stale expedition/leg"})
+                return
+            else:
+                favorites_file = _favorites_file(expedition, leg)
             with _lock:
-                favorites = load_store(_favorites_file())
+                favorites = load_store(favorites_file)
                 payload["favorited_at"] = datetime.now(timezone.utc).isoformat()
                 favorites[tag] = payload
-                save_store(_favorites_file(), favorites)
+                save_store(favorites_file, favorites)
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
         if self.path == "/api/unfavorite":
             tag = payload.get("tag")
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if expedition is None or leg is None:
+                _logger.warning("favorite mutation without expedition/leg is deprecated")
+                favorites_file = _favorites_file()
+            elif (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
+                self._json_response(409, {"error": "favorite mutation targets a stale expedition/leg"})
+                return
+            else:
+                favorites_file = _favorites_file(expedition, leg)
             with _lock:
-                favorites = load_store(_favorites_file())
+                favorites = load_store(favorites_file)
                 favorites.pop(tag, None)
-                save_store(_favorites_file(), favorites)
+                save_store(favorites_file, favorites)
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
@@ -1487,7 +1703,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if self.path == "/api/searchrun/stop":
-            self._json_response(200, run_manager.stop_run())
+            self._json_response(200, run_manager.stop_run(
+                pid=payload.get("pid"), start_time_ticks=payload.get("start_time_ticks")))
             return
 
         self._json_response(404, {"error": "unknown endpoint"})
@@ -1877,7 +2094,13 @@ def _check_manifest_images():
         return  # nothing selected yet; the empty-state hub handles this case
     manifest_path = active_dir / "scored_manifest.json"
     if not manifest_path.exists():
-        print(f"warning: no scored_manifest.json at {manifest_path}, skipping image check", flush=True)
+        print(
+            "warning: active leg "
+            f"{_active_selection['expedition']}/{_active_selection['leg']} has no scored manifest at "
+            f"{manifest_path}. Switch to a completed leg or launch a round for this leg.",
+            file=sys.stderr,
+            flush=True,
+        )
         return
     with open(manifest_path) as f:
         manifest = json.load(f)
@@ -1898,6 +2121,30 @@ def _check_manifest_images():
         sys.exit(1)
     if n_present < n_total:
         print(f"warning: only {n_present}/{n_total} manifest images found on disk", flush=True)
+
+
+def _warn_if_manifest_images_missing():
+    active_dir = _active_out_dir()
+    if active_dir is None:
+        return
+    manifest_path = active_dir / "scored_manifest.json"
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        n_total = len(manifest)
+        if n_total == 0:
+            return
+        n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return
+    if n_present == 0:
+        print(
+            f"warning: none of {n_total} images in {manifest_path} exist on disk after selecting "
+            f"{_active_selection['expedition']}/{_active_selection['leg']}; check backups before "
+            "launching a new round",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def main(argv=None):

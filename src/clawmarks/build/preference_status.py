@@ -11,7 +11,15 @@ import os
 from pathlib import Path
 
 from clawmarks.search import embed_cache, preference_pairwise_model, preference_settings
-from clawmarks.shared_ui import INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    nav_bar_html,
+)
 
 
 def compute_data(sweep_dir):
@@ -74,7 +82,7 @@ def compute_data(sweep_dir):
     }
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None, running=None):
     gate_html = (f'<p class="gate">{data["comparisons_gate_message"]}</p>'
                  if data["comparisons_gate_message"] else '<p class="gate ok">ready to train.</p>')
 
@@ -119,10 +127,11 @@ def render_html(data):
 <title>CLAWMARKS preference status</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee; --text-dim:#9a9aa4; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 .panel {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:16px; max-width:520px; }}
@@ -133,15 +142,16 @@ table.meta {{ font-size:13px; border-collapse:collapse; }}
 table.meta td {{ padding:3px 10px 3px 0; color:var(--text-dim); }}
 table.meta td:first-child {{ color:var(--text); }}
 .interpretation {{ color:var(--text-dim); margin-left:6px; }}
-.toggle-row {{ margin-top:14px; display:flex; align-items:center; gap:8px; }}
-.secondary {{ background:#24242a; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
+.toggle-row {{ margin-top:14px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }}
+.secondary {{ background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
 #toggle-status, #retrain-status {{ font-size:12px; color:var(--text-dim); margin-left:8px; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_status.html')}
+{nav_bar_html('preference_status.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Preference classifier status</h1>
 <p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}).</p>
+<p class="sub"><a href="compare.html">Compare more images</a> or <a href="preference_rank.html">review the ranking</a>.</p>
 <div class="panel">
 {gate_html}
 {staleness_html}

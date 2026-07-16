@@ -18,6 +18,21 @@ def test_check_manifest_images_is_a_noop_with_no_active_leg(monkeypatch, tmp_pat
     cs._check_manifest_images()  # should not raise, print a warning, or sys.exit
 
 
+def test_check_manifest_images_warns_to_stderr_when_selected_leg_has_no_manifest(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
+    monkeypatch.setitem(cs._active_selection, "expedition", "uncanny_frontier")
+    monkeypatch.setitem(cs._active_selection, "leg", "round3")
+
+    cs._check_manifest_images()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "uncanny_frontier/round3" in captured.err
+    assert "launch a round" in captured.err
+
+
 def test_reconcile_stuck_trials_is_a_noop_with_no_active_leg(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "EXPEDITIONS_DIR", tmp_path / "expeditions")
     monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
@@ -46,7 +61,7 @@ def test_status_page_shows_no_leg_selected_without_error_string(running_server_n
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
         body = resp.read().decode()
     assert resp.status == 200
-    assert "no expedition/leg selected" in body
+    assert "no expedition/leg selected" in body.lower()
     assert "could not read manifest" not in body
 
 

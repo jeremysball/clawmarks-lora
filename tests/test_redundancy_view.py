@@ -49,3 +49,30 @@ def test_slider_falls_back_to_a_valid_range_with_no_edges():
         {"sim_scored": {}, "thumbs": {}, "meta": {}}))
     assert lo < hi
     assert lo <= default <= hi
+
+
+def test_render_html_explains_dinov2_and_similarity_threshold_scale():
+    data = {
+        "sim_scored": {"a": [["b", 0.71]], "b": [["a", 0.98]]},
+        "thumbs": {},
+        "meta": {},
+    }
+    html = redundancy_view.render_html(data)
+    assert "DINOv2 is an open vision model" in html
+    assert "image-to-image match threshold" in html
+    assert "tightest 5% of pairs this sweep" in html
+    assert "your pairs span 0.71-0.98" in html
+    assert "(highest novelty)" in html
+
+
+def test_render_html_never_emits_a_literal_closing_script_tag():
+    """A literal "</script>" substring anywhere before the real closing tag truncates the
+    browser's HTML parse of the whole <script> block early -- everything after it is dropped
+    silently, with no console error. This bit six pages via a copy-pasted comment; guard
+    against it coming back."""
+    data = {"sim_scored": {}, "thumbs": {}, "meta": {}}
+    html = redundancy_view.render_html(data)
+    script_start = html.index("<script>")
+    script_end = html.index("</script>", script_start + len("<script>"))
+    body = html[script_start + len("<script>"):script_end]
+    assert "</script" not in body

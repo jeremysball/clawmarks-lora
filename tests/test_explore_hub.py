@@ -15,3 +15,10 @@ def test_hub_lists_the_same_tools_as_the_nav_dropdown():
     nav_tools = [href for href, _ in NAV_OPTIONS if href != "explore.html"]
     hub_tools = [path for path, _, _ in explore_hub.TOOLS]
     assert hub_tools == nav_tools
+
+
+def test_hub_groups_tools_into_researcher_workflows():
+    html = explore_hub.render_html()
+
+    for heading in ("Generate", "Curate", "Understand search", "Preference model"):
+        assert f"<h2>{heading}</h2>" in html

@@ -17,12 +17,36 @@ import json
 import os
 import re
 
-from clawmarks.shared_ui import MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    json_script,
+    nav_bar_html,
+)
+
+
+def round_of(tag):
+    """Which search round produced this tag. Only round 1 (no prefix) and round 2 (`r2_`
+    prefix) exist so far; extend this if a round 3 driver ever ships."""
+    return 2 if tag.startswith("r2_") else 1
 
 
 def generation_of(tag):
+    """Generation number *within* its round. Combined with round_of() below into a single
+    sortable integer, since generation numbers restart at 0 each round: a bare gen3_ from round 1
+    and an r2_gen3_ from round 2 both parse to 3 here, so sorting on this alone put round 2's
+    early generations in the middle of round 1's, instead of after all of round 1."""
     m = re.match(r"(?:r2_)?gen(\d+)_", tag)
     return int(m.group(1)) if m else 0
+
+
+def sortable_generation(tag):
+    """Round-aware sort key: round dominates, generation breaks ties within a round."""
+    return round_of(tag) * 100_000 + generation_of(tag)
 
 
 def compute_data(sweep_dir, deps):
@@ -42,6 +66,7 @@ def compute_data(sweep_dir, deps):
             "thumb": thumb_path if has_thumb else os.path.basename(m["file"]),
             "tag": m["tag"],
             "gen": generation_of(m["tag"]),
+            "sort_gen": sortable_generation(m["tag"]),
             "category": m["category"],
             "prompt_name": m["prompt_name"],
             "prompt_type": m["prompt_type"],
@@ -65,7 +90,7 @@ def compute_data(sweep_dir, deps):
     return items
 
 
-def render_html(items):
+def render_html(items, active_expedition=None, active_leg=None):
     data_json = json_script(items)
 
     faith_tip = info_btn(
@@ -107,13 +132,8 @@ def render_html(items):
 <title>CLAWMARKS uncanny scan</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{
-  color-scheme: dark;
-  --bg: #0b0b0d; --panel: #16161a; --panel-2: #1d1d22; --border: #2a2a30;
-  --text: #eaeaee; --text-dim: #9a9aa4; --text-faint: #6a6a74;
-  --accent: #7c9eff; --style: #5ec98a; --conflict: #e0a25e; --pick: #f5c542;
-  --radius: 10px;
-}}
+{DARK_TOKENS}
+:root {{ --style: #5ec98a; --conflict: #e0a25e; --radius: 10px; }}
 * {{ box-sizing: border-box; }}
 body {{
   background: var(--bg); color: var(--text); margin:0; padding:0;
@@ -121,6 +141,8 @@ body {{
   -webkit-font-smoothing: antialiased;
 }}
 {MOBILE_BASE_CSS}
+{TOPNAV_CSS}
+{BTN_CSS}
 #bar {{
   position:sticky; top:0; z-index:10; background: rgba(22,22,26,0.92); backdrop-filter: blur(10px);
   border-bottom:1px solid var(--border); padding:12px 20px; display:flex; gap:18px;
@@ -183,19 +205,9 @@ body {{
 {INFOTIP_CSS}
 </style></head><body>
 
-<div id="bar" data-autohide>
-  <h1>CLAWMARKS <span>uncanny scan</span></h1>
-  <label>More tools <select id="toolNav" onchange="if(this.value) location.href=this.value;">
-    <option value="">jump to...</option>
-    <option value="explore.html">all tools (hub)</option>
-    <option value="map.html">solution map (UMAP)</option>
-    <option value="coverage.html">coverage / void map</option>
-    <option value="archive.html">elite archive</option>
-    <option value="redundancy.html">redundancy clusters</option>
-    <option value="novelty_decay.html">novelty decay watchlist</option>
-    <option value="lineage.html">lineage tree</option>
-    <option value="seeds.html">candidate seeds</option>
-  </select></label>
+{nav_bar_html('scan.html', active_expedition, active_leg)}
+<div id="bar">
+   <h1>CLAWMARKS <span>uncanny scan</span></h1>
   <label>Sort{novelty_tip} <select id="sortKey">
     <option value="novelty_desc">Novelty (high to low)</option>
     <option value="faith_desc">Faithfulness (high to low)</option>
@@ -253,7 +265,7 @@ fetch('/api/favorites').then(r => r.json()).then(f => {{
   favorites = f;
   picks = {{}};
   Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
-}}).catch(() => {{}}).then(render);
+}}).catch(() => {{}}).then(applyFilters);
 
 (function populatePromptFilter() {{
   const names = Array.from(new Set(DATA.map(d => d.prompt_name))).sort();
@@ -261,6 +273,32 @@ fetch('/api/favorites').then(r => r.json()).then(f => {{
   sel.innerHTML = '<option value="">all</option>' +
     names.map(n => `<option value="${{escHtml(n)}}">${{escHtml(n)}}</option>`).join('');
 }})();
+
+// Every control that shapes `view` gets mirrored into the URL's query string, so a filtered/
+// sorted view survives a reload or a browser-back navigation instead of resetting to defaults.
+const FILTER_IDS = ['sortKey', 'typeFilter', 'catFilter', 'promptFilter', 'faithMin', 'faithMax',
+  'search', 'pickedOnly', 'favoritedOnly'];
+
+function syncStateToUrl() {{
+  const params = new URLSearchParams();
+  FILTER_IDS.forEach(id => {{
+    const el = document.getElementById(id);
+    const val = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value;
+    if (val) params.set(id, val);
+  }});
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? `${{location.pathname}}?${{qs}}` : location.pathname);
+}}
+
+function syncStateFromUrl() {{
+  const params = new URLSearchParams(location.search);
+  FILTER_IDS.forEach(id => {{
+    if (!params.has(id)) return;
+    const el = document.getElementById(id);
+    if (el.type === 'checkbox') el.checked = params.get(id) === '1';
+    else el.value = params.get(id);
+  }});
+}}
 
 function applyFilters() {{
   const type = document.getElementById('typeFilter').value;
@@ -290,12 +328,13 @@ function applyFilters() {{
       case 'novelty_desc': return b.novelty - a.novelty;
       case 'faith_desc': return b.faith - a.faith;
       case 'faith_asc': return a.faith - b.faith;
-      case 'gen_desc': return b.gen - a.gen;
-      case 'gen_asc': return a.gen - b.gen;
+      case 'gen_desc': return b.sort_gen - a.sort_gen;
+      case 'gen_asc': return a.sort_gen - b.sort_gen;
       case 'prompt_asc': return a.prompt_name.localeCompare(b.prompt_name);
       case 'prompt_desc': return b.prompt_name.localeCompare(a.prompt_name);
     }}
   }});
+  syncStateToUrl();
   withViewTransition(render);
 }}
 
@@ -391,6 +430,12 @@ document.addEventListener('lightbox:favorite', e => {{
   withViewTransition(render);
 }});
 
+window.addEventListener('popstate', () => {{
+  syncStateFromUrl();
+  applyFilters();
+}});
+
+syncStateFromUrl();
 applyFilters();
 </script>
 </body></html>"""

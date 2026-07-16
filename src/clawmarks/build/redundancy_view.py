@@ -19,7 +19,17 @@ import json
 import math
 import os
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    DINO_TIP,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    json_script,
+    nav_bar_html,
+)
 
 
 def compute_data(sweep_dir, deps):
@@ -43,7 +53,7 @@ def compute_data(sweep_dir, deps):
     return {"sim_scored": sim_scored, "thumbs": thumbs, "meta": meta}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None, running=None):
     sim_scored = data["sim_scored"]
     thumbs = data["thumbs"]
     meta = data["meta"]
@@ -55,6 +65,7 @@ def render_html(data):
         "group of near-duplicates. Read a big cluster as 'this region is redundant,' not as 'every "
         "pair in it looks alike.'"
     )
+    dino_tip = info_btn(DINO_TIP)
 
     # Size the slider to the data, not a fixed near-duplicate range. A diverse single-round seed
     # run's closest pairs can sit near cosine 0.78, below the old hardcoded 0.80 minimum, so every
@@ -71,6 +82,10 @@ def render_html(data):
         default_thresh = min(max(default_thresh, slider_min), slider_max)
     else:
         slider_min, slider_max, default_thresh = 0.80, 0.99, 0.93
+    pair_range = (
+        f"your pairs span {all_scores[0]:.2f}-{all_scores[-1]:.2f}"
+        if all_scores else "no neighbor pairs yet"
+    )
 
     edges_json = json_script(sim_scored)
     thumbs_json = json_script(thumbs)
@@ -80,10 +95,11 @@ def render_html(data):
 <title>CLAWMARKS redundancy clusters</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee; --text-dim:#9a9aa4; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
@@ -103,22 +119,23 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('redundancy.html')}
+{nav_bar_html('redundancy.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Redundancy clusters{cluster_tip}</h1>
-<p class="sub">Connected components over each image's top-16 DINOv2 nearest neighbors, using
+<p class="sub">Connected components over each image's top-16 DINOv2{dino_tip} nearest neighbors, using
 only edges at or above the similarity threshold below. Higher threshold = stricter "near-
 duplicate," lower threshold = looser "similar family." This tells you the effective diversity
 of the population, not just its raw count.</p>
 
 <div id="bar">
-  <label>Similarity threshold &ge; <input type="range" id="thresh" min="{slider_min:.3f}" max="{slider_max:.3f}" step="0.005" value="{default_thresh:.3f}"></label>
+  <label>image-to-image match threshold &ge; <input type="range" id="thresh" min="{slider_min:.3f}" max="{slider_max:.3f}" step="0.005" value="{default_thresh:.3f}"></label>
   <span id="threshLabel"></span>
+  <span>default {default_thresh:.2f} (tightest 5% of pairs this sweep); {pair_range}</span>
 </div>
 <div id="summary"></div>
 <div id="clusters"></div>
 
 <script>
-// json_script() only protects this declaration from a </script> breakout; it does not
+// json_script() only protects this declaration from a <\\/script> breakout; it does not
 // HTML-escape decoded string values. Every EDGES/THUMBS/META field written into innerHTML/an
 // attribute below must go through escHtml() first.
 function escHtml(s) {{
@@ -171,7 +188,7 @@ function render() {{
   document.getElementById('clusters').innerHTML = renderedClusters.map((g, gi) => {{
     const rep = g.reduce((best, t) => (META[t] && (!best || META[t].novelty > META[best].novelty)) ? t : best, null);
     return `<div class="cluster">
-      <div class="head">${{g.length}} images | representative: ${{escHtml(rep)}} (${{META[rep] ? escHtml(META[rep].prompt_name) : ''}})</div>
+      <div class="head">${{g.length}} images | representative (highest novelty): ${{escHtml(rep)}} (${{META[rep] ? escHtml(META[rep].prompt_name) : ''}})</div>
       <div class="strip">${{g.map((t, ti) => `<img loading="lazy" src="${{escHtml(THUMBS[t] || '')}}" data-tag="${{escHtml(t)}}" title="${{escHtml(t)}}" style="cursor:pointer" onclick="openClusterItem(${{gi}}, ${{ti}})">`).join('')}}</div>
     </div>`;
   }}).join('') + (multi.length > 60 ? `<p style="color:#9a9aa4;font-size:12px;">...and ${{multi.length - 60}} more clusters not shown</p>` : '');

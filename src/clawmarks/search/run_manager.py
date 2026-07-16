@@ -240,10 +240,17 @@ def _signal_run(pid, sig):
         pass
 
 
-def stop_run(grace_s=STOP_GRACE_S, sleep_fn=time.sleep):
+def stop_run(grace_s=STOP_GRACE_S, sleep_fn=time.sleep, pid=None, start_time_ticks=None):
     info = current_run()
     if info is None:
         return {"running": False}
+
+    # Reject a confirmation for a different run instead of signaling the live one.
+    if pid is not None and pid != info["pid"]:
+        return {"running": True, "error": "run changed since confirmation"}
+    recorded = info.get("start_time_ticks")
+    if start_time_ticks is not None and recorded is not None and start_time_ticks != recorded:
+        return {"running": True, "error": "run changed since confirmation"}
 
     pid = info["pid"]
     _signal_run(pid, signal.SIGTERM)

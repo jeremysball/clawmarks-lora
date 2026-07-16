@@ -34,6 +34,26 @@ def test_preference_status_html_route_serves_page(running_server):
     assert "Preference classifier status" in body
 
 
+def test_preference_rank_html_serves_no_model_state_before_first_manifest(running_server):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+    (tmp_path / "scored_manifest.json").unlink()
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/preference_rank.html") as resp:
+        body = resp.read().decode()
+
+    assert "No trained model" in body
+
+
+def test_prediction_watch_list_includes_model_paths_before_training(tmp_path, monkeypatch):
+    monkeypatch.setattr(cs, "_active_out_dir", lambda: tmp_path)
+
+    watched_files = cs._prediction_watched_files()
+
+    assert str(tmp_path / "preference_pairwise_model.joblib") in watched_files
+    assert str(tmp_path / "preference_pairwise_model_meta.json") in watched_files
+
+
 def test_api_preference_status_route_returns_json(running_server):
     server, tmp_path = running_server
     port = server.server_address[1]
@@ -68,6 +88,22 @@ def test_post_preference_toggle_accepts_enable_with_model_and_persists(running_s
         data = json.loads(resp.read().decode())
     assert data["use_predicted_preference"] is True
     assert preference_settings.load(tmp_path)["use_predicted_preference"] is True
+
+
+def test_preference_rank_flags_persist_without_becoming_training_labels(running_server):
+    server, tmp_path = running_server
+    port = server.server_address[1]
+
+    result = _post_json(
+        f"http://127.0.0.1:{port}/api/preference_rank/flag",
+        {"tag": "sample", "flag": "questionable"},
+    )
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/preference_rank/flags") as resp:
+        flags = json.loads(resp.read().decode())
+
+    assert result == {"ok": True, "tag": "sample", "flag": "questionable"}
+    assert flags["sample"]["flag"] == "questionable"
+    assert json.loads((tmp_path / "user_comparisons.json").read_text()) == []
 
 
 def test_archive_html_uses_persisted_setting_not_query_param(running_server, monkeypatch):

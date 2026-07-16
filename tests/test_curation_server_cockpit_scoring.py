@@ -164,15 +164,26 @@ def test_cockpit_expedition_selector_switches_to_cockpit_leg():
     assert "JSON.stringify({expedition, leg: 'cockpit'})" in page
 
 
+def test_cockpit_has_a_dark_prefers_color_scheme_variant():
+    page = cockpit.render_html()
+
+    assert "@media (prefers-color-scheme: dark)" in page
+    assert "--paper:#0b0b0d" in page
+    assert ".topnav.cockpit-topnav" not in page
+
+
 def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
     (config.EXPEDITIONS_DIR / "other" / "legs").mkdir(parents=True)
     (config.EXPEDITIONS_DIR / "other" / "expedition.json").write_text("{}")
     cs._set_active_selection("demo", "round1")
     captured = {}
 
-    def fake_render_html(*, expeditions, current_expedition):
+    def fake_render_html(*, expeditions, current_expedition, active_expedition, active_leg, running):
         captured["expeditions"] = expeditions
         captured["current_expedition"] = current_expedition
+        captured["active_expedition"] = active_expedition
+        captured["active_leg"] = active_leg
+        captured["running"] = running
         return "cockpit page"
 
     monkeypatch.setattr(cockpit, "render_html", fake_render_html)
@@ -191,5 +202,8 @@ def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
     assert captured == {
         "expeditions": ["demo", "other"],
         "current_expedition": "demo",
+        "active_expedition": "demo",
+        "active_leg": "cockpit",
+        "running": None,
     }
     assert cs._active_selection == {"expedition": "demo", "leg": "cockpit"}

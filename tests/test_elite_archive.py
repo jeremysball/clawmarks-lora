@@ -34,3 +34,23 @@ def test_compute_data_uses_favorited_images_not_user_picks(tmp_path, monkeypatch
     assert len(cells) == 1
     tags_in_cell = {item["tag"] for item in cells[0]["items"]}
     assert tags_in_cell == {"a", "b"}
+
+
+def test_render_html_uses_panel_token_for_view_all_button():
+    html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
+
+    assert ".cell .viewall { display:block; width:100%; background:var(--panel-2);" in html
+
+
+def test_render_html_never_emits_a_literal_closing_script_tag():
+    """A literal "</script>" substring anywhere before the real closing tag truncates the
+    browser's HTML parse of the whole <script> block early -- everything after it (CELLS,
+    render(), openModal(), ...) is dropped silently, with no console error, and the leftover
+    HTML-shaped text in template literals gets parsed as real (non-functional) DOM instead.
+    This bit archive.html and five sibling pages via a copy-pasted comment; guard against it
+    coming back."""
+    html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
+    script_start = html.index("<script>")
+    script_end = html.index("</script>", script_start + len("<script>"))
+    body = html[script_start + len("<script>"):script_end]
+    assert "</script" not in body

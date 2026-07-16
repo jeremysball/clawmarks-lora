@@ -11,7 +11,17 @@ import json
 import re
 from collections import defaultdict
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    DINO_TIP,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    json_script,
+    nav_bar_html,
+)
 
 
 def compute_data(sweep_dir):
@@ -47,25 +57,27 @@ def compute_data(sweep_dir):
     return {"series": series}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None, running=None):
     series = data["series"]
+    dino_tip = info_btn(DINO_TIP)
 
     if not series:
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS novelty decay watchlist</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; }}
+{DARK_TOKENS}
 body {{ background:#0b0b0d; color:#eaeaee; font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 h1 {{ font-size:18px; }}
 p {{ color:#9a9aa4; max-width:640px; font-size:13px; line-height:1.7; }}
 a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 </style></head><body>
-{nav_bar_html('novelty_decay.html')}
+{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Novelty decay watchlist</h1>
-<p>No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
+<p>DINOv2{dino_tip} scores every image before this chart groups them. No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
 to plot (placeholder page). This chart tracks each prompt's mean novelty generation over
 generation, to flag prompts that have stopped yielding new territory; a single-generation seed
 run has nothing to compare across.</p>
@@ -86,11 +98,12 @@ sparkline per prompt family that has appeared more than once, sorted worst-trend
 <title>CLAWMARKS novelty decay watchlist</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --up:#5ec98a; --down:#e0605e; --flat:#9a9aa4; }}
+{DARK_TOKENS}
+:root {{ --flat:#9a9aa4; }}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
@@ -112,9 +125,9 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('novelty_decay.html')}
+{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Novelty decay watchlist{trend_tip}</h1>
-<p class="sub">Mean novelty per generation, one line per prompt family that has appeared in 2+
+<p class="sub">DINOv2{dino_tip} scores every image before this chart groups them. Novelty measures how unlike an image is from the images already explored. Mean novelty per generation, one line per prompt family that has appeared in 2+
 generations, sorted worst-trending first. A flat or falling line means that prompt has stopped
 yielding new territory against the growing "already explored" set and is a candidate to retire
 from the explore pool; a rising line means it's still working.</p>
@@ -122,7 +135,7 @@ from the explore pool; a rising line means it's still working.</p>
 <div id="list"></div>
 
 <script>
-// json_script() only protects this declaration from a </script> breakout; it does not
+// json_script() only protects this declaration from a <\\/script> breakout; it does not
 // HTML-escape decoded string values. Every SERIES field written into innerHTML below must
 // go through escHtml() first.
 function escHtml(s) {{

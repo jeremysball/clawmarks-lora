@@ -22,3 +22,4 @@ def test_compute_data_builds_tree_when_parent_tags_exist(tmp_path):
     assert data["has_lineage"] is True
     html = lineage_view.render_html(data)
     assert "a" in html and "b" in html
+    assert "Continue this lineage in cockpit" in html

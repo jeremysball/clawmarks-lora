@@ -2276,3 +2276,281 @@ definitions in `curation_server.py` (git merged them without flagging a conflict
 didn't textually overlap); kept the expedition/leg-aware one, deleted the `SWEEP_DIR`-based
 duplicate it shadowed. `rg -n "SWEEP_DIR|SWEEP2_DIR|ROUND_CONFIGS|RoundConfig" src/ tests/`
 confirms nothing remains.
+
+### 2026-07-15 (session 13): UX shard-review plan, Phases 1-5 shipped as stacked PRs
+
+Started closing findings from a 10-shard UX review of the curation server
+(`docs/superpowers/plans/design-shards/*.md`), tracked by
+`docs/superpowers/plans/2026-07-15-ui-design-shard-findings.md` across 8 phases. Delivered each
+phase as its own PR, stacked on the previous phase's branch rather than on `main`, so review stays
+scoped per phase: Phase 1 (active expedition/leg visibility, PR #34), Phase 2 (confirm
+destructive/paid actions, PR #35), Phase 3 (compare.html judgment-workflow correctness, PR #36),
+Phase 4 (visual design-token consolidation, PR #37), Phase 5 (gallery/archive at scale, PR #38).
+
+Phase 5's most significant finding was unplanned: while porting `scan_gallery.py`'s
+pagination pattern into `elite_archive.py`'s "view all" modal, a page rendered with `CELLS` and
+`openModal()` undefined in the browser, no console error. Root cause was a copy-pasted comment
+containing a literal `</script>` substring inside a `<script>` block. The browser's HTML tokenizer
+closes a `<script>` element on the *first* `</script`-prefixed text it sees, including inside a
+JS comment, since it's not JS-aware at that point in parsing, only scanning for the literal
+closing tag. Everything after that point, including the real code and the real closing tag,
+gets dropped from the script and parsed as plain markup instead. This bit six pages that all
+carried the same comment (archive, coverage, map, redundancy, novelty-decay, preference-rank):
+every one of them has had a completely dead grid, no click handlers, no data loading, for as long
+as that comment existed, with nothing in server logs or the browser console to flag it. Fixed by
+escaping it as `<\/script>` (backslash before the slash defeats the tokenizer's literal match) in
+all six files, and added a regression test per module asserting the rendered `<script>` body never
+contains a bare `</script` substring.
+
+Also fixed a second, smaller regression this same phase introduced: persisting scan.html's
+filter/sort state in the URL (`history.replaceState`) meant `/scan.html?sortKey=...` requests
+started hitting the server, but the route matched only the bare path (`self.path ==
+"/scan.html"`) and 404'd on anything with a query string. Widened the match to
+`self.path.startswith("/scan.html?")` as well, same pattern `archive.html`'s route already used
+for its own `?cell=` query param.
+
+Remaining phases (6: error/empty-state legibility, 7: DINOv2-similarity explainability, 8:
+remaining IA/nav/hygiene) not yet started; each gets its own worktree stacked on the prior phase's
+branch, following the same one-PR-per-phase pattern.
+
+### 2026-07-15 (session 14): Phase 5 review fixes and Phase 6 complete
+
+A GLM review of Phase 5 (PR #38) found two scan-page regressions. The round-aware sort change
+had replaced the human-readable generation field with its internal composite sort key, so the
+shared lightbox would show values such as `gen 200003`. The sort key now lives in a separate
+`sort_gen` field. The URL-restored picked/favorited filters also ran before the favorite records
+loaded and then only re-rendered the already-empty result set. The favorites callback now reruns
+the filters after it loads. Both fixes have regression tests.
+
+Completed Phase 6 on a branch stacked above the corrected Phase 5 commit. Missing manifests now
+tell the researcher to switch legs or launch a round, while missing images still explain stale
+manifest paths. Error pages name the failed route. Startup writes an actionable missing-manifest
+warning to stderr with the active expedition and leg. All 404s, including static-file fallthroughs,
+now render a dark, app-consistent page instead of the standard-library error document. The full
+suite passed with 396 tests, and Playwright verified the styled 404 at desktop and mobile widths.
+
+### 2026-07-15 (session 15): Phase 7 makes DINOv2 score views interpretable
+
+Completed the DINOv2-similarity explainability pass on a worktree stacked above Phase 6. The
+solution map, coverage map, redundancy clusters, and novelty-decay views now share one short
+DINOv2 explanation. The map distinguishes style match to the average real-art embedding from the
+closest single training photo, shows each sweep's style-match range and median in the hover panel,
+and includes an on-canvas mark legend plus a play-control tooltip. Coverage now explains its
+quantile bins and median frontier gate, and its legend marks one image, the median count, and the
+maximum count. Redundancy names its slider an image-to-image match threshold, gives its actual
+pair range, and identifies the representative as the highest-novelty member. Novelty decay now
+defines novelty before asking the researcher to act on a trend.
+
+Added rendering tests for every page, including the no-data novelty state. The focused suite has
+23 passing tests. The full suite has 400 passing tests, and ruff plus mypy are clean. A server
+smoke attempt reached the expected startup state but could not render the four pages because the
+user's currently selected `uncanny_frontier/cockpit` leg has no scored manifest. Selecting another
+leg would write the user's active-leg state, so that live check was intentionally not performed.
+
+### 2026-07-15 (session 16): Phase 8 navigation and review-workflow improvements
+
+Grouped the shared tool menu and the tools hub into Generate, Curate, Understand search, and
+Preference model. The scan page now uses that shared navigation contract. Added next-step links
+between high-traffic pages: compare links to model status and ranking, the status page links back
+to comparison and forward to ranking, completed runs link to scan, coverage, and novelty review,
+coverage links frontier gaps to the cockpit, and lineage links back to the cockpit.
+
+The comparison task now works with keyboard and screen-reader controls. Each image pane and its
+magnifier receives focus, Enter and Space activate it, Escape closes the full-size view and
+returns focus, and faithfulness and novelty stay hidden until after a choice. This prevents the
+numeric scores from anchoring a judgment before the researcher has looked at the images.
+
+The predicted-preference page now provides a bounded review mode with the top 20, middle 10, and
+bottom 10 ranked images. Every cell shows its rank. Researchers can mark an image as matching
+their taste or questionable; the server stores those flags separately in
+`preference_rank_flags.json`, so they do not become training comparisons. The no-model state now
+uses the normal navigation shell. The preference-status controls wrap on narrow screens instead
+of clipping.
+
+Playwright smoke testing on an empty, newly selected leg found that the live ranking page raised
+an internal-server error before its first manifest existed. `LiveCache` now records a missing
+watched file as absent rather than failing, and the ranking cache watches the model and metadata
+paths before they exist. The page can therefore render its no-model state immediately and refresh
+after the manifest or model is created. Focused tests passed (40 tests); the Playwright desktop
+and mobile checks showed the tools hub, shared navigation, no-model page, and root Tools link
+without console errors.
+
+### 2026-07-15 (session 14): review fix 1 for active report context
+
+The shared navigation already accepted an expedition and leg, but live server routes rendered
+every tool page with only its current-page argument, so the active context never appeared. The
+live render paths now pass the current active selection while renderer arguments remain optional
+for direct unit tests. Completed-run links in `runs.html` now POST the selected report expedition
+and leg to `/api/active-leg` before opening scan, coverage, or novelty decay, preventing a report
+for one leg from opening the globally active leg instead. Focused regression and affected-page
+tests passed (68 tests), and Ruff passed on the changed files.
+
+### 2026-07-15 (session 15): review fix 1 badge route correction
+
+The active-context badge introduced in session 14 linked to `/?expedition=...&leg=...`, but the
+server serves the status page only at the exact `/` path and persists the active selection itself.
+The badge now links to `/` while preserving its expedition/leg label. Focused tests passed (69
+tests), and Ruff passed on the changed files.
+
+### 2026-07-15 (session 16): completed Sol review fixes for Phase 8 PR #41
+
+Resolved all four medium-severity findings from the independent Sol review of PR #41. Live tool
+renderers now receive the active expedition and leg, and completed-run report links persist their
+own selection before opening scan, coverage, or novelty review. The compare page blocks a second
+choice while the first is pending and blocks keyboard choice while the full-size zoom is open.
+The bounded ranking review now renders a persisted flag as a selected, pressed button, updates
+that state only after a successful API response, and reports a save failure without changing the
+displayed state.
+
+The three review-fix commits are `d60feb2`, `ac03a51`, and `c72604e`. Focused tests passed for
+each task. Final CI-equivalent verification passed with 378 tests, Ruff, MyPy, and `git diff
+--check` clean. Playwright checked the active-leg badge and the no-model ranking page at desktop
+and 390px mobile widths without new console errors. The temporary isolated server was stopped
+after the check.
+
+### 2026-07-15 (session 17): PR #41 review findings, Task 0 (Phase 7 merge)
+
+A full-stack review of PR #41 found six verified issues, the highest-severity being structural:
+Phase 8 (`phase8-ia-accessibility`, this branch's base) forked from `main` instead of from Phase 7
+(`phase7-dino-explainability`), so the two stacks diverged and produced 21 conflicting files.
+Built the fix plan in a new worktree, `pr41-review-fixes`, with 7 tasks: Task 0 merges Phase 7 in
+first so every later fix lands on the reunified stack, Tasks 1-6 close the remaining findings
+(favorite-mutation leg binding, stop-request PID check, undo-flow recovery, missing-vs-empty leg
+data, Phase 3 comparison-progress-logic preservation, and two lower-severity fixes).
+
+Task 0 resolved as a merge rather than a rebase: an attempted rebase hit the same conflicts once
+per commit (Phase 8 has 5), so aborted it and merged instead for one conflict-resolution pass. 52
+raw conflict markers landed across 19 files. Most followed one mechanical pattern: Phase 7 added a
+`running=None` parameter to every page's `render_html()` and threaded it through `nav_bar_html()`
+for the running-search indicator; Phase 8 didn't have it yet, so Phase 7's side almost always won.
+Three merges needed real judgment: `compare_page.py`'s `choose()` had to keep Phase 8's
+`choiceSubmitted`/`zoomOpen` accessibility guard alongside Phase 7's `submitting` single-flight
+guard as two independent checks (both are asserted on by name in the test suite), move Phase 7's
+`submitting` reset out of the success path and into `loadNext()` so the guard stays active during
+the 1-second reveal delay, and drop Phase 8's raw `res.count`-based retrain-boundary check in favor
+of Phase 7's `/api/preference_status`-derived bucket-crossing check (this alone closes finding #6,
+the Phase 3 progress-logic regression). `curation_server.py`'s no-selection status page had a
+`manifest_summary` reference that isn't even a parameter of that method, a leftover Phase 8 bug;
+dropped it rather than resolving toward either side. `scan.html`'s route needed both Phase 7's
+`?sortKey=...`-friendly query-string match and Phase 8's `active_expedition`/`active_leg` args,
+which the two branches had touched independently without conflicting semantically.
+
+Merge commit `bbb7afe`. Full suite: 415 passed, 0 failed (the worktree's pre-merge baseline had
+377 passed, 1 pre-existing failure in `test_cli.py`; the merge subsumed whatever fixed it). Ruff,
+MyPy, and `git diff --check` all clean. Tasks 1-6 hand off to opencode
+(`opencode-go/deepseek-v4-flash`, max effort) next via the subagent-driven-development workflow,
+per the user's instruction to do the semantic merge inline and delegate only the mechanical tasks.
+
+### 2026-07-15/16 (session 17 continued): PR #41 review findings, Tasks 1-6
+
+Task 5 turned out to need no separate work: every checklist item in its brief (`n_usable`,
+`statusStale`, raw-count tracking, bucket-crossing detection, the `choiceSubmitted`/`zoomOpen`
+guards, `revealSamplingDetails`) was already present in the Task 0 merge's resolved
+`compare_page.py`, and `tests/test_compare_page.py` already covered it. Marked done as a byproduct
+rather than dispatching a redundant task.
+
+The first two dispatch attempts for Task 1, using `opencode-go/deepseek-v4-flash` at max effort,
+crashed with `no_output_timeout` and produced completely empty logs, a provider-side startup
+failure rather than a task problem. Switched every remaining dispatch to `openai/gpt-5.6-luna` at
+max effort, which ran cleanly for the rest of the session.
+
+Tasks 1, 2, 3, 4, and 6 each closed one review finding, dispatched one at a time via taskferry with
+a TDD mandate, then independently re-verified locally (full suite, Ruff, MyPy, `git diff --check`)
+rather than trusting the dispatched agent's self-report:
+
+- Task 1 (`ae96040`): bound favorite add/remove to the expedition/leg that was active when the
+  lightbox opened (`LB_EXPEDITION`/`LB_LEG`), rejecting the mutation with a stale-context error if
+  the server's active selection changed underneath it. 416 passed.
+- Task 2 (`888449c`): the run-stop endpoint now requires the caller to send back the PID and start
+  time it was given when the run started, and rejects a stop request whose identity doesn't match
+  the currently running process, so a stale "stop" click from an old page load can't kill a
+  different, newer run. 419 passed.
+- Task 3 (`62c2fa9`): fixed three bugs in the lightbox undo flow: `undoBtn` became a module-scoped
+  variable so a second favorite-removal clears the previous undo button instead of leaving a stale
+  one clickable, the undo handler now dispatches `lightbox:favorite` so the scan gallery's
+  favorited filter updates, and both the toggle and undo fetch handlers now check the JSON
+  response body for an `error` field instead of only checking `r.ok` (a 200 response carrying
+  `{"error": ...}` was previously treated as success). 420 passed.
+- Task 4 (`49dfc22`): `_send_status_page` now distinguishes a leg that was never launched
+  (`n_entries == 0`, unchanged "launch a round" advice) from a damaged one (`n_entries > 0` but
+  zero files present on disk), which gets a new data-integrity error page naming the missing count
+  and pointing at the backup/state directory instead of suggesting a launch that could overwrite
+  recoverable data. `POST /api/active-leg` also now warns to stderr if the newly selected leg is
+  damaged. 422 passed.
+- Task 6 (`2d9379a`, `e5d8b44`): unknown `/api/*` routes now 404 with a JSON body instead of the
+  browser HTML error page, and `end_headers` strips the query string before checking the file
+  extension (so `/scan.html?filter=...` keeps its `no-cache` header) and treats `.json` the same
+  as `.html`, so `/scan_data.json` gets a `no-cache` directive it never had. 423 passed.
+
+Every task's diff matched its brief closely enough that no rework was needed; independent local
+verification confirmed each self-report rather than just trusting it. `git merge-tree --write-tree
+phase7-dino-explainability pr41-review-fixes` produces a single tree SHA with no conflict markers,
+confirming the whole stack still merges cleanly against Phase 7.
+
+Mid-session the user asked for each task to become its own stacked PR, matching the existing
+Phase 1-8 pattern (PRs #34-41), instead of one combined branch. Since all six tasks had already
+landed as a linear commit history on `pr41-review-fixes`, this needed no rework: cut one
+lightweight branch pointer per task at its already-existing commit SHA, each based on the previous
+task's branch: `pr41-task0-merge-phase7` (`c526646`) on `phase8-ia-accessibility`, then
+`pr41-task1-favorites-leg-scope` (`ae96040`), `pr41-task2-stop-run-identity` (`888449c`),
+`pr41-task3-undo-recovery` (`62c2fa9`), `pr41-task4-integrity-error` (`49dfc22`), and
+`pr41-task6-lowseverity-fixes` (`e5d8b44`), each stacked on the last.
+
+Still open: a live Playwright pass covering the JS changes from Tasks 1-4 (no browser access in
+the dispatch sandbox), and the user's decision on whether to push and open the six PRs now or
+defer. No branches have been pushed yet.
+
+### 2026-07-16 (session 18): live Playwright pass for Tasks 1-4, then merged the whole stack
+
+Ran the full suite first (423 passed) and started `curation_server.py` from this worktree, the
+tip of the entire reconciled stack. The real leg `trent_v3_epoch4/freeform1` (50 scored entries)
+has no expedition metadata inside this worktree, since `expeditions/trent_v3_epoch4/` is untracked
+in the main checkout; copied its two small JSON config files in for the duration of the check
+(no generation output touched) and deleted the copy afterward.
+
+Verified Task 3 (undo recovery) end to end in the browser: opened the lightbox on `scan.html`,
+favorited an image (counter went to "1 favorited", button read "favorited (click to remove)"),
+removed it (counter dropped to 0, an "Undo" button appeared with "Removed favorite. Undo?"), then
+clicked Undo and confirmed the favorite came back ("1 favorited" again). No new console errors
+from any of these actions.
+
+Verified Task 1 (favorite mutation leg-binding) at the API level: `POST /api/favorite` with an
+`expedition`/`leg` pair that didn't match the server's actual active selection
+(`uncanny_frontier/cockpit` while `trent_v3_epoch4/freeform1` was active) correctly returned 409
+`"favorite mutation targets a stale expedition/leg"` instead of silently writing to the wrong
+leg's favorites file.
+
+Verified Task 4's sibling branch (a leg that was never launched, `n_entries == 0`) renders the
+existing "launch a round" advice rather than an error, confirming the never-launched/damaged
+distinction didn't regress the common case. Did not fabricate a damaged-leg (`n_entries > 0`,
+files missing) test fixture against real state directories to check the other branch; that
+scenario is unit-tested (422 passed per session 17) and manufacturing fake corruption in
+`$XDG_STATE_HOME/clawmarks/` risked exactly the kind of accidental data-integrity incident this
+project's CLAUDE.md exists to prevent.
+
+Did not exercise Task 2's stop-run identity mismatch live either: with no search run active,
+`POST /api/searchrun/stop` with a bogus PID correctly no-ops (`{"running": false}`), but the real
+mismatch path (a stale PID rejected against a genuinely running process) requires an actual paid
+RunPod search run to trigger, and starting one solely to click a stop button isn't a reasonable
+use of budget. Relying on the existing unit coverage (419 passed at Task 2) for that path.
+
+Restored all state touched during the check: unfavorited the test image, switched the active leg
+back to `uncanny_frontier/cockpit` (the value present before this check began), removed the copied
+`expeditions/trent_v3_epoch4/` directory, and stopped the temporary server.
+
+One unrelated finding, out of scope for this pass: `scan.html` requests thumbnails as bare
+filenames (e.g. `/gen1_explore_23_seed194542.png`, 404) instead of `/thumbs/<tag>.jpg` for any leg
+whose thumbnails haven't been generated yet. `scan_gallery.compute_data` (`build/scan_gallery.py:63`)
+falls back to the raw basename when `os.path.exists(thumb_path)` is false at manifest-compute time,
+rather than always pointing at the `/thumbs/` route so the server's on-demand thumbnail generation
+(`curation_server.py:1486-1495`) ever gets a chance to run. Confirmed on `trent_v3_epoch4/freeform1`,
+a real leg with no `thumbs/` directory yet. Not a Tasks 1-4 regression (reproduces on data, not on
+new code), but real: any freshly-scored leg without pre-generated thumbnails currently shows broken
+images in the scan grid until something else populates `thumbs/`. Worth its own follow-up task.
+
+With the live check clean, merged the whole reconciled stack (phases 1-8 plus review-fix tasks 0-6,
+39 commits ahead of `main`) into `main` via PR #47, retargeted from its previous base
+(`pr41-task4-integrity-error`) to `main` directly, since `pr41-task6-lowseverity-fixes` (PR #47's
+head) was confirmed a strict git ancestor superset of every intermediate phase and task branch.
+PRs #34-46 were closed as superseded rather than merged separately, since every commit they
+contain already rides along inside PR #47's merge.

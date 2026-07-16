@@ -10,6 +10,16 @@ def test_compute_data_reads_manifest(tmp_path):
     assert data is not None
     html = coverage_map.render_html(data)
     assert "<html>" in html.lower() or "<!doctype" in html.lower()
+    assert "Target this gap in cockpit" in html
+
+
+def test_render_html_explains_dinov2_and_density_scale():
+    html = coverage_map.render_html({"cells": [], "max_count": 3})
+    assert "DINOv2 is an open vision model" in html
+    assert "quantile bins" in html
+    assert "median occupied-cell count" in html
+    assert "median ${MEDIAN_COUNT}" in html
+    assert "max ${MAX_COUNT}" in html
 
 
 def _cell(fb, nb, count, frontier=False, items=None):
@@ -92,3 +102,16 @@ def test_top_frontier_cells_respects_n():
     ]
     data = {"cells": cells, "max_count": 2}
     assert len(coverage_map.top_frontier_cells(data, n=1)) == 1
+
+
+def test_render_html_never_emits_a_literal_closing_script_tag():
+    """A literal "</script>" substring anywhere before the real closing tag truncates the
+    browser's HTML parse of the whole <script> block early -- everything after it is dropped
+    silently, with no console error. This bit six pages via a copy-pasted comment; guard
+    against it coming back."""
+    data = {"cells": [], "max_count": 0}
+    html = coverage_map.render_html(data)
+    script_start = html.index("<script>")
+    script_end = html.index("</script>", script_start + len("<script>"))
+    body = html[script_start + len("<script>"):script_end]
+    assert "</script" not in body

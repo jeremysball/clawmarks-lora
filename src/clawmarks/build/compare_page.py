@@ -7,10 +7,18 @@ GET /api/compare/next itself and POSTs to
 
 Served live at /compare.html by curation_server.py.
 """
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    nav_bar_html,
+)
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None, running=None):
     compare_tip = info_btn(
         "Trains the preference model by comparison: pick whichever of the two images you "
         "prefer, as many times as you can stand. Early comparisons are sampled to spread across "
@@ -33,19 +41,21 @@ def render_html():
 <title>CLAWMARKS compare</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --pick:#7c9eff; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px;
   display:flex; flex-direction:column; align-items:center; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; align-self:flex-start; }}
 p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6; align-self:flex-start; }}
 #stage {{ margin-top:20px; width:100%; max-width:1100px; display:flex; flex-direction:column; align-items:center; }}
 #pair {{ display:flex; gap:16px; width:100%; justify-content:center; flex-wrap:wrap; }}
 .pane {{ position:relative; flex:1 1 420px; max-width:520px; cursor:pointer; border-radius:10px;
   border:2px solid transparent; transition:border-color .12s ease; }}
-.pane:hover {{ border-color:var(--pick); }}
+.pane:hover {{ border-color:var(--accent); }}
+.pane:focus-visible, .zoom-icon:focus-visible {{ outline:3px solid #f5c542; outline-offset:3px; }}
+.pane.submitting {{ pointer-events:none; opacity:0.6; }}
 .pane img {{ display:block; width:100%; max-height:70vh; object-fit:contain; border-radius:8px;
   background:var(--panel); user-select:none; -webkit-user-drag:none; }}
 .zoom-icon {{ position:absolute; top:8px; right:8px; width:30px; height:30px; border-radius:50%;
@@ -85,10 +95,11 @@ table.work-table td:first-child {{ color:var(--text); }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('compare.html')}
+{nav_bar_html('compare.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Compare{compare_tip}</h1>
 <p class="sub">Tap or click the image you prefer (or press &larr;/&rarr;). Tap the magnifier in
 a corner to inspect that image at full resolution; tap again to close.</p>
+<p class="sub"><a href="preference_status.html">View preference status</a> or <a href="preference_rank.html">review the model's ranking</a>.</p>
 
 <div id="progress">
   <div id="prog-label"><span id="prog-label-text">&nbsp;</span>{accuracy_tip}</div>
@@ -102,14 +113,14 @@ a corner to inspect that image at full resolution; tap again to close.</p>
 
 <div id="stage">
   <div id="pair">
-    <div class="pane" id="pane1" data-side="1">
+    <div class="pane" id="pane1" data-side="1" role="button" tabindex="0" aria-label="Choose image A">
       <img id="img1" style="display:none;">
-      <div class="zoom-icon" id="zoom1">&#128269;</div>
+      <div class="zoom-icon" id="zoom1" role="button" tabindex="0" aria-label="Inspect image A at full resolution">&#128269;</div>
       <div class="cap" id="cap1"></div>
     </div>
-    <div class="pane" id="pane2" data-side="2">
+    <div class="pane" id="pane2" data-side="2" role="button" tabindex="0" aria-label="Choose image B">
       <img id="img2" style="display:none;">
-      <div class="zoom-icon" id="zoom2">&#128269;</div>
+      <div class="zoom-icon" id="zoom2" role="button" tabindex="0" aria-label="Inspect image B at full resolution">&#128269;</div>
       <div class="cap" id="cap2"></div>
     </div>
   </div>
@@ -123,8 +134,11 @@ a corner to inspect that image at full resolution; tap again to close.</p>
 
 <script>
 let current = null;
+let choiceSubmitted = false;
 let comparedThisSession = 0;
 let totalCount = 0;
+let rawCount = 0;
+let statusStale = false;
 let lastAccuracy = null;
 let modelMeta = null;
 
@@ -134,6 +148,11 @@ const RETRAIN_EVERY = 10;
 function caption(img) {{
   // textContent (set by the caller) keeps model-controlled prompt_name from being parsed as HTML.
   return `${{img.prompt_name}} · faith ${{img.faith}} · novelty ${{img.novelty}}`;
+}}
+
+function revealSamplingDetails() {{
+  document.getElementById('cap1').textContent = caption(current.img1);
+  document.getElementById('cap2').textContent = caption(current.img2);
 }}
 
 function bumpBar() {{
@@ -152,7 +171,9 @@ function renderProgress() {{
     const left = MIN_COMPARISONS - totalCount;
     labelText.textContent = `Model unlocks in ${{left}} vote${{left === 1 ? '' : 's'}}`;
     fill.style.width = (totalCount / MIN_COMPARISONS * 100) + '%';
-    sub.textContent = `${{totalCount}} / ${{MIN_COMPARISONS}} comparisons`;
+    sub.textContent = rawCount !== totalCount
+      ? `${{totalCount}} / ${{MIN_COMPARISONS}} usable comparisons (${{rawCount}} submitted)`
+      : `${{totalCount}} / ${{MIN_COMPARISONS}} comparisons`;
   }} else if (lastAccuracy == null) {{
     labelText.textContent = 'Model unlocked. Training on your picks…';
     fill.style.width = '0%';
@@ -167,6 +188,9 @@ function renderProgress() {{
     const refresh = n === 0 ? 'just refreshed' : `refreshes in ${{n}} vote${{n === 1 ? '' : 's'}}`;
     sub.textContent = `${{refresh}} · coin-flip 50% → 100%`;
     if (modelMeta) renderWork(work);
+  }}
+  if (statusStale) {{
+    sub.textContent += " · couldn't refresh, counts may be stale";
   }}
 }}
 
@@ -192,17 +216,23 @@ function renderWork(work) {{
 }}
 
 function fetchStatus(after) {{
+  const prevTotalCount = totalCount;
   fetch('/api/preference_status').then(r => r.ok ? r.json() : null).then(d => {{
     if (d) {{
-      if (typeof d.n_comparisons === 'number') totalCount = d.n_comparisons;
+      statusStale = false;
+      if (typeof d.n_usable === 'number') totalCount = d.n_usable;
+      else if (typeof d.n_comparisons === 'number') totalCount = d.n_comparisons;
+      rawCount = typeof d.n_comparisons === 'number' ? d.n_comparisons : totalCount;
       if (d.model_meta && typeof d.model_meta.cv_accuracy === 'number') {{
         lastAccuracy = d.model_meta.cv_accuracy;
         modelMeta = d.model_meta;
       }}
+    }} else {{
+      statusStale = true;
     }}
     renderProgress();
-    if (after) after();
-  }}).catch(() => {{ renderProgress(); if (after) after(); }});
+    if (after) after(prevTotalCount);
+  }}).catch(() => {{ statusStale = true; renderProgress(); if (after) after(prevTotalCount); }});
 }}
 
 function loadNext() {{
@@ -217,14 +247,18 @@ function loadNext() {{
       return;
     }}
     current = d;
+    choiceSubmitted = false;
+    submitting = false;
+    document.getElementById('pane1').classList.remove('submitting');
+    document.getElementById('pane2').classList.remove('submitting');
     document.getElementById('pair').style.display = 'flex';
     document.getElementById('done').style.display = 'none';
     const img1 = document.getElementById('img1');
     const img2 = document.getElementById('img2');
     img1.src = d.img1.file; img1.style.display = 'block';
     img2.src = d.img2.file; img2.style.display = 'block';
-    document.getElementById('cap1').textContent = caption(d.img1);
-    document.getElementById('cap2').textContent = caption(d.img2);
+    document.getElementById('cap1').textContent = 'Image A';
+    document.getElementById('cap2').textContent = 'Image B';
   }}).catch(() => {{
     document.getElementById('done').textContent =
       "Couldn't reach the server. Check your connection and try again.";
@@ -232,8 +266,13 @@ function loadNext() {{
   }});
 }}
 
+let submitting = false;
+
 function choose(side) {{
-  if (!current) return;
+  if (!current || submitting) return;
+  if (!current || choiceSubmitted || zoomOpen) return;
+  choiceSubmitted = true;
+  submitting = true;
   const winner = side === 1 ? current.img1.tag : current.img2.tag;
   const loser = side === 1 ? current.img2.tag : current.img1.tag;
   fetch('/api/compare', {{method:'POST', headers:{{'Content-Type':'application/json'}},
@@ -245,35 +284,52 @@ function choose(side) {{
     .then((res) => {{
       comparedThisSession++;
       document.getElementById('count').textContent = `${{comparedThisSession}} compared this session`;
-      if (res && typeof res.count === 'number') totalCount = res.count;
-      // The server retrains on every RETRAIN_EVERY-th comparison past the floor, synchronously
-      // before this response returns, so fresh cv_accuracy is already on disk at a boundary.
-      const crossedRetrain = totalCount >= MIN_COMPARISONS && totalCount % RETRAIN_EVERY === 0;
-      if (crossedRetrain) {{
-        fetchStatus(bumpBar);
-      }} else {{
-        renderProgress();
-        if (totalCount < MIN_COMPARISONS) bumpBar();
-      }}
-      loadNext();
+      // res.count is the raw store size, not the usable (deduplicated) pair count the retrain
+      // gate actually uses, so re-derive totalCount from /api/preference_status rather than
+      // trusting it directly.
+      fetchStatus((prevTotalCount) => {{
+        // Compare buckets rather than a single modulo snapshot: n_usable can jump by 0 or more
+        // than 1 per vote (deduplication), so a bare `totalCount % RETRAIN_EVERY === 0` check
+        // can step over the exact boundary and miss a crossing entirely.
+        const prevBucket = prevTotalCount >= MIN_COMPARISONS ? Math.floor(prevTotalCount / RETRAIN_EVERY) : -1;
+        const bucket = totalCount >= MIN_COMPARISONS ? Math.floor(totalCount / RETRAIN_EVERY) : -1;
+        const crossedRetrain = totalCount >= MIN_COMPARISONS && bucket !== prevBucket;
+        if (crossedRetrain || totalCount < MIN_COMPARISONS) bumpBar();
+      }});
+      revealSamplingDetails();
+      setTimeout(loadNext, 1000);
     }}).catch(() => {{
+      choiceSubmitted = false;
+      submitting = false;
+      document.getElementById('pane1').classList.remove('submitting');
+      document.getElementById('pane2').classList.remove('submitting');
       document.getElementById('done').textContent =
         "Couldn't reach the server. Check your connection and try again.";
       document.getElementById('done').style.display = 'block';
     }});
+  document.getElementById('pane1').classList.add('submitting');
+  document.getElementById('pane2').classList.add('submitting');
 }}
 
 document.getElementById('pane1').addEventListener('click', () => choose(1));
 document.getElementById('pane2').addEventListener('click', () => choose(2));
+document.querySelectorAll('.pane').forEach(pane => pane.addEventListener('keydown', e => {{
+  if (e.target !== pane || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  choose(Number(pane.dataset.side));
+}}));
 
 document.addEventListener('keydown', e => {{
-  if (e.key === 'ArrowLeft') choose(1);
-  if (e.key === 'ArrowRight') choose(2);
+  if (e.key === 'Escape' && zoomOpen) {{ closeZoom(); return; }}
+  if (zoomOpen) return;
+  if (e.key === 'ArrowLeft') {{ e.preventDefault(); choose(1); }}
+  if (e.key === 'ArrowRight') {{ e.preventDefault(); choose(2); }}
 }});
 
 // --- zoom overlay: opens on a zoom-icon tap, closes on any tap, drag to pan while open ---
 
 let zoomOpen = false;
+let zoomControl = null;
 let panX = 0, panY = 0, dragging = false, dragMoved = false, dragStartX = 0, dragStartY = 0;
 
 function clampOffset(offset, wrapSize, imgSize) {{
@@ -292,15 +348,22 @@ function openZoom(side, e) {{
   zimg.style.transform = 'translate(0px, 0px)';
   overlay.classList.add('open');
   zoomOpen = true;
+  zoomControl = e.currentTarget;
 }}
 
 function closeZoom() {{
   document.getElementById('zoom-overlay').classList.remove('open');
   zoomOpen = false;
+  if (zoomControl) zoomControl.focus();
 }}
 
 document.getElementById('zoom1').addEventListener('click', e => openZoom(1, e));
 document.getElementById('zoom2').addEventListener('click', e => openZoom(2, e));
+document.querySelectorAll('.zoom-icon').forEach(icon => icon.addEventListener('keydown', e => {{
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  openZoom(icon.id === 'zoom1' ? 1 : 2, e);
+}}));
 
 const overlayEl = document.getElementById('zoom-overlay');
 overlayEl.addEventListener('mousedown', e => {{

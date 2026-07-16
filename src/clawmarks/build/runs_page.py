@@ -15,19 +15,19 @@ render time; every dynamic piece is a live fetch against curation_server.py:
 
 Served live at /runs.html by curation_server.py.
 """
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
+from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, MOBILE_BASE_CSS, TOPNAV_CSS, nav_bar_html
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None, running=None):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS search runs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --up:#5ec98a; --down:#e0605e; --accent:#7c9eff; }}
+{DARK_TOKENS}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 a.navlink {{ color:var(--accent); font-size:12.5px; text-decoration:none; }}
@@ -35,14 +35,13 @@ a.navlink {{ color:var(--accent); font-size:12.5px; text-decoration:none; }}
   padding:16px; margin-top:16px; max-width:760px; }}
 .row {{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }}
 select, button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
-  background:#1f1f24; color:var(--text); }}
+  background:var(--panel-2); color:var(--text); }}
 button {{ cursor:pointer; }}
-button.primary {{ background:var(--accent); color:#0b0b0d; border-color:var(--accent); font-weight:600; }}
 button.danger {{ background:var(--down); color:#0b0b0d; border-color:var(--down); font-weight:600; }}
 button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 #launchError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
 .statgrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-top:10px; }}
-.stat {{ background:#1f1f24; border-radius:6px; padding:10px 12px; }}
+.stat {{ background:var(--panel-2); border-radius:6px; padding:10px 12px; }}
 .stat .label {{ color:var(--text-dim); font-size:11px; text-transform:uppercase; letter-spacing:0.03em; }}
 .stat .value {{ font-size:18px; margin-top:2px; }}
 #sparkwrap {{ margin-top:14px; }}
@@ -54,7 +53,7 @@ button:disabled {{ opacity:0.4; cursor:not-allowed; }}
 .live {{ color:var(--up); }}
 </style></head><body>
 
-{nav_bar_html('runs.html')}
+{nav_bar_html('runs.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Search runs</h1>
 <p class="sub">Launch an overnight search round from here instead of SSHing in. Every launch
 backs up the round's out_dir first and refuses to start if that backup can't be verified by file
@@ -67,7 +66,7 @@ already running.</p>
     <select id="expedition"></select>
     <label for="leg">Leg</label>
     <select id="leg"></select>
-    <button id="launchBtn" class="primary">Back up and launch</button>
+    <button id="launchBtn" class="btn btn--primary">Back up and launch</button>
     <button id="stopBtn" class="danger" disabled>Stop</button>
   </div>
   <div id="launchError"></div>
@@ -86,6 +85,7 @@ already running.</p>
     <svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
   </div>
   <div id="categoryBreakdown" style="margin-top:10px;"></div>
+  <p id="completedLinks" class="idle" style="display:none;"><a href="scan.html" onclick="openReportTool(event, 'scan.html')">Scan images</a> · <a href="coverage.html" onclick="openReportTool(event, 'coverage.html')">Check coverage</a> · <a href="novelty_decay.html" onclick="openReportTool(event, 'novelty_decay.html')">Review novelty decay</a></p>
 </div>
 
 <script>
@@ -100,6 +100,8 @@ const legSel = document.getElementById('leg');
 const statusLine = document.getElementById('statusLine');
 const launchError = document.getElementById('launchError');
 let expeditionsData = [];
+let lastStatusPid = null;
+let lastStatusStartTicks = null;
 
 function populateLegs() {{
   const exp = expeditionsData.find(e => e.name === expeditionSel.value);
@@ -108,11 +110,23 @@ function populateLegs() {{
 }}
 
 function loadExpeditions() {{
-  return fetch('/api/expeditions').then(r => r.json()).then(d => {{
-    expeditionsData = d.expeditions || [];
+  return Promise.all([
+    fetch('/api/expeditions').then(r => r.json()),
+    fetch('/api/active-leg').then(r => r.ok ? r.json() : {{}}),
+    fetch('/api/searchrun/status').then(r => r.json()),
+  ]).then(([expeditionsResp, active, status]) => {{
+    expeditionsData = expeditionsResp.expeditions || [];
     expeditionSel.innerHTML = expeditionsData.map(e =>
       `<option value="${{escHtml(e.name)}}">${{escHtml(e.name)}}</option>`).join('');
+    const preferExp = status.running ? status.expedition : active.expedition;
+    const preferLeg = status.running ? status.leg : active.leg;
+    if (preferExp && expeditionsData.some(e => e.name === preferExp)) {{
+      expeditionSel.value = preferExp;
+    }}
     populateLegs();
+    if (preferLeg && Array.from(legSel.options).some(o => o.value === preferLeg)) {{
+      legSel.value = preferLeg;
+    }}
   }});
 }}
 
@@ -145,17 +159,34 @@ function refreshReport() {{
       `<div class="catrow"><span>${{escHtml(cat)}}</span><span>${{escHtml(d.explore_exploit_split[cat])}} images, ` +
       `${{escHtml((d.pick_rate_by_category[cat] * 100).toFixed(0))}}% picked</span></div>`
     ).join('') : '<span style="color:var(--text-dim);font-size:12.5px;">No images scored for this leg yet.</span>';
+    document.getElementById('completedLinks').style.display = d.total_images ? 'block' : 'none';
   }});
+}}
+
+function openReportTool(event, path) {{
+  event.preventDefault();
+  if (!expeditionSel.value || !legSel.value) return;
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: expeditionSel.value, leg: legSel.value}}),
+  }}).then(async r => {{
+    if (!r.ok) throw new Error((await r.json()).error || 'selection failed');
+    location.href = path;
+  }}).catch(e => {{ launchError.textContent = String(e); }});
 }}
 
 function refreshStatus() {{
   fetch('/api/searchrun/status').then(r => r.json()).then(d => {{
     if (d.running) {{
+      lastStatusPid = d.pid;
+      lastStatusStartTicks = d.start_time_ticks;
       statusLine.className = 'live';
       statusLine.textContent = `Running ${{escHtml(d.expedition)}}/${{escHtml(d.leg)}} (pid ${{d.pid}}), started ${{new Date(d.started_at * 1000).toLocaleString()}}.`;
       launchBtn.disabled = true;
       stopBtn.disabled = false;
     }} else {{
+      lastStatusPid = null;
+      lastStatusStartTicks = null;
       statusLine.className = 'idle';
       statusLine.textContent = 'Not running.';
       launchBtn.disabled = false;
@@ -170,6 +201,9 @@ launchBtn.addEventListener('click', () => {{
     launchError.textContent = 'pick an expedition and leg first';
     return;
   }}
+  const msg = `Launch a search round for ${{expeditionSel.value}}/${{legSel.value}}?\n\n` +
+    `This backs up and file-count-verifies the leg's out_dir first, then starts search.driver.`;
+  if (!confirm(msg)) return;
   launchBtn.disabled = true;
   launchBtn.textContent = 'Backing up and launching...';
   fetch('/api/searchrun/launch', {{
@@ -188,9 +222,20 @@ launchBtn.addEventListener('click', () => {{
 }});
 
 stopBtn.addEventListener('click', () => {{
+  const confirmedPid = lastStatusPid;
+  const confirmedStart = lastStatusStartTicks;
+  const msg = statusLine.textContent.startsWith('Running')
+    ? `Stop this search run?\n\n${{statusLine.textContent}}\n\nAlready-written files are preserved; ` +
+      `the driver process is sent SIGTERM, then SIGKILL if it doesn't exit.`
+    : 'Stop the running search?';
+  if (!confirm(msg)) return;
   stopBtn.disabled = true;
-  fetch('/api/searchrun/stop', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: '{{}}'}})
-    .then(() => refreshStatus());
+  const body = JSON.stringify({{pid: confirmedPid, start_time_ticks: confirmedStart}});
+  fetch('/api/searchrun/stop', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body}})
+    .then(r => r.json()).then(res => {{
+      if (res.error) {{ alert(res.error); stopBtn.disabled = false; }}
+      else refreshStatus();
+    }});
 }});
 
 legSel.addEventListener('change', refreshReport);

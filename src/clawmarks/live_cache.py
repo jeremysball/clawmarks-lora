@@ -22,7 +22,15 @@ class LiveCache:
             return self._locks[target_name]
 
     def _current_mtimes(self, watched_files):
-        return {path: os.path.getmtime(path) for path in watched_files}
+        mtimes = {}
+        for path in watched_files:
+            try:
+                mtimes[path] = os.path.getmtime(path)
+            except FileNotFoundError:
+                # A new leg has no manifest or model yet. Record that absence so creating the
+                # watched file later invalidates this cached empty state.
+                mtimes[path] = None
+        return mtimes
 
     def get(self, target_name, compute_fn, watched_files, depends_on=(), sweep_dir=None):
         with self._lock_for(target_name):

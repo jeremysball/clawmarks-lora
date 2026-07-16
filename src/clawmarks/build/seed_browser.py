@@ -12,10 +12,10 @@ after that, since new seeds show up via the API without a rebuild.
 
 Run: python3 -m clawmarks.build.seed_browser
 """
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
 
 
-def render_html():
+def render_html(active_expedition=None, active_leg=None, running=None):
     seeds_tip = info_btn(
         "A candidate seed is a short subject/texture description (e.g. \"empty parking garage at "
         "night, one flickering light\") that an \"explore\" job can draw when building a fresh, "
@@ -30,11 +30,7 @@ def render_html():
 <title>CLAWMARKS candidate seeds</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{
-  color-scheme: dark;
-  --bg: #0b0b0d; --panel: #16161a; --panel-2: #1d1d22; --border: #2a2a30;
-  --text: #eaeaee; --text-dim: #9a9aa4; --text-faint: #6a6a74; --accent: #7c9eff;
-}}
+{DARK_TOKENS}
 * {{ box-sizing: border-box; }}
 body {{
   background: var(--bg); color: var(--text); margin:0; padding:0;
@@ -42,6 +38,7 @@ body {{
 }}
 {MOBILE_BASE_CSS}
 {TOPNAV_CSS}
+{BTN_CSS}
 {INFOTIP_CSS}
 main {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
 h1 {{ font-size:18px; margin:0 0 6px; display:flex; align-items:center; gap:8px; }}
@@ -72,7 +69,7 @@ p.sub {{ color:var(--text-dim); font-size:13px; line-height:1.6; margin:0 0 20px
 }}
 </style></head><body>
 
-{nav_bar_html('seeds.html')}
+{nav_bar_html('seeds.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 
 <main>
 <h1>Candidate seeds{seeds_tip}</h1>

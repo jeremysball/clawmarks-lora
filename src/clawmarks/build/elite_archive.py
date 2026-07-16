@@ -22,7 +22,16 @@ from pathlib import Path
 
 from clawmarks.search import preference_pairwise_model
 from clawmarks.search.manifest_index import item_summary
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn, json_script
+from clawmarks.shared_ui import (
+    BTN_CSS,
+    DARK_TOKENS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    json_script,
+    nav_bar_html,
+)
 
 N_BINS = 4  # matches gallery.html's display grid
 
@@ -122,7 +131,7 @@ def compute_data(sweep_dir, use_predicted_preference=False):
             "faith_bins": faith_bins, "novelty_bins": novelty_bins}
 
 
-def render_html(data):
+def render_html(data, active_expedition=None, active_leg=None, running=None):
     cells = data["cells"]
     data_json = json_script(cells)
     faith_bins_json = json_script(data.get("faith_bins", []))
@@ -139,11 +148,12 @@ def render_html(data):
 <title>CLAWMARKS elite archive</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee;
-  --text-dim:#9a9aa4; --pick:#f5c542; --style:#5ec98a; --conflict:#e0a25e; --predicted:#7c9eff; }}
+{DARK_TOKENS}
+:root {{ --style:#5ec98a; --conflict:#e0a25e; --predicted:#7c9eff; }}
 body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+{BTN_CSS}
 h1 {{ font-size:18px; margin:0 0 4px; }}
 p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
 a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
@@ -160,7 +170,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 .badge.human {{ background:rgba(245,197,66,0.18); color:var(--pick); }}
 .badge.predicted {{ background:rgba(124,158,255,0.18); color:var(--predicted); }}
 .badge.auto {{ background:rgba(154,154,164,0.15); color:var(--text-dim); }}
-.cell .viewall {{ display:block; width:100%; background:var(--panel-2,#1d1d22); color:var(--text);
+.cell .viewall {{ display:block; width:100%; background:var(--panel-2); color:var(--text);
   border:1px solid var(--border); border-top:none; border-radius:0 0 10px 10px; padding:6px;
   font-size:11px; cursor:pointer; }}
 .cell .viewall:hover {{ color:#7c9eff; }}
@@ -181,6 +191,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 #modalGrid .item.human {{ box-shadow:0 0 0 2px var(--pick); }}
 #modalGrid img {{ width:100%; aspect-ratio:1; object-fit:cover; display:block; }}
 #modalGrid .meta {{ font-size:10px; color:var(--text-dim); padding:5px 6px; line-height:1.5; }}
+#modalLoadAll {{ display:block; width:100%; margin-top:10px; }}
 @media (max-width: 640px) {{
   #modal {{ padding:14px; }}
   #modalGrid {{ grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }}
@@ -188,7 +199,7 @@ a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('archive.html')}
+{nav_bar_html('archive.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Elite archive{elite_tip}</h1>
 <p class="sub">One image per occupied cell of the faithfulness x novelty grid: the actual
 MAP-Elites archive, not the full population. Gold-bordered cells are favorited winners;
@@ -207,11 +218,12 @@ so every bin holds a similar share of the images rather than an equal slice of t
   <h2 id="modalTitle"></h2>
   <p class="hint">Click an image to pick it as this cell's elite (or unpick the current one). The
   grid above updates immediately, no rebuild needed.</p>
+  <p class="hint" id="modalCount"></p>
   <div id="modalGrid"></div>
 </div>
 
 <script>
-// json_script() only protects this declaration from a </script> breakout; it does not
+// json_script() only protects this declaration from a <\\/script> breakout; it does not
 // HTML-escape decoded string values. Every CELLS field written into innerHTML/an attribute
 // below must go through escHtml() first.
 function escHtml(s) {{
@@ -250,6 +262,57 @@ function openModalItem(i, j) {{
   Lightbox.open(CELLS[i].items[j].tag);
 }}
 
+// The modal used to write every item in a cell into innerHTML at once; a hot cell can hold
+// hundreds of candidates, so this chunks the render the same way scan_gallery.py's grid does
+// (a sentinel + IntersectionObserver growing the DOM as the user scrolls), plus a "load all"
+// escape hatch for someone who wants to Ctrl-F the whole cell at once.
+const MODAL_PAGE_SIZE = 150;
+let modalCellIndex = null;
+let modalShown = 0;
+let modalObserver = null;
+
+function modalItemHtml(it, i, j) {{
+  return `
+    <div class="item ${{picks[it.tag] ? 'human' : ''}}" title="${{escHtml(it.tag)}}" onclick="openModalItem(${{i}}, ${{j}})">
+      <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}">
+      <div class="meta">${{escHtml(it.prompt_name)}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
+    </div>`;
+}}
+
+function renderModalMore(all) {{
+  const c = CELLS[modalCellIndex];
+  const grid = document.getElementById('modalGrid');
+  const old = document.getElementById('modalSentinel');
+  if (old) old.remove();
+  const loadAllBtn = document.getElementById('modalLoadAll');
+  if (loadAllBtn) loadAllBtn.remove();
+  const take = all ? c.items.length - modalShown : MODAL_PAGE_SIZE;
+  const next = c.items.slice(modalShown, modalShown + take);
+  grid.insertAdjacentHTML('beforeend',
+    next.map((it, j) => modalItemHtml(it, modalCellIndex, modalShown + j)).join(''));
+  modalShown += next.length;
+  document.getElementById('modalCount').textContent = `showing ${{modalShown}} of ${{c.items.length}}`;
+  if (modalShown < c.items.length) {{
+    const btn = document.createElement('button');
+    btn.id = 'modalLoadAll';
+    btn.className = 'btn btn--secondary';
+    btn.textContent = `load all ${{c.items.length}}`;
+    btn.onclick = () => renderModalMore(true);
+    document.getElementById('modal').appendChild(btn);
+    const sentinel = document.createElement('div');
+    sentinel.id = 'modalSentinel';
+    sentinel.style.gridColumn = '1 / -1';
+    sentinel.style.height = '1px';
+    grid.appendChild(sentinel);
+    if (!modalObserver) {{
+      modalObserver = new IntersectionObserver(entries => {{
+        if (entries.some(e => e.isIntersecting)) renderModalMore(false);
+      }}, {{rootMargin: '600px'}});
+    }}
+    modalObserver.observe(sentinel);
+  }}
+}}
+
 function render() {{
   const grid = document.getElementById('grid');
   grid.innerHTML = CELLS.map((c, i) => {{
@@ -276,11 +339,10 @@ function render() {{
 function openModal(i) {{
   const c = CELLS[i];
   document.getElementById('modalTitle').textContent = `${{c.n}} images in this cell`;
-  document.getElementById('modalGrid').innerHTML = c.items.map((it, j) => `
-    <div class="item ${{picks[it.tag] ? 'human' : ''}}" title="${{escHtml(it.tag)}}" onclick="openModalItem(${{i}}, ${{j}})">
-      <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}">
-      <div class="meta">${{escHtml(it.prompt_name)}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
-    </div>`).join('');
+  modalCellIndex = i;
+  modalShown = 0;
+  document.getElementById('modalGrid').innerHTML = '';
+  renderModalMore(false);
   document.getElementById('modal').classList.add('open');
 }}
 function closeModal() {{

@@ -53,7 +53,7 @@ MISSIONS = {
 }
 
 
-def render_html(expeditions=None, current_expedition=None):
+def render_html(expeditions=None, current_expedition=None, active_expedition=None, active_leg=None, running=None):
     expeditions = expeditions or []
     options = "".join(
         f'<option value="{html.escape(e)}"{" selected" if e == current_expedition else ""}>{html.escape(e)}</option>'
@@ -113,6 +113,18 @@ document.getElementById('expeditionSwitch').addEventListener('click', () => {{
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:system-ui,"Segoe UI",Helvetica,Arial,sans-serif;
 }}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    color-scheme:dark;
+    --paper:#0b0b0d;
+    --sheet:#16161a;
+    --sheet-deep:#1d1d22;
+    --ink:#eaeaee;
+    --ballpoint:#7c9eff;
+    --teal:#5ec98a;
+    --red:#e0605e;
+  }}
+}}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}}
 
@@ -122,12 +134,6 @@ body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans
     color-mix(in srgb, var(--paper) 82%, transparent) 0 2px,
     transparent 2px 5px);
   opacity:.5;pointer-events:none}}
-
-.topnav.cockpit-topnav {{ background:color-mix(in srgb, var(--paper) 92%, transparent) !important;
-  border-bottom:1px solid var(--line) !important; }}
-.topnav.cockpit-topnav a.navlink {{ color:var(--ballpoint) !important; font-family:var(--mono); }}
-.topnav.cockpit-topnav select {{ background:var(--sheet) !important; color:var(--ink) !important;
-  border:1px solid var(--line) !important; font-family:var(--mono); }}
 
 main{{max-width:1500px;margin:auto;padding:26px 24px 150px}}
 .eyebrow{{color:var(--ballpoint);font:700 10.5px var(--sans);letter-spacing:.14em;text-transform:uppercase}}
@@ -355,7 +361,9 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 </style>
 </head>
 <body>
-{nav_bar_html('cockpit.html')}
+{nav_bar_html('cockpit.html', active_expedition or current_expedition,
+              active_leg or ('cockpit' if current_expedition else None),
+              running=running)}
 <main>
 {selector}
 <div class="eyebrow">Interactive trial workbench</div>
@@ -469,7 +477,7 @@ function fetchTargetCells(){{
   fetch('/api/cockpit/target_cells').then(r=>r.json().then(d=>({{ok:r.ok,d}}))).then(({{ok,d}})=>{{
     if(!ok){{
       $('targetCards').innerHTML = d.no_manifest
-        ? '<div class="target-empty">No search data yet. <a href="/">Launch a search round</a> to get started.</div>'
+        ? '<div class="target-empty">No search data yet. <a href="/runs.html">Launch a search round</a> to get started.</div>'
         : '<div class="target-empty">Could not load frontier cells.</div>';
       frontierCells=[]; selectedCell=null;
       return;
@@ -593,11 +601,12 @@ function renderQueue(){{
   const draftsAndRunning=queue.filter(t=>t.status==='draft'||t.status==='running'||t.status==='failed');
   $('queuePane').innerHTML = draftsAndRunning.length ? draftsAndRunning.map(t=>`
     <div class="trial-row"><div><b>${{escapeHtml(t.queue_title||t.mission)}}</b><br>
+    <span class="small">${{escapeHtml((t.prompt||'').split('\\n')[0].slice(0,80))}}</span><br>
     <span class="small">${{t.n}} images &middot; ${{escapeHtml(t.seed_strategy)}} seeds &middot; ${{t.strength.toFixed(2)}} strength &middot; ${{escapeHtml(t.sampler)}} / ${{t.steps}} / ${{t.cfg}}</span></div>
     <span class="status ${{t.status}}">${{t.status}}${{t.error?': '+escapeHtml(t.error):''}}</span>
-    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button">Run queued trial</button>`:''}}</div>`).join('')
+    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button">Review and run</button>`:''}}</div>`).join('')
     : '<div class="empty-note">No trials queued yet.</div>';
-  $('queuePane').querySelectorAll('[data-run]').forEach(button=>button.onclick=()=>runTrial(button.dataset.run));
+  $('queuePane').querySelectorAll('[data-run]').forEach(button=>button.onclick=()=>reviewTrial(button.dataset.run));
 
   const completed=queue.filter(t=>t.status==='completed');
   $('resultsPane').innerHTML = completed.length ? completed.map(t=>
@@ -612,6 +621,17 @@ function renderQueue(){{
 
 function loadQueue(){{
   fetch('/api/cockpit/queue').then(r=>r.json()).then(d=>{{queue=d.trials||[];renderQueue()}}).catch(()=>{{}});
+}}
+
+function reviewTrial(id){{
+  const trial = queue.find(t=>t.id===id);
+  if(!trial) return;
+  const summary = `Expedition: ${{trial.expedition||'(current)'}}\\n`+
+    `Prompt: ${{trial.prompt}}\\n`+
+    `Target: ${{trial.target_cell ? JSON.stringify(trial.target_cell) : '(none)'}}\\n`+
+    `This submits ${{trial.n}} paid RunPod job(s).`;
+  if(!confirm(summary + '\\n\\nConfirm and run?')) return;
+  runTrial(id);
 }}
 
 function runTrial(id){{
