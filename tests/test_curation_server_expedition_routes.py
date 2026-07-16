@@ -87,6 +87,43 @@ def test_status_page_shows_selected_leg_with_no_data(running_server_with_leg):
     assert b"no scored" in body.lower() or b"no search data" in body.lower()
 
 
+def test_status_page_warns_when_manifest_images_are_missing(running_server_with_leg):
+    leg_dir = config.leg_dir("uncanny_frontier", "cockpit")
+    manifest = [
+        {"tag": f"gen1_{index}", "file": str(leg_dir / f"gen1_{index}.png")}
+        for index in range(3)
+    ]
+    (leg_dir / "scored_manifest.json").write_text(json.dumps(manifest))
+
+    port = running_server_with_leg.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+        body = resp.read().decode()
+
+    assert "missing" in body.lower() or "data integrity" in body.lower()
+    assert "Launch a round" not in body
+
+
+def test_active_leg_selection_warns_when_manifest_images_are_missing(
+    running_server_with_leg, capsys
+):
+    leg_dir = config.leg_dir("uncanny_frontier", "round1")
+    leg_dir.mkdir(parents=True, exist_ok=True)
+    manifest = [{"tag": "gen1_a", "file": str(leg_dir / "gen1_a.png")}]
+    (leg_dir / "scored_manifest.json").write_text(json.dumps(manifest))
+
+    port = running_server_with_leg.server_address[1]
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/active-leg",
+        data=json.dumps({"expedition": "uncanny_frontier", "leg": "round1"}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request) as resp:
+        assert resp.status == 200
+
+    assert "warning" in capsys.readouterr().err.lower()
+
+
 @pytest.fixture
 def running_server_with_leg_and_data(tmp_path):
     """Stand up a real Handler with a leg selected that has at least one scored manifest

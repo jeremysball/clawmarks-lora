@@ -986,6 +986,7 @@ a {{ color:var(--accent); }}
         if selection["expedition"] is None:
             body = self._status_page_no_selection_body()
         else:
+            n_entries = 0
             try:
                 manifest = load_manifest()
                 n_entries = len(manifest)
@@ -999,6 +1000,8 @@ a {{ color:var(--accent); }}
                 has_data = False
             if has_data:
                 body = self._status_page_data_body(manifest_summary)
+            elif n_entries > 0:
+                body = self._status_page_data_integrity_error_body(selection, n_entries)
             else:
                 body = self._status_page_selected_empty_body(selection, manifest_summary)
         self.send_response(200)
@@ -1126,6 +1129,64 @@ a {{ color:var(--accent); }}
 {html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>
 or pick a different leg below.</p>
 <div class="panel">
+{rows or '<p class="sub">No expeditions exist yet.</p>'}
+<div id="pickError"></div>
+</div>
+<script>
+document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
+  document.getElementById('pickError').textContent = '';
+  fetch('/api/active-leg', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
+  }}).then(async r => {{
+    const d = await r.json();
+    if (!r.ok) {{
+      document.getElementById('pickError').textContent = d.error || 'selection failed';
+    }} else {{
+      location.reload();
+    }}
+  }});
+}}));
+</script>
+</body></html>""".encode()
+
+    def _status_page_data_integrity_error_body(self, selection, n_entries):
+        expeditions = _list_expeditions()
+        rows = "".join(
+            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
+            + " ".join(
+                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
+                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
+                for leg in e["legs"]
+            )
+            + "</div>"
+            for e in expeditions
+        )
+        return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>clawmarks curation server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{DARK_TOKENS}
+body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; }}
+p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+p.sub {{ max-width:640px; }}
+code {{ color:var(--text); }}
+a {{ color:var(--accent); }}
+.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:16px; margin-top:16px; max-width:640px; }}
+.exp-row {{ margin:8px 0; }}
+{BTN_CSS}
+#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+</style></head><body>
+<h1>clawmarks curation server</h1>
+<div class="panel">
+<p class="sub"><strong>Data integrity warning:</strong> active leg
+<code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code> lists
+{n_entries} manifest images, but none are present on disk. Do not launch a new round. Check
+your backup or the state directory at <code>$XDG_STATE_HOME/clawmarks/</code> before changing
+this leg.</p>
+<p class="sub">Pick a different leg below if needed.</p>
 {rows or '<p class="sub">No expeditions exist yet.</p>'}
 <div id="pickError"></div>
 </div>
@@ -1475,6 +1536,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             except ValueError as e:
                 self._json_response(400, {"error": str(e)})
                 return
+            _warn_if_manifest_images_missing()
             self._json_response(200, dict(_active_selection))
             return
 
@@ -2055,6 +2117,30 @@ def _check_manifest_images():
         sys.exit(1)
     if n_present < n_total:
         print(f"warning: only {n_present}/{n_total} manifest images found on disk", flush=True)
+
+
+def _warn_if_manifest_images_missing():
+    active_dir = _active_out_dir()
+    if active_dir is None:
+        return
+    manifest_path = active_dir / "scored_manifest.json"
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        n_total = len(manifest)
+        if n_total == 0:
+            return
+        n_present = sum(1 for m in manifest if os.path.exists(m["file"]))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return
+    if n_present == 0:
+        print(
+            f"warning: none of {n_total} images in {manifest_path} exist on disk after selecting "
+            f"{_active_selection['expedition']}/{_active_selection['leg']}; check backups before "
+            "launching a new round",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def main(argv=None):
