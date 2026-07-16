@@ -2499,3 +2499,58 @@ task's branch: `pr41-task0-merge-phase7` (`c526646`) on `phase8-ia-accessibility
 Still open: a live Playwright pass covering the JS changes from Tasks 1-4 (no browser access in
 the dispatch sandbox), and the user's decision on whether to push and open the six PRs now or
 defer. No branches have been pushed yet.
+
+### 2026-07-16 (session 18): live Playwright pass for Tasks 1-4, then merged the whole stack
+
+Ran the full suite first (423 passed) and started `curation_server.py` from this worktree, the
+tip of the entire reconciled stack. The real leg `trent_v3_epoch4/freeform1` (50 scored entries)
+has no expedition metadata inside this worktree, since `expeditions/trent_v3_epoch4/` is untracked
+in the main checkout; copied its two small JSON config files in for the duration of the check
+(no generation output touched) and deleted the copy afterward.
+
+Verified Task 3 (undo recovery) end to end in the browser: opened the lightbox on `scan.html`,
+favorited an image (counter went to "1 favorited", button read "favorited (click to remove)"),
+removed it (counter dropped to 0, an "Undo" button appeared with "Removed favorite. Undo?"), then
+clicked Undo and confirmed the favorite came back ("1 favorited" again). No new console errors
+from any of these actions.
+
+Verified Task 1 (favorite mutation leg-binding) at the API level: `POST /api/favorite` with an
+`expedition`/`leg` pair that didn't match the server's actual active selection
+(`uncanny_frontier/cockpit` while `trent_v3_epoch4/freeform1` was active) correctly returned 409
+`"favorite mutation targets a stale expedition/leg"` instead of silently writing to the wrong
+leg's favorites file.
+
+Verified Task 4's sibling branch (a leg that was never launched, `n_entries == 0`) renders the
+existing "launch a round" advice rather than an error, confirming the never-launched/damaged
+distinction didn't regress the common case. Did not fabricate a damaged-leg (`n_entries > 0`,
+files missing) test fixture against real state directories to check the other branch; that
+scenario is unit-tested (422 passed per session 17) and manufacturing fake corruption in
+`$XDG_STATE_HOME/clawmarks/` risked exactly the kind of accidental data-integrity incident this
+project's CLAUDE.md exists to prevent.
+
+Did not exercise Task 2's stop-run identity mismatch live either: with no search run active,
+`POST /api/searchrun/stop` with a bogus PID correctly no-ops (`{"running": false}`), but the real
+mismatch path (a stale PID rejected against a genuinely running process) requires an actual paid
+RunPod search run to trigger, and starting one solely to click a stop button isn't a reasonable
+use of budget. Relying on the existing unit coverage (419 passed at Task 2) for that path.
+
+Restored all state touched during the check: unfavorited the test image, switched the active leg
+back to `uncanny_frontier/cockpit` (the value present before this check began), removed the copied
+`expeditions/trent_v3_epoch4/` directory, and stopped the temporary server.
+
+One unrelated finding, out of scope for this pass: `scan.html` requests thumbnails as bare
+filenames (e.g. `/gen1_explore_23_seed194542.png`, 404) instead of `/thumbs/<tag>.jpg` for any leg
+whose thumbnails haven't been generated yet. `scan_gallery.compute_data` (`build/scan_gallery.py:63`)
+falls back to the raw basename when `os.path.exists(thumb_path)` is false at manifest-compute time,
+rather than always pointing at the `/thumbs/` route so the server's on-demand thumbnail generation
+(`curation_server.py:1486-1495`) ever gets a chance to run. Confirmed on `trent_v3_epoch4/freeform1`,
+a real leg with no `thumbs/` directory yet. Not a Tasks 1-4 regression (reproduces on data, not on
+new code), but real: any freshly-scored leg without pre-generated thumbnails currently shows broken
+images in the scan grid until something else populates `thumbs/`. Worth its own follow-up task.
+
+With the live check clean, merged the whole reconciled stack (phases 1-8 plus review-fix tasks 0-6,
+39 commits ahead of `main`) into `main` via PR #47, retargeted from its previous base
+(`pr41-task4-integrity-error`) to `main` directly, since `pr41-task6-lowseverity-fixes` (PR #47's
+head) was confirmed a strict git ancestor superset of every intermediate phase and task branch.
+PRs #34-46 were closed as superseded rather than merged separately, since every commit they
+contain already rides along inside PR #47's merge.
