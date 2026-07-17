@@ -46,6 +46,10 @@ def render_html():
         "directly into the next generation's exploit pool, ahead of the algorithm's own ranking."
     )
 
+    # The Explore group in NAV_GROUPS is a quick-access subset of the workflow's five stage
+    # destinations; those destinations are also listed in the detailed groups below, so the
+    # hub doesn't double-render them and the user isn't pointed at "/" (this very page).
+    detailed_groups = [g for g in NAV_GROUPS if g[0] != "Explore"]
     descriptions = {path: (name, desc) for path, name, desc in TOOLS}
     items_html = "".join(f"""
 <section class="tool-group"><h2>{group}</h2><div class="tools">
@@ -53,7 +57,7 @@ def render_html():
   <div class="name">{descriptions[path][0]}</div>
   <div class="desc">{descriptions[path][1]}</div>
 </a>''' for path, _label in group_tools)}
-</div></section>""" for group, group_tools in NAV_GROUPS)
+</div></section>""" for group, group_tools in detailed_groups)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS exploration tools</title>

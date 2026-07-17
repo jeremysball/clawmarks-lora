@@ -39,6 +39,22 @@ def test_infotip_js_served_without_being_written_to_disk(running_server, tmp_pat
     assert not (tmp_path / "infotip.js").exists()
 
 
+def test_shared_ui_js_served_without_being_written_to_disk(running_server, tmp_path):
+    """Task 3 added /shared-ui.js so the context-switcher dialog emitted by nav_bar_html() can
+    fetch /api/expeditions and POST /api/active-leg from any page that includes the script
+    tag. Served from the SHARED_UI_JS constant, never written to disk (matches the pattern
+    lightbox.js and infotip.js already follow)."""
+    port = running_server.server_address[1]
+    assert not (tmp_path / "shared-ui.js").exists()
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/shared-ui.js") as resp:
+        body = resp.read().decode()
+        assert resp.headers["Content-Type"] == "application/javascript"
+    assert "contextDialog" in body
+    assert "/api/expeditions" in body
+    assert "/api/active-leg" in body
+    assert not (tmp_path / "shared-ui.js").exists()
+
+
 def test_favicon_served(running_server):
     port = running_server.server_address[1]
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/favicon.ico") as resp:

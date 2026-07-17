@@ -1,6 +1,7 @@
 # tests/test_shared_ui.py
 import json
 
+from clawmarks import shared_ui
 from clawmarks.shared_ui import NAV_OPTIONS, _LIGHTBOX_JS, json_script, nav_bar_html
 
 
@@ -39,10 +40,19 @@ def test_nav_bar_groups_tools_and_links_active_context_to_home():
     assert "demo/round1" in html
 
 
-def test_nav_bar_active_context_badge_uses_served_root_route():
+def test_nav_bar_active_context_button_announces_dialog_and_carries_data():
+    """Task 3 replaced the old `<a class="nav-activeleg" href="/">` link with a context
+    button that opens the context-switcher dialog. The data attributes and accessible
+    relationships are how SHARED_UI_JS knows which (expedition, leg) to mark active and
+    which dialog to show; verify they're wired correctly."""
     html = nav_bar_html("scan.html", active_expedition="demo", active_leg="leg-b")
 
-    assert '<a class="nav-activeleg" href="/">demo/leg-b</a>' in html
+    assert 'id="contextPicker"' in html
+    assert 'data-expedition="demo"' in html
+    assert 'data-leg="leg-b"' in html
+    assert 'aria-controls="contextDialog"' in html
+    assert 'aria-haspopup="dialog"' in html
+    assert "demo/leg-b" in html
 
 
 def test_json_script_escapes_close_script_sequence():
@@ -396,3 +406,27 @@ def test_lightbox_undo_flow_honors_recovery_contract():
     assert "document.dispatchEvent(new CustomEvent('lightbox:favorite'" in onclick_js
     assert "if (res.error) throw new Error(res.error);" in toggle_js
     assert "if (res.error) throw new Error(res.error);" in onclick_js
+
+
+# ---------------------------------------------------------------------------
+# Task 3: semantic shared header + context-switcher dialog
+# ---------------------------------------------------------------------------
+
+
+def test_header_names_page_scope_focus_and_guide():
+    markup = nav_bar_html(
+        "map.html", "demo", "round1",
+        focus={"focus_id": "focus_11111111111111111111111111111111", "label": "Ink anchor", "revision": 3},
+    )
+    assert "CLAWMARKS" in markup
+    assert "Solution map" in markup
+    assert "demo/round1" in markup
+    assert "Ink anchor" in markup and "r3" in markup
+    assert 'id="contextPicker"' in markup
+    assert 'id="guideOpen"' in markup
+    assert "<dialog" in markup
+
+
+def test_narrow_header_keeps_context_and_guide_labels():
+    assert "@media (max-width:700px)" in shared_ui.TOPNAV_CSS
+    assert ".context-label" in shared_ui.TOPNAV_CSS

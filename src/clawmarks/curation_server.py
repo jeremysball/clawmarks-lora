@@ -111,7 +111,7 @@ from clawmarks.search.seed_pool import merge as seed_pool_merge
 from clawmarks.search import comparison_sampler, preference_settings, preference_pairwise_model
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import item_summary
-from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_JS, SCROLLNAV_JS, _LIGHTBOX_JS
+from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_JS, SCROLLNAV_JS, SHARED_UI_JS, _LIGHTBOX_JS
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
@@ -1393,7 +1393,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(_FAVICON_PNG)
             return
 
-        _JS_ASSETS = {"/lightbox.js": _LIGHTBOX_JS, "/scrollnav.js": SCROLLNAV_JS, "/infotip.js": INFOTIP_JS}
+        _JS_ASSETS = {"/lightbox.js": _LIGHTBOX_JS, "/scrollnav.js": SCROLLNAV_JS, "/infotip.js": INFOTIP_JS, "/shared-ui.js": SHARED_UI_JS}
         if self.path in _JS_ASSETS:
             body = _JS_ASSETS[self.path].encode()
             self.send_response(200)

@@ -15,9 +15,15 @@ def test_render_html_has_two_panes():
     assert 'id="img2"' in html
 
 
-def test_render_html_has_no_button_elements():
+def test_render_html_keeps_choices_outside_the_shared_nav():
+    """The compare page picks an image by clicking (or arrow-keying onto) one of two panes;
+    those panes are divs with role=button, not <button> elements, because every interactive
+    surface in this page is meant to be keyboard-driven. The shared nav header now ships real
+    <button> elements (the context picker, the Guide button) for header-level controls, so
+    this assertion scopes the no-real-button rule to the page body instead of the whole HTML."""
     html = compare_page.render_html()
-    assert "<button" not in html
+    body_after_nav = html.split("</header>", 1)[1]
+    assert "<button" not in body_after_nav
 
 
 def test_render_html_has_zoom_icons_and_overlay():
