@@ -2712,3 +2712,16 @@ worker's entry event to remain unset for 0.2 seconds before releasing the winner
 proves the loser is blocked while the lock is held. A temporary no-op `flock` mutation failed at
 the strengthened assertion, while the real implementation passed all 11 durable-record tests in
 five consecutive runs. Ruff and MyPy remained clean. Production code was unchanged.
+
+### 2026-07-17: Implemented Task 3 map-member Focus persistence
+
+Added `src/clawmarks/focus_store.py` with frozen expedition/leg `Scope`, map-member source
+validation, direct real-anchor validation, durable state-directory storage, revision-checked
+updates, archive transitions, status-filtered listing, and readable corruption errors. Generated
+manifest members must resolve exactly once and their resolved files must remain inside the scoped
+`config.leg_dir()`; duplicate source tags are deduplicated in input order while natural-language
+fields remain unchanged. Every create, update, and archive writes through `atomic_json_write()`
+under the durable per-record `fcntl` lock. The existing Focus test file was left behaviorally
+unchanged apart from removing two unused imports required by Ruff.
+
+The focused suite passed 10 tests, the full suite passed 453 tests, Ruff passed, and MyPy passed.
