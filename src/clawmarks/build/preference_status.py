@@ -12,10 +12,11 @@ from pathlib import Path
 
 from clawmarks.search import embed_cache, preference_pairwise_model, preference_settings
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     nav_bar_html,
@@ -92,13 +93,18 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
         if "p_value" in m:
             p_interpretation = ("p &lt; 0.05: unlikely to be chance" if m["p_value"] < 0.05
                                 else "p &gt;= 0.05: not distinguishable from chance")
-            stats_rows = (f'<tr><td>majority-class baseline accuracy</td><td>{m["baseline_accuracy"]:.1%}</td></tr>'
-                          f'<tr><td>permutation p-value</td><td>{m["p_value"]:.4f} '
-                          f'<span class="interpretation">{p_interpretation}</span></td></tr>')
-        meta_html = (f'<table class="meta"><tr><td>trained</td><td>{m["trained_at"]}</td></tr>'
-                     f'<tr><td>comparisons used</td><td>{m["n_comparisons"]}</td></tr>'
-                     f'<tr><td>cross-validated accuracy</td><td>{m["cv_accuracy"]}</td></tr>'
-                     f'{stats_rows}</table>')
+            stats_rows = (f'<div class="evidence-row"><span class="label">majority-class baseline accuracy</span>'
+                          f'<span class="value">{m["baseline_accuracy"]:.1%}</span></div>'
+                          f'<div class="evidence-row"><span class="label">permutation p-value</span>'
+                          f'<span class="value">{m["p_value"]:.4f} '
+                          f'<span class="interpretation">{p_interpretation}</span></span></div>')
+        meta_html = (f'<div class="evidence-row"><span class="label">trained</span>'
+                     f'<span class="value">{m["trained_at"]}</span></div>'
+                     f'<div class="evidence-row"><span class="label">comparisons used</span>'
+                     f'<span class="value">{m["n_comparisons"]}</span></div>'
+                     f'<div class="evidence-row"><span class="label">cross-validated accuracy</span>'
+                     f'<span class="value">{m["cv_accuracy"]}</span></div>'
+                     f'{stats_rows}')
     else:
         meta_html = ('<p class="meta-empty">no model trained yet. Once enough comparisons exist, run '
                      '<code>python -m clawmarks.search.preference_pairwise_model</code>.</p>')
@@ -127,41 +133,52 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS preference status</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:16px; max-width:520px; }}
-p.gate {{ color:#e0a030; }}
-p.gate.ok {{ color:#5fbf6f; }}
-p.stale {{ color:#e0a030; border:1px solid #6b4c16; border-radius:8px; padding:8px; }}
-table.meta {{ font-size:13px; border-collapse:collapse; }}
-table.meta td {{ padding:3px 10px 3px 0; color:var(--text-dim); }}
-table.meta td:first-child {{ color:var(--text); }}
-.interpretation {{ color:var(--text-dim); margin-left:6px; }}
-.toggle-row {{ margin-top:14px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }}
-.secondary {{ background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; }}
-#toggle-status, #retrain-status {{ font-size:12px; color:var(--text-dim); margin-left:8px; }}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6;
+  padding-bottom:14px; border-bottom:1px solid var(--rule); }}
+.readiness {{ padding:10px 0; border-bottom:1px solid var(--rule); margin-top:16px;
+  max-width:560px; font-size:13px; }}
+.readiness p {{ margin:0; padding:2px 0; }}
+p.gate {{ color:#a84820; }}
+p.gate.ok {{ color:#3d6a26; }}
+p.stale {{ color:#a84820; padding:2px 0; }}
+.evidence {{ max-width:560px; margin-top:14px; padding:0; }}
+.evidence-row {{ display:flex; gap:16px; padding:8px 0; border-bottom:1px solid var(--rule);
+  font-size:13px; align-items:baseline; }}
+.evidence-row:last-child {{ border-bottom:none; }}
+.evidence-row .label {{ color:var(--text-soft); min-width:200px; flex-shrink:0; }}
+.evidence-row .value {{ color:var(--ink); font-family:var(--font-mono); }}
+.interpretation {{ color:var(--text-soft); margin-left:6px; font-family:var(--font-body); }}
+.meta-empty {{ color:var(--text-soft); font-size:13px; padding:8px 0;
+  border-bottom:1px solid var(--rule); }}
+.toggle-row {{ margin-top:18px; display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+  font-size:13px; max-width:560px; }}
+.toggle-row label {{ display:inline-flex; align-items:center; gap:6px; }}
+.secondary {{ background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+  padding:5px 10px; cursor:pointer; font:600 12.5px/1 var(--font-body); }}
+#toggle-status, #retrain-status {{ font-size:12px; color:var(--text-soft); margin-left:6px; }}
 {INFOTIP_CSS}
 </style></head><body>
 
 {nav_bar_html('preference_status.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Preference classifier status</h1>
-<p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}).</p>
-<p class="sub"><a href="compare.html">Compare more images</a> or <a href="preference_rank.html">review the ranking</a>.</p>
-<div class="panel">
+<p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}). <a href="compare.html">Compare more images</a> or <a href="preference_rank.html">review the ranking</a>.</p>
+<div class="readiness">
 {gate_html}
 {staleness_html}
-{meta_html}
+</div>
+{("" if not data["model_meta"] else "<div class='evidence'>") + meta_html + ("</div>" if data["model_meta"] else "")}
 <div class="toggle-row">
 <label><input type="checkbox" id="toggle" {checked_attr} {disabled_attr} onchange="toggle(this.checked)"> use predicted preference{toggle_tip}</label>
 <button class="secondary" id="retrain" onclick="retrain()">Retrain now</button>
 <span id="toggle-status"></span>
 <span id="retrain-status"></span>
-</div>
 </div>
 <script>
 function toggle(enabled) {{
@@ -205,5 +222,6 @@ function retrain() {{
 </script>
 <script src="scrollnav.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
     return html
