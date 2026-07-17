@@ -98,11 +98,20 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 
 from clawmarks.atomic_io import atomic_json_write
 
 from clawmarks import config
 from clawmarks.config import ROOT
+from clawmarks.focus_store import (
+    FocusConflict,
+    FocusIntegrityError,
+    FocusNotFound,
+    FocusStore,
+    FocusValidationError,
+    Scope,
+)
 from clawmarks.runpod_client import runpod_balance
 from clawmarks.search import run_manager
 from clawmarks.search.score_manifest import REAL_DIR
@@ -1370,6 +1379,14 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 trials = load_store(_cockpit_queue_file())
             self._json_response(200, {"trials": sorted(trials.values(), key=lambda t: t["created_at"])})
             return
+        if self.path.startswith("/api/foci"):
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/api/foci":
+                self._handle_focus_list(parsed)
+                return
+            if parsed.path.startswith("/api/foci/"):
+                self._handle_focus_get(parsed)
+                return
         if self.path == "/":
             self._send_status_page()
             return
@@ -1797,6 +1814,15 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._handle_cockpit_run(trial_id)
             return
 
+        if self.path == "/api/foci":
+            self._handle_focus_create(payload)
+            return
+        if self.path.startswith("/api/foci/"):
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path.endswith("/archive"):
+                self._handle_focus_archive(parsed, payload)
+                return
+
         if self.path == "/api/cockpit/autopilot":
             self._handle_cockpit_autopilot()
             return
@@ -1819,6 +1845,194 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         self._json_response(404, {"error": "unknown endpoint"})
+
+    def do_PATCH(self):
+        try:
+            self._do_PATCH()
+        except NoActiveLegError as e:
+            self._send_no_active_leg_error(e)
+        except Exception as e:
+            self._send_json_error(e)
+
+    def _do_PATCH(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            self._json_response(400, {"error": "invalid JSON body"})
+            return
+
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/api/foci/"):
+            self._handle_focus_update(parsed, payload)
+            return
+
+        self._json_response(404, {"error": "unknown endpoint"})
+
+    def _focus_store(self):
+        """Per-request FocusStore so tests monkeypatching config.STATE_DIR between requests
+        see the override instead of a captured-at-import-time value. The explicit-scope Focus
+        routes never touch the active leg, so they never go through _require_out_dir() or
+        _active_out_dir() for their scope."""
+        return FocusStore(config.STATE_DIR, Path(REAL_DIR))
+
+    def _handle_focus_list(self, parsed):
+        query = urllib.parse.parse_qs(parsed.query)
+        expedition = (query.get("expedition") or [None])[0]
+        leg = (query.get("leg") or [None])[0]
+        if not expedition or not leg:
+            self._json_response(400, {"error": "'expedition' and 'leg' query params are required"})
+            return
+        status = (query.get("status") or [None])[0]
+        scope = Scope(expedition, leg)
+        try:
+            records = self._focus_store().list(scope, status=status)
+        except FocusValidationError as e:
+            self._json_response(400, {"error": str(e)})
+            return
+        except FocusIntegrityError as e:
+            self._json_response(500, {"error": str(e)})
+            return
+        self._json_response(200, records)
+
+    def _handle_focus_get(self, parsed):
+        parts = parsed.path.split("/")
+        if len(parts) != 4 or not parts[3].startswith("focus_"):
+            self._json_response(404, {"error": "unknown endpoint"})
+            return
+        focus_id = parts[3]
+        query = urllib.parse.parse_qs(parsed.query)
+        expedition = (query.get("expedition") or [None])[0]
+        leg = (query.get("leg") or [None])[0]
+        if not expedition or not leg:
+            self._json_response(400, {"error": "'expedition' and 'leg' query params are required"})
+            return
+        scope = Scope(expedition, leg)
+        try:
+            record = self._focus_store().get(scope, focus_id)
+        except FocusNotFound as e:
+            self._json_response(404, {"error": str(e)})
+            return
+        except FocusValidationError as e:
+            self._json_response(400, {"error": str(e)})
+            return
+        except FocusIntegrityError as e:
+            self._json_response(500, {"error": str(e)})
+            return
+        self._json_response(200, record)
+
+    def _handle_focus_create(self, payload):
+        scope_field = payload.get("scope") or {}
+        if not isinstance(scope_field, dict):
+            self._json_response(400, {"error": "'scope' must be an object"})
+            return
+        expedition = scope_field.get("expedition")
+        leg = scope_field.get("leg")
+        if not expedition or not leg:
+            self._json_response(400, {"error": "'scope.expedition' and 'scope.leg' are required"})
+            return
+        scope = Scope(expedition, leg)
+        leg_dir = config.leg_dir(expedition, leg)
+        manifest_path = leg_dir / "scored_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+        else:
+            manifest = []
+
+        coverage_cells = None
+        source = payload.get("source")
+        if isinstance(source, dict) and source.get("kind") == "coverage_frontier":
+            # Recompute Coverage server-side from the explicit scoped manifest, never trust a
+            # browser-supplied count/frontier/adjacency claim. The hint fields inside source
+            # (row/column/binning_version, opaque display data) pass through unvalidated
+            # alongside the normalized cells.
+            coverage_data = coverage_map.compute_data(str(leg_dir))
+            coverage_cells = coverage_data.get("cells", [])
+
+        try:
+            record = self._focus_store().create(
+                scope, payload, manifest, coverage_cells=coverage_cells,
+            )
+        except FocusValidationError as e:
+            self._json_response(400, {"error": str(e)})
+            return
+        except FocusIntegrityError as e:
+            self._json_response(500, {"error": str(e)})
+            return
+        self._json_response(201, record)
+
+    def _handle_focus_update(self, parsed, payload):
+        parts = parsed.path.split("/")
+        if len(parts) != 4 or not parts[3].startswith("focus_"):
+            self._json_response(404, {"error": "unknown endpoint"})
+            return
+        focus_id = parts[3]
+        query = urllib.parse.parse_qs(parsed.query)
+        expedition = (query.get("expedition") or [None])[0]
+        leg = (query.get("leg") or [None])[0]
+        if not expedition or not leg:
+            self._json_response(400, {"error": "'expedition' and 'leg' query params are required"})
+            return
+        scope = Scope(expedition, leg)
+        expected_revision = payload.get("expected_revision")
+        changes = payload.get("changes")
+        if (
+            not isinstance(changes, dict)
+            or isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+        ):
+            self._json_response(400, {"error": "'expected_revision' (int) and 'changes' (object) are required"})
+            return
+        try:
+            record = self._focus_store().update(scope, focus_id, expected_revision, changes)
+        except FocusValidationError as e:
+            self._json_response(400, {"error": str(e)})
+            return
+        except FocusConflict as e:
+            self._json_response(409, {"error": str(e), "current": e.current})
+            return
+        except FocusNotFound as e:
+            self._json_response(404, {"error": str(e)})
+            return
+        except FocusIntegrityError as e:
+            self._json_response(500, {"error": str(e)})
+            return
+        self._json_response(200, record)
+
+    def _handle_focus_archive(self, parsed, payload):
+        parts = parsed.path.split("/")
+        # parts = ['', 'api', 'foci', '<focus_id>', 'archive']
+        if len(parts) != 5 or parts[4] != "archive" or not parts[3].startswith("focus_"):
+            self._json_response(404, {"error": "unknown endpoint"})
+            return
+        focus_id = parts[3]
+        query = urllib.parse.parse_qs(parsed.query)
+        expedition = (query.get("expedition") or [None])[0]
+        leg = (query.get("leg") or [None])[0]
+        if not expedition or not leg:
+            self._json_response(400, {"error": "'expedition' and 'leg' query params are required"})
+            return
+        scope = Scope(expedition, leg)
+        expected_revision = payload.get("expected_revision")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            self._json_response(400, {"error": "'expected_revision' (int) is required"})
+            return
+        try:
+            record = self._focus_store().archive(scope, focus_id, expected_revision)
+        except FocusValidationError as e:
+            self._json_response(400, {"error": str(e)})
+            return
+        except FocusConflict as e:
+            self._json_response(409, {"error": str(e), "current": e.current})
+            return
+        except FocusNotFound as e:
+            self._json_response(404, {"error": str(e)})
+            return
+        except FocusIntegrityError as e:
+            self._json_response(500, {"error": str(e)})
+            return
+        self._json_response(200, record)
 
     def _handle_searchrun_launch(self, payload):
         expedition = payload.get("expedition")

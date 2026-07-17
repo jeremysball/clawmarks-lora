@@ -2701,3 +2701,110 @@ trust a model's mechanism claim at face value): read `_create_leg`, `_create_exp
 against the new `EXPEDITIONS_DIR` value, and confirmed `git check-ignore` returned nothing for
 `state/` before the fix. Full suite after the fix: 430 passed. Ruff, MyPy, and `git diff --check`
 clean.
+
+### 2026-07-17: Strengthened Task 2's opposite-order lock contention test
+
+The second independent review pass found that the opposite-order multiprocessing test only
+observed a worker announcing its intent to call `flock` before the syscall could block. That
+assertion could pass through scheduling luck without proving cross-process exclusion. The test now
+waits for one worker to enter while both first lock attempts have started, then requires the other
+worker's entry event to remain unset for 0.2 seconds before releasing the winner. This positively
+proves the loser is blocked while the lock is held. A temporary no-op `flock` mutation failed at
+the strengthened assertion, while the real implementation passed all 11 durable-record tests in
+five consecutive runs. Ruff and MyPy remained clean. Production code was unchanged.
+
+### 2026-07-17: Implemented Task 3 map-member Focus persistence
+
+Added `src/clawmarks/focus_store.py` with frozen expedition/leg `Scope`, map-member source
+validation, direct real-anchor validation, durable state-directory storage, revision-checked
+updates, archive transitions, status-filtered listing, and readable corruption errors. Generated
+manifest members must resolve exactly once and their resolved files must remain inside the scoped
+`config.leg_dir()`; duplicate source tags are deduplicated in input order while natural-language
+fields remain unchanged. Every create, update, and archive writes through `atomic_json_write()`
+under the durable per-record `fcntl` lock. The existing Focus test file was left behaviorally
+unchanged apart from removing two unused imports required by Ruff.
+
+The focused suite passed 10 tests, the full suite passed 453 tests, Ruff passed, and MyPy passed.
+
+### 2026-07-17: Implemented Task 4 coverage-frontier Focus validation
+
+Extended `src/clawmarks/focus_store.py` so `FocusStore.create()` dispatches on `source.kind`.
+The existing `map_members` branch keeps its behavior; a new `coverage_frontier` branch validates
+`score_ranges` as two finite numbers per metric with `min < max`, faithfulness within `[-1.0, 1.0]`,
+novelty within `[0.0, 2.0]`, deduplicated `adjacent_member_tags` resolving exactly once in the
+scoped manifest via the same leg-containment path as member tags, real anchors via the existing
+real-art validation, and a caller-supplied `coverage_cells` list whose bin exactly matches the
+requested score range with `count == 0` and `frontier is True`. `coverage_hint` is preserved
+opaquely as the design spec allows; the canonical score ranges, deduplicated adjacent tags, and
+real anchors overwrite the deep-copied source. Map-member and frontier validation share manifest,
+real-anchor, deduplication, and per-record locking plumbing, so the discriminated union stays a
+single create path with no duplicate record-emission code.
+
+The focused suite passed 18 tests, the full suite passed 461 tests, Ruff passed, and MyPy passed.
+
+### 2026-07-17: Implemented Task 5 dossier HTTP APIs
+
+Exposed the five Focus routes from the design spec on the curation server:
+`GET /api/foci`, `POST /api/foci`, `GET /api/foci/<id>`, `PATCH /api/foci/<id>`, and
+`POST /api/foci/<id>/archive`. Added a `do_PATCH`/`_do_PATCH` pair mirroring the existing
+`do_POST`/`_do_POST` JSON error boundary so the new verb reuses `_send_json_error`,
+`_json_response`, and the `NoActiveLegError` plumbing instead of inventing a parallel
+dispatch. Each handler builds `Scope(expedition, leg)` from explicit query/body params, never
+from `_active_selection`, so a request that targets one scope cannot silently resolve to the
+active leg (the brief's "scope mismatch even when the mismatched pair equals the global active
+selection" rule). Per-request `FocusStore(config.STATE_DIR, Path(REAL_DIR))` instantiation keeps
+test-time `config.STATE_DIR` monkeypatches working without a captured-at-import-time value.
+The scoped manifest is loaded directly from `config.leg_dir(expedition, leg)/scored_manifest.json`
+with a missing file → empty list, so create against a leg with no scored images yet still works
+(relying on `FocusStore.create`'s own `FocusValidationError` for member-tag resolution).
+
+For `coverage_frontier` create, the server recomputes Coverage via
+`clawmarks.build.coverage_map.compute_data(str(leg_dir))` and passes `data["cells"]` as the
+authoritative `coverage_cells`. The client cannot smuggle a synthetic count/frontier/adjacency
+claim past the recompute; an unmatched score_range returns 400. The `coverage_hint` inside
+`source` (row/column/binning_version) is opaque display data and still passes through from the
+client, matching Task 4's existing behavior. Error mapping is `FocusValidationError` → 400,
+`FocusNotFound` → 404, `FocusConflict` → 409 with `current`, `FocusIntegrityError` → 500 with
+no disk mutation (FocusStore never touches disk on a read-time integrity failure, so catching
+and reporting satisfies the "never delete the corrupt file" rule). Create returns 201 with the
+full record; GET, PATCH, and archive return 200.
+
+Added `tests/test_curation_server_focus_routes.py` (20 tests): the brief's two exact snippets
+(round-trip and scope-mismatch), list status filtering, invalid status 400, stale PATCH and
+archive both → 409 with the current record, malformed JSON on POST and PATCH → 400, missing
+query scope on list, single, PATCH, and archive → 400, unknown member tag → 400, unknown real
+anchor → 400, unknown focus id → 404, PATCH missing `changes` or `expected_revision` → 400, a
+`coverage_frontier` create whose score_range actually matches a recomputed frontier cell → 201,
+a `coverage_frontier` create with a synthetic range that does not match any cell → 400 (proves
+the server, not the client, decides), and `cs._active_selection` unchanged across all five
+verbs. The full suite passed 481 tests, Ruff passed, MyPy passed, and `git diff --check` passed.
+Committed as `feat(focus): expose dossier APIs`.
+
+### 2026-07-17: Final whole-branch review of feat/focus-persistence, approved
+
+Reviewed the full branch (8 commits, `5d3bdfe..12944e7`) against the Focus Persistence plan's
+global constraints: storage location, no-delete-before-replace, fsync-then-replace-then-fsync-
+parent on every write, one-level-at-a-time durable directory creation, `focus_`-prefixed UUID
+record IDs, `fcntl.flock` plus revision checks on every mutation, and untouched corrupt records.
+Every constraint holds. The reentrant cross-process lock test in `test_durable_records.py` uses
+real multiprocessing with opposite-order lock acquisition, not a same-process simulation, and a
+no-op flock mutation fails it, so the concurrency guarantee is genuinely exercised. No code path
+in `atomic_io.py`, `durable_records.py`, or `focus_store.py` deletes a file before its
+replacement succeeds.
+
+Triaged the ten non-blocking findings accumulated across Tasks 3-5. Nine closed as either
+working-as-designed or cosmetic, most notably the canonical-JSON tension: `atomic_json_write`
+writes records with `indent=1`, not the plan's canonical `sort_keys`/compact form, but tracing
+the actual call sites showed canonical-JSON encoding is only used for content-addressed digests
+(`sha256_json`, not yet called by any Focus write path), not for the on-disk record file itself.
+The plan's canonical-JSON line defines what canonical JSON is, not that every write must use it.
+
+One finding carries forward as a real, non-blocking follow-up: `FocusStore.list()`
+(`focus_store.py:80-85`) aborts entirely on the first corrupt record found in a scope, so one
+bad file 500s the whole list endpoint for that scope rather than skipping it and returning the
+rest. Worth fixing in a follow-up (log the corrupt file, return the remaining valid records),
+not worth blocking this merge over.
+
+Fresh verification run (not just re-trusting per-task reports): full suite 481 passed, Ruff
+clean, MyPy clean across 48 source files, `git diff --check` clean across the whole branch.
+Status: Approved. Proceeding to `superpowers:finishing-a-development-branch`.
