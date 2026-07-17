@@ -12,11 +12,12 @@ import re
 from collections import defaultdict
 
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -66,14 +67,16 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS novelty decay watchlist</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:#0b0b0d; color:#eaeaee; font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; }}
-p {{ color:#9a9aa4; max-width:640px; font-size:13px; line-height:1.7; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; }}
+p {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.7; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+{INFOTIP_CSS}
 </style></head><body>
 {nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Novelty decay watchlist</h1>
@@ -83,6 +86,9 @@ generation, to flag prompts that have stopped yielding new territory; a single-g
 run has nothing to compare across.</p>
 <p>Once a second generation runs against this sweep, reload this page and it will show one
 sparkline per prompt family that has appeared more than once, sorted worst-trending first.</p>
+<script src="scrollnav.js"></script>
+<script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     data_json = json_script(series)
@@ -98,27 +104,29 @@ sparkline per prompt family that has appeared more than once, sorted worst-trend
 <title>CLAWMARKS novelty decay watchlist</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-:root {{ --flat:#9a9aa4; }}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
+body {{ margin:0; padding:24px; }}
 h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
-#list {{ display:flex; flex-direction:column; gap:10px; margin-top:20px; max-width:920px; }}
-.row {{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px;
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+#list {{ display:flex; flex-direction:column; gap:0; margin-top:20px; max-width:920px; }}
+.row {{ padding:12px 0; border-bottom:1px solid var(--rule);
   display:flex; align-items:center; gap:16px; }}
+.row:last-child {{ border-bottom:none; }}
 .row .name {{ width:220px; font-size:13px; flex-shrink:0; }}
-.row .name .n {{ color:var(--text-dim); font-size:11px; display:block; }}
+.row .name .n {{ color:var(--text-soft); font-size:11px; display:block; }}
 .row svg {{ flex:1; height:44px; }}
-.trendtag {{ font-size:11px; padding:2px 8px; border-radius:5px; width:70px; text-align:center; flex-shrink:0; }}
-.trendtag.down {{ background:rgba(224,96,94,0.15); color:var(--down); }}
-.trendtag.up {{ background:rgba(94,201,138,0.15); color:var(--up); }}
-.trendtag.flat {{ background:rgba(154,154,164,0.15); color:var(--flat); }}
+.trendtag {{ font-size:11px; padding:2px 8px; width:70px; text-align:center; flex-shrink:0;
+  background:var(--paper-deep); color:var(--ink); }}
+.trendtag.down {{ background:var(--paper-deep); color:#e0605e; }}
+.trendtag.up {{ background:var(--paper-deep); color:#5ec98a; }}
+.trendtag.flat {{ background:var(--paper-deep); color:var(--text-soft); }}
 @media (max-width: 640px) {{
-  .row {{ flex-wrap:wrap; gap:8px; padding:10px; }}
+  .row {{ flex-wrap:wrap; gap:8px; padding:10px 0; }}
   .row .name {{ width:100%; }}
   .row svg {{ flex:1 1 100%; order:3; }}
 }}
@@ -170,6 +178,7 @@ list.innerHTML = SERIES.map(s => {{
 </script>
 <script src="scrollnav.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

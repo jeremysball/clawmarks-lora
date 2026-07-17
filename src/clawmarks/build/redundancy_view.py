@@ -20,11 +20,12 @@ import math
 import os
 
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -95,23 +96,26 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS redundancy clusters</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
+body {{ margin:0; padding:24px; }}
 h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
-#bar {{ display:flex; gap:14px; align-items:center; margin:16px 0; font-size:12.5px; color:var(--text-dim); flex-wrap:wrap; }}
-#bar input[type=range] {{ width:280px; }}
-#summary {{ font-size:13px; color:var(--text-dim); margin-bottom:14px; }}
-#summary b {{ color:var(--text); }}
-#clusters {{ display:flex; flex-direction:column; gap:10px; }}
-.cluster {{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }}
-.cluster .head {{ font-size:11.5px; color:var(--text-dim); margin-bottom:6px; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+#bar {{ display:flex; gap:14px; align-items:center; margin:16px 0; font-size:12.5px; color:var(--text-soft); flex-wrap:wrap; }}
+#bar input[type=range] {{ width:280px; background:var(--paper); border:1px solid var(--ink); }}
+#summary {{ font-size:13px; color:var(--text-soft); margin-bottom:14px;
+  padding-bottom:14px; border-bottom:1px solid var(--rule); }}
+#summary b {{ color:var(--ink); }}
+#clusters {{ display:flex; flex-direction:column; gap:0; max-width:920px; }}
+.cluster {{ padding:10px 0; border-bottom:1px solid var(--rule); }}
+.cluster:last-child {{ border-bottom:none; }}
+.cluster .head {{ font-size:11.5px; color:var(--text-soft); margin-bottom:6px; }}
 .cluster .strip {{ display:flex; gap:5px; overflow-x:auto; }}
-.cluster .strip img {{ width:64px; height:64px; object-fit:cover; border-radius:5px; flex-shrink:0; }}
+.cluster .strip img {{ width:64px; height:64px; object-fit:cover; flex-shrink:0; }}
 @media (max-width: 640px) {{
   #bar input[type=range] {{ width:100%; flex:1; }}
   .cluster .strip img {{ width:52px; height:52px; }}
@@ -191,7 +195,7 @@ function render() {{
       <div class="head">${{g.length}} images | representative (highest novelty): ${{escHtml(rep)}} (${{META[rep] ? escHtml(META[rep].prompt_name) : ''}})</div>
       <div class="strip">${{g.map((t, ti) => `<img loading="lazy" src="${{escHtml(THUMBS[t] || '')}}" data-tag="${{escHtml(t)}}" title="${{escHtml(t)}}" style="cursor:pointer" onclick="openClusterItem(${{gi}}, ${{ti}})">`).join('')}}</div>
     </div>`;
-  }}).join('') + (multi.length > 60 ? `<p style="color:#9a9aa4;font-size:12px;">...and ${{multi.length - 60}} more clusters not shown</p>` : '');
+  }}).join('') + (multi.length > 60 ? `<p style="color:var(--text-soft);font-size:12px;">...and ${{multi.length - 60}} more clusters not shown</p>` : '');
 }}
 
 document.getElementById('thresh').addEventListener('input', render);
@@ -200,6 +204,7 @@ render();
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html
