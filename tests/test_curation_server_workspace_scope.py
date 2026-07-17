@@ -103,6 +103,12 @@ def test_explicit_focus_page_reads_its_leg_without_switching_global_selection(se
     assert status == 200
     assert b"one-0" in body
     assert b"two-0" not in body
+    scan_status, scan_body = get_response(
+        server, f"/scan.html?expedition=demo&leg=round1&focus_id={focus['focus_id']}"
+    )
+    assert scan_status == 200
+    assert b"/thumbs/one-0.jpg?expedition=demo&leg=round1" in scan_body
+    assert b'"thumb": "thumbs/one-0.jpg"' not in scan_body
     assert config.ACTIVE_LEG_FILE.read_bytes() == before
     assert cs._active_selection == {"expedition": "demo", "leg": "current"}
 
@@ -141,6 +147,22 @@ def test_generated_image_rejects_manifest_path_outside_requested_leg(server_fixt
     status, _ = get_response(server, "/generated/escape?expedition=demo&leg=round1")
 
     assert status == 404
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/thumbs/one-0.jpg?focus_id=",
+        "/thumbs/one-0.jpg?expedition=&leg=round1",
+        "/thumbs/one-0.jpg?expedition=demo&leg=",
+    ],
+)
+def test_scoped_thumbnail_rejects_blank_scope_values(server_fixture, path):
+    server, _ = server_fixture
+
+    status, _ = get_response(server, path)
+
+    assert status == 400
 
 
 def test_generated_image_url_preserves_leg_scope():

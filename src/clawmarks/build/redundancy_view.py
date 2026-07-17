@@ -31,6 +31,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 
 def compute_data(sweep_dir, deps):
@@ -54,10 +55,18 @@ def compute_data(sweep_dir, deps):
     return {"sim_scored": sim_scored, "thumbs": thumbs, "meta": meta}
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(
+    data, active_expedition=None, active_leg=None, running=None,
+    context: WorkspaceContext | None = None,
+):
     sim_scored = data["sim_scored"]
     thumbs = data["thumbs"]
     meta = data["meta"]
+    if context is not None:
+        thumbs = {
+            tag: generated_image_url(tag, context, thumbnail=True)
+            for tag in thumbs
+        }
 
     cluster_tip = info_btn(
         "A cluster here is a connected component: if A is similar enough to B, and B is similar "

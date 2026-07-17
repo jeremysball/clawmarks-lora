@@ -26,6 +26,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 N_BINS = 8
 
@@ -162,8 +163,31 @@ def neighbor_tags(data, fb, nb):
     return tags
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(
+    data, active_expedition=None, active_leg=None, running=None,
+    context: WorkspaceContext | None = None,
+):
     cells_json = data["cells"]
+    if context is not None:
+        cells_json = [
+            {
+                **cell,
+                "thumb": (
+                    generated_image_url(cell["best_tag"], context, thumbnail=True)
+                    if cell.get("best_tag") else cell.get("thumb")
+                ),
+                "items": [
+                    {
+                        **item,
+                        "thumb": generated_image_url(
+                            item["tag"], context, thumbnail=True
+                        ),
+                    }
+                    for item in cell["items"]
+                ],
+            }
+            for cell in cells_json
+        ]
     median_count = data.get("median_count", 0)
     max_count = data["max_count"]
     data_json = json_script(cells_json)

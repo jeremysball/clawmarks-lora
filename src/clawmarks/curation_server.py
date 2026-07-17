@@ -1227,8 +1227,18 @@ p {{ color:var(--text-soft); font-size:13.5px; line-height:1.6; }}
             self.path, _active_selection, self._focus_store()
         )
 
+    def _page_render_context(self, context: WorkspaceContext):
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(self.path).query, keep_blank_values=True
+        )
+        if any(key in query for key in ("expedition", "leg", "focus_id")):
+            return context
+        return None
+
     def _page_scope(self, context: WorkspaceContext):
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(self.path).query, keep_blank_values=True
+        )
         if not any(key in query for key in ("expedition", "leg", "focus_id")):
             return _active_scope()
         return context.expedition, context.leg
@@ -1635,7 +1645,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             context = self._page_context()
             expedition, leg = self._page_scope(context)
             html = scan_gallery.render_html(
-                _get_scan_items(expedition, leg), context.expedition, context.leg
+                _get_scan_items(expedition, leg), context.expedition, context.leg,
+                context=self._page_render_context(context),
             )
             body = html.encode()
             self.send_response(200)
@@ -1653,7 +1664,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/map.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = map_view.render_html(_get_map_data(expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = map_view.render_html(
+                _get_map_data(expedition, leg), active_expedition=context.expedition,
+                active_leg=context.leg,
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                context=self._page_render_context(context),
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1665,7 +1681,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/redundancy.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = redundancy_view.render_html(_get_redundancy_data(expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = redundancy_view.render_html(
+                _get_redundancy_data(expedition, leg), active_expedition=context.expedition,
+                active_leg=context.leg,
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                context=self._page_render_context(context),
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1677,7 +1698,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/coverage.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = coverage_map.render_html(_get_manifest_cached("coverage", coverage_map.compute_data, expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = coverage_map.render_html(
+                _get_manifest_cached("coverage", coverage_map.compute_data, expedition, leg),
+                active_expedition=context.expedition, active_leg=context.leg,
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                context=self._page_render_context(context),
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1722,7 +1748,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 lambda sd: elite_archive.compute_data(sd, use_predicted_preference=use_predicted),
                 watched_files=watched, sweep_dir=str(out_dir),
             )
-            html = elite_archive.render_html(data, active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = elite_archive.render_html(
+                data, active_expedition=context.expedition, active_leg=context.leg,
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                context=self._page_render_context(context),
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1739,7 +1769,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 watched_files=_prediction_watched_files(expedition, leg),
                 sweep_dir=str(_scope_out_dir(expedition, leg)),
             )
-            html = preference_rank.render_html(data, active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = preference_rank.render_html(
+                data, active_expedition=context.expedition, active_leg=context.leg,
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                context=self._page_render_context(context),
+            )
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1846,7 +1880,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(self.path).query, keep_blank_values=True
+        )
         has_scope_query = any(key in query for key in ("expedition", "leg", "focus_id"))
 
         if route_path.startswith("/generated/"):

@@ -28,6 +28,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 
 def build_ranked_items(by_tag, tags, scores, sweep_dir, limit=500):
@@ -61,7 +62,10 @@ def compute_data(sweep_dir):
     return {"has_model": True, "items": items}
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(
+    data, active_expedition=None, active_leg=None, running=None,
+    context: WorkspaceContext | None = None,
+):
     if not data["has_model"]:
         return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -84,6 +88,15 @@ p.empty {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:
 </body></html>"""
 
     items = data["items"]
+    if context is not None:
+        items = [
+            {
+                **item,
+                "thumb": generated_image_url(item["tag"], context, thumbnail=True),
+                "file": generated_image_url(item["tag"], context),
+            }
+            for item in items
+        ]
 
     rank_tip = info_btn(
         "Sorted by the trained preference model's predicted score, highest first: the model "
@@ -137,7 +150,7 @@ p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.
 <div id="review-controls"><label><input id="reviewMode" type="checkbox"> Review top, middle, and bottom</label><span id="reviewCount"></span><span id="flagError" class="flag-error" role="alert" aria-live="polite"></span></div>
 <div id="list"></div>
 <script>
-// json_script() only protects this declaration from a <\/script> breakout; it does not
+// json_script() only protects this declaration from a <\\/script> breakout; it does not
 // HTML-escape decoded string values. Every ITEMS field written into innerHTML/an attribute
 // below must go through escHtml() first.
 function escHtml(s) {{

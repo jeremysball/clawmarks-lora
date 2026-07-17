@@ -26,6 +26,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 
 def compute_data(sweep_dir, deps):
@@ -42,7 +43,10 @@ def compute_data(sweep_dir, deps):
     }
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(
+    data, active_expedition=None, active_leg=None, running=None,
+    context: WorkspaceContext | None = None,
+):
     points = data["points"]
     real_points = data["real_points"]
     max_gen = data["max_gen"]
@@ -73,7 +77,13 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 
     real_anchor_json = json_script(data["real_anchor_counts"])
 
-    points_json = json_script(points)
+    render_points = points
+    if context is not None:
+        render_points = [
+            {**point, "thumb": generated_image_url(point["tag"], context, thumbnail=True)}
+            for point in points
+        ]
+    points_json = json_script(render_points)
     real_json = json_script(real_points)
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">

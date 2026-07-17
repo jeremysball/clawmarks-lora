@@ -28,6 +28,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 
 def round_of(tag):
@@ -91,8 +92,20 @@ def compute_data(sweep_dir, deps):
     return items
 
 
-def render_html(items, active_expedition=None, active_leg=None):
-    data_json = json_script(items)
+def render_html(
+    items, active_expedition=None, active_leg=None, context: WorkspaceContext | None = None
+):
+    render_items = items
+    if context is not None:
+        render_items = [
+            {
+                **item,
+                "thumb": generated_image_url(item["tag"], context, thumbnail=True),
+                "file": generated_image_url(item["tag"], context),
+            }
+            for item in items
+        ]
+    data_json = json_script(render_items)
 
     faith_tip = info_btn(
         "Faithfulness measures how close an image stays to the original training photos, on a scale "

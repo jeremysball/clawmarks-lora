@@ -33,6 +33,7 @@ from clawmarks.shared_ui import (
     json_script,
     nav_bar_html,
 )
+from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 
 N_BINS = 4  # matches gallery.html's display grid
 
@@ -132,8 +133,28 @@ def compute_data(sweep_dir, use_predicted_preference=False):
             "faith_bins": faith_bins, "novelty_bins": novelty_bins}
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(
+    data, active_expedition=None, active_leg=None, running=None,
+    context: WorkspaceContext | None = None,
+):
     cells = data["cells"]
+    if context is not None:
+        cells = [
+            {
+                **cell,
+                "items": [
+                    {
+                        **item,
+                        "thumb": generated_image_url(
+                            item["tag"], context, thumbnail=True
+                        ),
+                        "file": generated_image_url(item["tag"], context),
+                    }
+                    for item in cell["items"]
+                ],
+            }
+            for cell in cells
+        ]
     data_json = json_script(cells)
     faith_bins_json = json_script(data.get("faith_bins", []))
     novelty_bins_json = json_script(data.get("novelty_bins", []))

@@ -2850,3 +2850,11 @@ TDD verification added real two-leg HTTP fixtures, full-image reads, thumbnail g
 outside-leg path rejection. The focused suite passed 13 tests, the full suite passed 554 tests,
 Ruff passed, and MyPy passed across 49 source files. The full suite still reports existing
 third-party scikit-learn and UMAP warnings.
+
+The follow-up review found that the first implementation scoped data and direct image endpoints but
+left renderer-generated relative thumbnail URLs on the global active-leg directory. The fix passes
+explicit `WorkspaceContext` into scan, map, redundancy, coverage, archive, and preference-rank
+renderers, which now emit scope-bearing generated-image URLs while preserving bare legacy URLs. The
+thumbnail route also preserves blank query keys during parsing, so blank expedition, leg, and
+Focus values now receive the same HTTP 400 validation as other malformed workspace queries. The
+focused suite passed 16 tests and the full suite passed 557 tests; Ruff and MyPy remained clean.
