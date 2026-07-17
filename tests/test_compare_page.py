@@ -165,5 +165,34 @@ def test_render_html_blocks_choices_while_zoom_is_open():
 
 
 def test_render_html_uses_accent_for_pane_hover():
+    """The compare pane used to switch its border color on hover so the user could tell
+    which side of the pair they were about to pick. Sulfur Proof panes carry their affordance
+    in the hard offset shadow (matching the Task 2 `.mounted-evidence` depth class), so the
+    hover treatment bumps the offset from 5px to 6px instead of swapping a border color."""
     html = compare_page.render_html()
-    assert ".pane:hover { border-color:var(--accent); }" in html
+    assert ".pane:hover" in html
+    # The new affordance lives in the offset shadow, not in `border-color`.
+    assert "border-color:var(--accent);" not in html
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    html = compare_page.render_html()
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_has_or_axis_between_panes():
+    """Task 4 brief, Step 1: the page is a head-to-head choice, so between the two dominant
+    mounted images there is a literal text "OR" axis. The axis is a flat semantic divider, not
+    a control, so the rendered class is `or-axis` (not `or-button` or `or-control`)."""
+    html = compare_page.render_html()
+    assert 'class="or-axis"' in html
+    # The axis must render literal "OR" text, not just an empty divider, so the visual is
+    # self-explanatory without a tooltip.
+    or_section = html.split('class="or-axis"', 1)[1].split("</", 1)[0]
+    assert "OR" in or_section

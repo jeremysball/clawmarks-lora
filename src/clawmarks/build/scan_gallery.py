@@ -18,10 +18,11 @@ import os
 import re
 
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -132,76 +133,81 @@ def render_html(items, active_expedition=None, active_leg=None):
 <title>CLAWMARKS uncanny scan</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-:root {{ --style: #5ec98a; --conflict: #e0a25e; --radius: 10px; }}
-* {{ box-sizing: border-box; }}
-body {{
-  background: var(--bg); color: var(--text); margin:0; padding:0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}}
-{MOBILE_BASE_CSS}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
-{BTN_CSS}
+{MOBILE_BASE_CSS}
 #bar {{
-  position:sticky; top:0; z-index:10; background: rgba(22,22,26,0.92); backdrop-filter: blur(10px);
-  border-bottom:1px solid var(--border); padding:12px 20px; display:flex; gap:18px;
-  flex-wrap:wrap; align-items:center; font-size:13px; transition: transform .18s ease;
+  position:sticky; top:0; z-index:10; background:var(--paper); border-bottom:2px solid var(--ink);
+  padding:12px 20px; display:flex; gap:18px; flex-wrap:wrap; align-items:center; font-size:13px;
+  transition: transform .18s ease;
 }}
 #bar.navhidden {{ transform: translateY(-100%); }}
 #bar h1 {{
-  font-size:14px; font-weight:600; letter-spacing:0.01em; margin:0; color:var(--text);
-  white-space:nowrap;
+  font-size:18px; font-weight:800; letter-spacing:0.06em; margin:0; color:var(--ink);
+  white-space:nowrap; text-transform:uppercase; font-family:var(--font-display);
 }}
-#bar h1 span {{ color: var(--text-faint); font-weight:400; }}
-#bar label {{ display:flex; gap:7px; align-items:center; color:var(--text-dim); font-size:12.5px; }}
+#bar h1 span {{ color: var(--text-soft); font-weight:400; text-transform:none;
+  letter-spacing:0.02em; font-family:var(--font-body); font-size:14px; }}
+#bar label {{ display:flex; gap:7px; align-items:center; color:var(--text-soft); font-size:12.5px; }}
 #bar select, #bar input[type=text], #bar input[type=number] {{
-  background: var(--panel-2); color: var(--text); border:1px solid var(--border);
-  border-radius:6px; padding:5px 9px; font-size:12.5px; outline:none; transition: border-color .15s;
+  background:var(--paper); color:var(--ink); border:1px solid var(--ink);
+  padding:5px 9px; font-size:12.5px; outline:none; transition: border-color .15s;
 }}
-#bar select:hover, #bar input:hover {{ border-color:#3a3a42; }}
-#bar select:focus, #bar input:focus {{ border-color: var(--accent); }}
+#bar select:hover, #bar input:hover {{ border-color:var(--text-soft); }}
+#bar select:focus, #bar input:focus {{ border-color: var(--ink); box-shadow:2px 2px 0 var(--ink); }}
 #bar input[type=number] {{ width:64px; }}
 #bar input[type=text] {{ width:170px; }}
 #bar input[type=checkbox] {{ accent-color: var(--pick); width:14px; height:14px; }}
-#count {{ color: var(--text-faint); margin-left:auto; font-variant-numeric: tabular-nums; }}
+#count {{ color: var(--text-soft); margin-left:auto; font-variant-numeric: tabular-nums;
+  font-family:var(--font-mono); }}
 
 #grid {{
   display:grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-  gap:5px; padding:12px;
+  gap:8px; padding:14px;
 }}
-@media (max-width: 640px) {{
-  #grid {{ grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap:3px; padding:8px; }}
+@media (max-width: 700px) {{
+  #grid {{ grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap:6px; padding:10px; }}
   #bar {{ padding:10px 12px; gap:10px; }}
   #bar input[type=text] {{ width:120px; }}
 }}
-.thumb {{
-  position:relative; background: var(--panel); cursor:pointer; aspect-ratio:1;
-  overflow:hidden; border-radius:6px; transition: transform .12s ease, box-shadow .12s ease;
+.thumb.raised-readout {{
+  position:relative; background:var(--paper); cursor:pointer; aspect-ratio:1;
+  overflow:hidden; transition: box-shadow .12s ease;
 }}
-.thumb:hover {{ transform: translateY(-2px) scale(1.015); box-shadow: 0 6px 18px rgba(0,0,0,0.45); z-index:1; }}
-.thumb img {{ width:100%; height:100%; object-fit:cover; display:block; }}
+.thumb.raised-readout:hover {{ box-shadow:4px 4px 0 var(--ink),
+  inset 1px 1px 0 var(--paper),
+  inset -1px -1px 0 var(--paper-deep); z-index:1; }}
+.thumb.raised-readout img {{ width:100%; height:100%; object-fit:cover; display:block; }}
 .thumb .meta {{
   position:absolute; bottom:0; left:0; right:0;
-  background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
-  font-size:9.5px; padding:12px 6px 5px; color:#dcdce2; white-space:nowrap; overflow:hidden;
-  text-overflow:ellipsis; opacity:0; transition: opacity .12s ease;
+  background: linear-gradient(to top, rgba(17,18,15,0.85), rgba(17,18,15,0));
+  font-size:9.5px; padding:12px 6px 5px; color:var(--paper); white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; opacity:0; transition: opacity .12s ease; font-family:var(--font-mono);
 }}
 .thumb:hover .meta {{ opacity:1; }}
 .thumb .pickbadge {{
   position:absolute; top:5px; right:5px; font-size:14px; color: var(--pick);
-  text-shadow:0 1px 3px rgba(0,0,0,0.8);
+  text-shadow:0 1px 3px rgba(17,18,15,0.8);
 }}
-.thumb.style-b {{ box-shadow: inset 0 0 0 2px rgba(94,201,138,0.55); }}
-.thumb.conflict-b {{ box-shadow: inset 0 0 0 2px rgba(224,162,94,0.55); }}
-.thumb.picked {{ box-shadow: inset 0 0 0 2.5px var(--pick); }}
-.thumb.picked:hover {{ box-shadow: inset 0 0 0 2.5px var(--pick), 0 6px 18px rgba(0,0,0,0.45); }}
+.thumb.style-b {{ box-shadow: inset 0 0 0 2px #5ec98a, 3px 3px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
+.thumb.conflict-b {{ box-shadow: inset 0 0 0 2px #e0a25e, 3px 3px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
+.thumb.picked {{ box-shadow: inset 0 0 0 2.5px var(--pick), 3px 3px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
+.thumb.picked:hover {{ box-shadow: inset 0 0 0 2.5px var(--pick), 4px 4px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); z-index:1; }}
 .thumb .favbadge {{
   position:absolute; top:5px; left:5px; font-size:14px; color: #e0609a;
-  text-shadow:0 1px 3px rgba(0,0,0,0.8);
+  text-shadow:0 1px 3px rgba(17,18,15,0.8);
 }}
-.thumb.favorited {{ box-shadow: inset 0 0 0 2.5px #e0609a; }}
-.thumb.favorited.picked {{ box-shadow: inset 0 0 0 2.5px var(--pick), inset 0 0 0 5px #e0609a; }}
+.thumb.favorited {{ box-shadow: inset 0 0 0 2.5px #e0609a, 3px 3px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
+.thumb.favorited.picked {{ box-shadow: inset 0 0 0 2.5px var(--pick),
+  inset 0 0 0 5px #e0609a, 3px 3px 0 var(--ink),
+  inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
 {INFOTIP_CSS}
 </style></head><body>
 
@@ -246,6 +252,7 @@ body {{
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 <script>
 // json_script() (see shared_ui.py) only protects this declaration from breaking out of the
 // <script> tag; it does not HTML-escape the decoded string values. Every place a DATA field
@@ -383,7 +390,7 @@ function thumbHtml(d, i) {{
     favorites[d.tag] ? 'favorited' : '',
   ].join(' ');
   return `
-    <div class="thumb ${{cls}}" style="view-transition-name: ${{vtName(d.tag)}}"
+    <div class="thumb raised-readout ${{cls}}" style="view-transition-name: ${{vtName(d.tag)}}"
          onclick="openThumb(${{i}})" data-i="${{i}}">
       <img loading="lazy" decoding="async" src="${{escHtml(d.thumb)}}" data-tag="${{escHtml(d.tag)}}">
       ${{picks[d.tag] ? '<div class="pickbadge">&#9733;</div>' : ''}}

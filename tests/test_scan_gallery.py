@@ -87,7 +87,37 @@ def test_render_html_includes_view_transition_helper():
 def test_thumb_html_has_sanitized_view_transition_name():
     items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "gen3_r2/exploit#1", "gen": 3,
               "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict", "prompt": "p",
-              "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28, "sampler": "ddim", "negative": "n",
-              "faith": 0.5, "novelty": 0.5, "sim": []}]
+              "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28, "sampler": "ddim",
+              "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
     html = scan_gallery.render_html(items)
     assert "view-transition-name" in html
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_grid_cells_use_mounted_evidence_depth():
+    """Task 4 brief, Step 3 (Scan): thumbnail grid cells are mounted evidence on the paper
+    background, not rounded cards. The page-local grid CSS therefore uses
+    .mounted-evidence (or .raised-readout) and contains no border-radius in the page-local
+    selectors (the shared INFOTIP_CSS carve-out from the brief still applies)."""
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    # The grid-cell selector must reference the Task 2 depth class. Pick one of the two
+    # approved treatments; either satisfies the brief.
+    assert (".thumb.mounted-evidence" in html) or (".thumb.raised-readout" in html)

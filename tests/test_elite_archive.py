@@ -36,10 +36,18 @@ def test_compute_data_uses_favorited_images_not_user_picks(tmp_path, monkeypatch
     assert tags_in_cell == {"a", "b"}
 
 
-def test_render_html_uses_panel_token_for_view_all_button():
+def test_render_html_uses_sulfur_proof_viewall_button():
+    """The view-all-in-this-cell button under each archive cell used to be a `--panel-2`
+    filled bar with rounded bottom corners. After the Sulfur Proof migration, the button uses
+    the Sulfur paper-deep tone (the dark text on light-paper fill the spec calls for on a
+    "patterned mark" / annotation button) and square corners, plus a hard offset shadow so it
+    still reads as a real control without the rounded treatment."""
     html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
 
-    assert ".cell .viewall { display:block; width:100%; background:var(--panel-2);" in html
+    assert ".cell .viewall" in html
+    assert "var(--paper-deep)" in html
+    # The legacy rounded-bottom-corner treatment (border-radius:0 0 10px 10px) must be gone.
+    assert "border-radius:0 0 10px 10px" not in html
 
 
 def test_render_html_never_emits_a_literal_closing_script_tag():
@@ -54,3 +62,24 @@ def test_render_html_never_emits_a_literal_closing_script_tag():
     script_end = html.index("</script>", script_start + len("<script>"))
     body = html[script_start + len("<script>"):script_end]
     assert "</script" not in body
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_uses_mounted_evidence_for_archive_grid_cells():
+    """Task 4 brief, Step 1: the rendered archive.html literally contains the substring
+    `mounted-evidence` (the per-cell depth class for bounded working evidence on the
+    paper background). The class comes from CONTROL_CSS, not the page itself, but the rendered
+    HTML still has to mention it so the styling is applied via the global rule."""
+    html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
+
+    assert "mounted-evidence" in html
