@@ -49,6 +49,112 @@ DARK_TOKENS = """
   --up:#5ec98a; --down:#e0605e; }
 """
 
+# Sulfur Proof foundation (Task 2 of feat/sulfur-proof-shared-shell). Tokens, typography, and
+# base page chrome are defined here so page migration can replace the legacy DARK_TOKENS/BTN_CSS
+# styles incrementally. See docs/superpowers/specs/2026-07-16-sulfur-proof-design-system.md.
+
+SULFUR_FONT_CSS = """
+@font-face { font-family:"Barlow Condensed"; src:url('/assets/fonts/BarlowCondensed-SemiBold.ttf') format('truetype'); font-weight:600; font-display:swap; }
+@font-face { font-family:"Barlow Condensed"; src:url('/assets/fonts/BarlowCondensed-ExtraBold.ttf') format('truetype'); font-weight:800; font-display:swap; }
+@font-face { font-family:"IBM Plex Sans"; src:url('/assets/fonts/IBMPlexSans-Variable.ttf') format('truetype'); font-weight:100 700; font-stretch:75% 100%; font-display:swap; }
+@font-face { font-family:"IBM Plex Mono"; src:url('/assets/fonts/IBMPlexMono-Regular.ttf') format('truetype'); font-weight:400; font-display:swap; }
+@font-face { font-family:"IBM Plex Mono"; src:url('/assets/fonts/IBMPlexMono-SemiBold.ttf') format('truetype'); font-weight:600; font-display:swap; }
+"""
+
+SULFUR_CSS = """
+:root { color-scheme:light; --paper:#C3C5BA; --paper-deep:#B3B5A9; --ink:#11120F;
+  --text-soft:#4D5048; --rule:#898D81; --sulfur:#CBD63F; --guide-surface:#20251B;
+  --guide-ink:#ECEFDF; --font-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --font-body:"IBM Plex Sans",Arial,sans-serif; --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+  --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
+  --text:var(--ink); --text-dim:var(--text-soft); --accent:var(--ink); --pick:var(--sulfur); }
+* { box-sizing:border-box; }
+body { background-color:var(--paper); color:var(--ink); font:14px/1.5 var(--font-body);
+  background-image:repeating-linear-gradient(0deg,rgba(17,18,15,.045) 0 1px,transparent 1px 8px),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 1px,transparent 1px 13px),
+    radial-gradient(circle at 18% 22%,rgba(255,255,255,.08),transparent 38%); }
+h1,h2,h3 { font-family:var(--font-display); }
+code,.mono,.receipt { font-family:var(--font-mono); }
+:focus-visible { outline:3px solid var(--sulfur); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+"""
+
+# Depth treatment for the three approved strengths expressed as five named classes.
+# Hierarchy, loudest first: .mounted-evidence (5px) > .raised-control (4px) > .raised-readout
+# (3px) > .light-detent / .recessed-readout (no outer shadow). Inset shadows describe inner-edge
+# bevels only; outer depth is hard-edged per the plan's "hard unblurred depth only" Global
+# Constraint (no blur radius). Pressed/active states translate by the shadow offset and remove
+# the outer shadow; hover states increase the offset by 1px-2px. Reversed inner edges (light-
+# detent, recessed-readout) swap the light/dark inset positions to read as pressed-in rather
+# than raised-out.
+CONTROL_CSS = """
+.raised-control {
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--ink); background:var(--paper); color:var(--ink);
+  font:600 14px/1 var(--font-body); padding:8px 14px;
+  box-shadow:4px 4px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-control:hover {
+  box-shadow:5px 5px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-control:active,
+.raised-control.pressed {
+  transform:translate(4px,4px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout {
+  display:inline-block; border:1px solid var(--rule); background:var(--paper); color:var(--ink);
+  font:14px/1.4 var(--font-body); padding:6px 10px;
+  box-shadow:3px 3px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout:hover {
+  box-shadow:4px 4px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout:active,
+.raised-readout.pressed {
+  transform:translate(3px,3px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence {
+  display:block; border:2px solid var(--ink); background:var(--paper);
+  box-shadow:5px 5px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence:hover {
+  box-shadow:6px 6px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence:active,
+.mounted-evidence.pressed {
+  transform:translate(5px,5px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.light-detent {
+  display:inline-block; border:1px solid var(--rule); background:var(--paper); color:var(--ink);
+  box-shadow:inset 1px 1px 0 var(--paper-deep),
+    inset -1px -1px 0 var(--paper);
+}
+.recessed-readout {
+  display:block; border:1px solid var(--rule); background:var(--paper-deep); color:var(--ink);
+  font:14px/1.5 var(--font-body); padding:8px 12px;
+  box-shadow:inset 1px 1px 0 var(--paper-deep),
+    inset -1px -1px 0 var(--paper);
+}
+"""
+
 BTN_CSS = """
 .btn { font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
   background:var(--panel-2); color:var(--text); cursor:pointer; }
@@ -89,19 +195,27 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None)
 
 
 TOPNAV_CSS = """
-.topnav { position:sticky; top:0; z-index:50; background:rgba(22,22,26,0.92); backdrop-filter:blur(10px);
-  border-bottom:1px solid var(--border,#2a2a30); padding:10px 16px; display:flex; gap:14px; align-items:center;
-  transition: transform .18s ease; }
+.topnav { position:sticky; top:0; z-index:50; background:var(--paper); color:var(--ink);
+  border-bottom:2px solid var(--ink); padding:10px 18px; display:flex; gap:14px; align-items:center;
+  font:14px/1.4 var(--font-body); transition: transform .18s ease; }
 .topnav.navhidden { transform: translateY(-100%); }
-.topnav select { background:var(--panel-2,#1d1d22); color:var(--text,#eaeaee); border:1px solid var(--border,#2a2a30);
-  border-radius:6px; padding:5px 9px; font-size:12.5px; max-width:220px; }
-.topnav .nav-activeleg { color:var(--text-dim,#9a9aa4); font-size:12px; font-family:monospace;
-  text-decoration:none; padding:2px 8px; background:rgba(154,154,164,0.12); border-radius:5px; white-space:nowrap; }
-.topnav .nav-running { color:#0b0b0d; font-size:11.5px; font-weight:700; padding:2px 8px;
-  background:var(--up,#5ec98a); border-radius:5px; white-space:nowrap; letter-spacing:0.02em; }
-@media (max-width: 640px) {
-  .topnav { padding:8px 10px; gap:8px; font-size:12px; flex-wrap:wrap; }
-  .topnav select { flex:1; min-width:0; max-width:none; }
+.topnav .navlink { color:var(--ink); text-decoration:none; font-weight:600; }
+.topnav .navlink:hover { text-decoration:underline; }
+.topnav select { background:var(--paper-deep); color:var(--ink); border:1px solid var(--ink);
+  padding:6px 10px; font:14px var(--font-body); max-width:220px; }
+.topnav .nav-activeleg { color:var(--ink); font:600 12px/1 var(--font-mono);
+  text-decoration:none; padding:4px 10px; background:var(--paper-deep);
+  border:1px solid var(--ink); white-space:nowrap; }
+.topnav .nav-running { color:var(--ink); font:700 11.5px/1 var(--font-body);
+  padding:4px 10px; background:var(--sulfur); border:1px solid var(--ink);
+  white-space:nowrap; letter-spacing:0.04em; text-transform:uppercase; }
+.context-label { display:inline-block; font:600 12px/1 var(--font-body);
+  color:var(--ink); padding:4px 8px; background:var(--paper-deep);
+  border:1px solid var(--rule); text-transform:uppercase; letter-spacing:0.04em; }
+@media (max-width:700px) {
+  .topnav { padding:8px 10px; gap:8px; flex-wrap:wrap; }
+  .topnav select { flex:1; min-width:0; max-width:none; font-size:14px; min-height:44px; }
+  .topnav .navlink, .topnav .nav-activeleg, .topnav .nav-running { font-size:12px; }
 }
 """
 
@@ -187,11 +301,14 @@ INFOTIP_JS = """
 MOBILE_BASE_CSS = """
 html, body { max-width:100vw; overflow-x:hidden; }
 * { -webkit-tap-highlight-color: transparent; }
-@media (max-width: 640px) {
-  body { padding:10px !important; }
-  h1 { font-size:16px !important; }
-  p.sub { font-size:12.5px !important; }
-  button, select, input { font-size:14px !important; min-height:34px; }
+@media (max-width:700px) {
+  body { padding:10px !important; font-size:15px !important; line-height:1.55 !important; }
+  h1 { font-size:18px !important; }
+  p.sub { font-size:13px !important; }
+  button, select, input, [role="button"], .btn, .raised-control, .raised-readout {
+    font-size:15px !important; min-height:44px; min-width:44px;
+  }
+  a:not(.navlink):not(.nav-activeleg) { line-height:24px; }
 }
 """
 
