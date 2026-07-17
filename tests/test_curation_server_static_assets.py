@@ -46,6 +46,25 @@ def test_favicon_served(running_server):
         assert len(resp.read()) == len(cs._FAVICON_PNG)
 
 
+def test_bundled_font_is_served(running_server):
+    port = running_server.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/assets/fonts/IBMPlexSans-Variable.ttf"
+    ) as response:
+        assert response.headers["Content-Type"] == "font/ttf"
+        assert response.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+        assert response.read()[:4] in {b"\x00\x01\x00\x00", b"OTTO"}
+
+
+def test_asset_route_rejects_path_traversal(running_server):
+    port = running_server.server_address[1]
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/assets/fonts/..%2F..%2Fconfig.py"
+        )
+    assert exc.value.code == 404
+
+
 def test_real_route_serves_only_basenames_from_real_dir(running_server, tmp_path, monkeypatch):
     real_dir = tmp_path / "real_images"
     real_dir.mkdir()

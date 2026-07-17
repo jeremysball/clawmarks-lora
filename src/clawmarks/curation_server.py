@@ -83,6 +83,7 @@ netns and auto-detection would otherwise fall back to 0.0.0.0 anyway).
 """
 import base64
 import html
+import importlib.resources
 import json
 import logging
 import os
@@ -121,6 +122,16 @@ from clawmarks.build.thumbnails import generate_thumbnail
 
 with open(os.path.join(os.path.dirname(__file__), "static", "favicon.png"), "rb") as _f:
     _FAVICON_PNG = _f.read()
+
+_FONT_ASSETS = frozenset({
+    "BarlowCondensed-SemiBold.ttf",
+    "BarlowCondensed-ExtraBold.ttf",
+    "IBMPlexSans-Variable.ttf",
+    "IBMPlexMono-Regular.ttf",
+    "IBMPlexMono-SemiBold.ttf",
+    "LICENSE-Barlow.txt",
+    "LICENSE-IBM-Plex.txt",
+})
 
 _live_cache = LiveCache()
 _logger = logging.getLogger(__name__)
@@ -1390,6 +1401,22 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+
+        if self.path.startswith("/assets/fonts/"):
+            name = self.path[len("/assets/fonts/"):].split("?", 1)[0].split("/", 1)[0]
+            if name in _FONT_ASSETS:
+                body = importlib.resources.files("clawmarks").joinpath(
+                    "static", "fonts", name
+                ).read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "font/ttf" if name.endswith(".ttf") else "text/plain; charset=utf-8")
+                self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_error(404, "unknown font asset")
             return
 
         if self.path == "/scan.html" or self.path.startswith("/scan.html?"):
