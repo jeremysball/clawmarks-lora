@@ -8,10 +8,11 @@ GET /api/compare/next itself and POSTs to
 Served live at /compare.html by curation_server.py.
 """
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     nav_bar_html,
@@ -41,51 +42,59 @@ def render_html(active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS compare</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px;
-  display:flex; flex-direction:column; align-items:center; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; align-self:flex-start; }}
-p.sub {{ color:var(--text-dim); max-width:640px; font-size:13px; line-height:1.6; align-self:flex-start; }}
+body {{ display:flex; flex-direction:column; align-items:center; }}
+h1 {{ font-size:22px; margin:24px 0 4px; align-self:flex-start; letter-spacing:0.02em;
+  text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.6;
+  align-self:flex-start; }}
 #stage {{ margin-top:20px; width:100%; max-width:1100px; display:flex; flex-direction:column; align-items:center; }}
-#pair {{ display:flex; gap:16px; width:100%; justify-content:center; flex-wrap:wrap; }}
-.pane {{ position:relative; flex:1 1 420px; max-width:520px; cursor:pointer; border-radius:10px;
-  border:2px solid transparent; transition:border-color .12s ease; }}
-.pane:hover {{ border-color:var(--accent); }}
-.pane:focus-visible, .zoom-icon:focus-visible {{ outline:3px solid #f5c542; outline-offset:3px; }}
+#pair {{ display:flex; gap:18px; width:100%; justify-content:center; align-items:stretch;
+  flex-wrap:wrap; }}
+.pane {{ position:relative; flex:1 1 420px; max-width:520px; cursor:pointer;
+  background:var(--paper); box-shadow:5px 5px 0 var(--ink);
+  border:2px solid var(--ink); transition: box-shadow .12s ease; }}
+.pane:hover {{ box-shadow:6px 6px 0 var(--ink); }}
+.pane:focus-visible, .zoom-icon:focus-visible {{ outline:3px solid var(--sulfur); outline-offset:3px; }}
 .pane.submitting {{ pointer-events:none; opacity:0.6; }}
-.pane img {{ display:block; width:100%; max-height:70vh; object-fit:contain; border-radius:8px;
-  background:var(--panel); user-select:none; -webkit-user-drag:none; }}
-.zoom-icon {{ position:absolute; top:8px; right:8px; width:30px; height:30px; border-radius:50%;
-  background:rgba(20,20,24,0.7); border:1px solid rgba(255,255,255,0.2); color:#eaeaee;
-  font-size:15px; display:flex; align-items:center; justify-content:center; cursor:zoom-in; z-index:2; }}
-.zoom-icon:hover {{ background:rgba(124,158,255,0.35); }}
-.cap {{ color:var(--text-dim); font-size:12.5px; margin-top:8px; text-align:center; padding:0 4px 2px;
+.pane img {{ display:block; width:100%; max-height:70vh; object-fit:contain;
+  background:var(--paper-deep); user-select:none; -webkit-user-drag:none; }}
+.zoom-icon {{ position:absolute; top:8px; right:8px; width:30px; height:30px;
+  background:var(--ink); border:1px solid var(--ink); color:var(--paper);
+  font-size:15px; display:flex; align-items:center; justify-content:center; cursor:zoom-in;
+  z-index:2; box-shadow:2px 2px 0 var(--ink); }}
+.zoom-icon:hover {{ background:var(--sulfur); color:var(--ink); box-shadow:3px 3px 0 var(--ink); }}
+.or-axis {{ display:flex; align-items:center; justify-content:center; flex:0 0 auto;
+  font:800 28px/1 var(--font-display); color:var(--ink); letter-spacing:0.08em;
+  padding:0 4px; user-select:none; }}
+.cap {{ color:var(--text-soft); font-size:12.5px; margin-top:8px; text-align:center; padding:0 4px 2px;
   line-height:1.5; }}
-#count {{ color:var(--text-dim); font-size:12px; margin-top:14px; }}
-#done {{ color:var(--text-dim); font-size:14px; margin-top:40px; text-align:center; }}
+#count {{ color:var(--text-soft); font-size:12px; margin-top:14px; }}
+#done {{ color:var(--text-soft); font-size:14px; margin-top:40px; text-align:center; }}
 #progress {{ width:100%; max-width:640px; align-self:flex-start; margin-top:14px; }}
-#prog-label {{ font-size:13.5px; color:var(--text); font-weight:600; margin-bottom:6px; }}
-#prog-track {{ height:10px; background:var(--panel); border:1px solid var(--border); border-radius:6px;
+#prog-label {{ font-size:13.5px; color:var(--ink); font-weight:600; margin-bottom:6px; }}
+#prog-track {{ height:10px; background:var(--paper-deep); border:1px solid var(--ink);
   overflow:hidden; }}
-#prog-fill {{ height:100%; width:0%; border-radius:6px;
-  background:linear-gradient(90deg,#5b7cff,#8fb0ff); transition:width .5s cubic-bezier(.2,.7,.2,1),
-  box-shadow .3s ease; }}
-#prog-fill.bump {{ box-shadow:0 0 12px 2px rgba(124,158,255,0.75); }}
-#prog-sub {{ font-size:11.5px; color:var(--text-dim); margin-top:6px; }}
-#prog-work {{ margin-top:8px; }}
-#prog-work summary {{ font-size:11.5px; color:var(--text-dim); cursor:pointer; user-select:none; }}
-#prog-work summary:hover {{ color:var(--text); }}
-table.work-table {{ font-size:12px; border-collapse:collapse; margin-top:8px; }}
-table.work-table td {{ padding:2px 10px 2px 0; color:var(--text-dim); }}
-table.work-table td:first-child {{ color:var(--text); }}
-.work-note {{ color:var(--text-dim); }}
-@media (max-width: 640px) {{
+#prog-fill {{ height:100%; width:0%;
+  background:var(--ink); transition:width .5s cubic-bezier(.2,.7,.2,1); }}
+#prog-fill.bump {{ background:var(--sulfur); }}
+#prog-sub {{ font-size:11.5px; color:var(--text-soft); margin-top:6px; font-family:var(--font-mono); }}
+#prog-work {{ margin-top:8px; border-top:1px solid var(--rule); padding-top:8px; }}
+#prog-work summary {{ font-size:11.5px; color:var(--text-soft); cursor:pointer; user-select:none; }}
+#prog-work summary:hover {{ color:var(--ink); }}
+table.work-table {{ font-size:12px; border-collapse:collapse; margin-top:8px; font-family:var(--font-mono); }}
+table.work-table td {{ padding:2px 10px 2px 0; color:var(--text-soft); }}
+table.work-table td:first-child {{ color:var(--ink); }}
+.work-note {{ color:var(--text-soft); }}
+@media (max-width: 700px) {{
   #pair {{ flex-direction:column; align-items:center; }}
   .pane {{ flex:1 1 auto; width:100%; max-width:none; }}
   .pane img {{ max-height:48vh; }}
+  .or-axis {{ padding:6px 0; }}
   #progress {{ align-self:stretch; max-width:none; }}
 }}
 #zoom-overlay {{ position:fixed; inset:0; background:rgba(8,8,10,0.94); backdrop-filter:blur(6px);
@@ -118,6 +127,7 @@ a corner to inspect that image at full resolution; tap again to close.</p>
       <div class="zoom-icon" id="zoom1" role="button" tabindex="0" aria-label="Inspect image A at full resolution">&#128269;</div>
       <div class="cap" id="cap1"></div>
     </div>
+    <div class="or-axis" aria-hidden="true">OR</div>
     <div class="pane" id="pane2" data-side="2" role="button" tabindex="0" aria-label="Choose image B">
       <img id="img2" style="display:none;">
       <div class="zoom-icon" id="zoom2" role="button" tabindex="0" aria-label="Inspect image B at full resolution">&#128269;</div>
@@ -412,6 +422,7 @@ loadNext();
 </script>
 <script src="scrollnav.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

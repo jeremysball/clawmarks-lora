@@ -115,3 +115,22 @@ def test_render_html_never_emits_a_literal_closing_script_tag():
     script_end = html.index("</script>", script_start + len("<script>"))
     body = html[script_start + len("<script>"):script_end]
     assert "</script" not in body
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    html = coverage_map.render_html({"cells": [], "max_count": 0})
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_labels_coverage_frontier():
+    """Task 4 brief, Step 1: the cell grid is the coverage frontier visualization, so the
+    element grouping frontier cells carries aria-label="Coverage frontier" so screen readers
+    hear what the canvas shows."""
+    html = coverage_map.render_html({"cells": [], "max_count": 0})
+    assert 'aria-label="Coverage frontier"' in html

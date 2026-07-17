@@ -2808,3 +2808,31 @@ not worth blocking this merge over.
 Fresh verification run (not just re-trusting per-task reports): full suite 481 passed, Ruff
 clean, MyPy clean across 48 source files, `git diff --check` clean across the whole branch.
 Status: Approved. Proceeding to `superpowers:finishing-a-development-branch`.
+
+### 2026-07-17: Sulfur Proof shared shell migration complete, PR opened
+
+`feat/sulfur-proof-shared-shell` applies the approved Sulfur Proof typography, tokens, tactile
+controls, shared context header, and mobile touch-target rules to every live curation page, per
+`docs/superpowers/plans/2026-07-16-sulfur-proof-shared-shell.md`. Tasks 1-5 (bundled fonts and
+package assets, the shared foundation and header, and the migration of all evidence, curation,
+action, status, and error pages) ran task-by-task via `subagent-driven-development`, each
+implemented and reviewed independently through taskferry (`opencode-go/minimax-m3`); several
+implementer sessions crashed mid-task (`no_output_timeout`, bare `SIGTERM`) without reaching their
+own commit, and in each case the controller inspected the resulting diff directly, confirmed it
+materially complete, ran the full verification gate itself, and committed rather than retrying
+past the two-consecutive-crash threshold. Full suite grew from 430 to 494 passing tests across the
+five tasks with Ruff/MyPy clean throughout.
+
+Task 6 (live Playwright verification, which cannot be taskferry-dispatched and must run directly
+against a server the controller starts) exercised Explore, Map, Coverage, Compare, Cockpit, Runs,
+the shared status page, and a 404 empty state at 1440px desktop and 390px mobile against a
+disposable copy of the real `demo_expedition/cockpit` leg (backed up and file-count-verified, 65/65
+files, before use). Zero console errors, zero horizontal overflow on any page, bundled fonts with
+no runtime font request, correct focus-trap and Escape-to-close-with-focus-restoration on the
+context-switch dialog, and `prefers-reduced-motion: reduce` present and universal. The audit found
+one real gap: at 390px, the header's `.wordmark` and `.session-status` links fell under the 44px
+touch-target minimum, because `MOBILE_BASE_CSS`'s min-height rule only covers form controls and
+explicitly excludes plain anchors (`a:not(.navlink):not(.nav-activeleg)`). Fixed with a two-line
+addition to the existing mobile media query in `shared_ui.py`; re-verified zero small targets
+afterward. Final gate: `uv run pytest -q` 494 passed, Ruff and MyPy clean, `git diff --check`
+clean. Opened as PR #51 against `main`.

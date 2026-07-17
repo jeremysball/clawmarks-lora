@@ -15,11 +15,12 @@ import json
 import os
 
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -183,14 +184,14 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS coverage map</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-:root {{ --frontier:#f5c542; }}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
+body {{ margin:0; padding:22px 26px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6; border-bottom:1px solid var(--rule); padding-bottom:14px; }}
 #wrap {{ display:flex; gap:24px; margin-top:20px; flex-wrap:wrap; }}
 #grid {{ display:grid; grid-template-columns: repeat({N_BINS}, 84px); grid-template-rows: repeat({N_BINS}, 84px); gap:3px; }}
 @media (max-width: 640px) {{
@@ -200,34 +201,51 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
   #wrap {{ flex-direction:column; gap:16px; }}
   #panel {{ width:100%; }}
 }}
-.cell {{ position:relative; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center;
-  font-size:11px; color:#0b0b0d; font-weight:600; }}
-.cell.frontier {{ outline:2px solid var(--frontier); outline-offset:-2px; }}
-.cell.empty {{ background:var(--panel); color:var(--text-dim); font-weight:400; }}
-#axisY {{ writing-mode:vertical-rl; transform:rotate(180deg); color:var(--text-dim); font-size:12px; text-align:center; }}
-#axisX {{ color:var(--text-dim); font-size:12px; text-align:center; margin-top:4px; }}
-#legend {{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); margin-top:14px; }}
-#legend .swatch {{ width:16px; height:16px; border-radius:3px; }}
+.cell {{ position:relative; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-size:11px; color:var(--ink); font-weight:600; border:1px solid var(--rule); }}
+.cell.frontier {{
+  border:2px solid var(--ink);
+  background-image:repeating-linear-gradient(45deg,var(--sulfur) 0 6px,transparent 6px 12px);
+  background-color:var(--paper);
+  color:var(--ink);
+  font:800 14px/1 var(--font-display);
+}}
+.cell.frontier::after {{
+  content:"F";
+  position:absolute; top:2px; right:4px; font:600 10px/1 var(--font-mono);
+  color:var(--ink); background:var(--sulfur); padding:2px 4px; border:1px solid var(--ink);
+}}
+.cell.empty {{ background:var(--paper); color:var(--text-soft); font-weight:400; border:1px solid var(--rule); }}
+#axisY {{ writing-mode:vertical-rl; transform:rotate(180deg); color:var(--text-soft); font-size:12px; text-align:center; }}
+#axisX {{ color:var(--text-soft); font-size:12px; text-align:center; margin-top:4px; }}
+#legend {{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-soft); margin-top:14px; border-top:1px solid var(--rule); padding-top:10px; }}
+#legend .swatch {{ width:16px; height:16px; border:1px solid var(--rule); }}
+#legend .swatch.frontier-swatch {{
+  background-image:repeating-linear-gradient(45deg,var(--sulfur) 0 4px,transparent 4px 8px);
+  background-color:var(--paper);
+  border:2px solid var(--ink);
+}}
 #panel {{ width:280px; }}
-#panel img {{ width:100%; border-radius:8px; display:none; cursor:pointer; }}
-#panel .info {{ font-size:12px; color:var(--text-dim); line-height:1.7; margin-top:10px; }}
-#panel .info b {{ color:var(--text); }}
-#panel .viewall {{ display:none; margin-top:10px; background:var(--panel); color:var(--text);
-  border:1px solid var(--border); border-radius:7px; padding:7px 14px; font-size:12.5px; cursor:pointer; }}
-#panel .viewall:hover {{ border-color:#4a4a54; }}
-#panel .cockpit-link {{ display:none; margin-top:8px; color:var(--accent,#7c9eff); font-size:12.5px; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
+#panel img {{ width:100%; display:none; cursor:pointer; border:1px solid var(--ink); }}
+#panel .info {{ font-size:12px; color:var(--text-soft); line-height:1.7; margin-top:10px; border-top:1px solid var(--rule); padding-top:10px; }}
+#panel .info b {{ color:var(--ink); }}
+#panel .viewall {{ display:none; margin-top:10px; background:var(--paper); color:var(--ink);
+  border:1px solid var(--ink); padding:7px 14px; font-size:12.5px; cursor:pointer; font:600 13px/1 var(--font-body); box-shadow:2px 2px 0 var(--ink); }}
+#panel .viewall:hover {{ box-shadow:3px 3px 0 var(--ink); }}
+#panel .viewall:active {{ transform:translate(2px,2px); box-shadow:none; }}
+#panel .cockpit-link {{ display:none; margin-top:8px; color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 
 #modal {{ position:fixed; inset:0; background:rgba(8,8,10,0.94); backdrop-filter:blur(6px);
   display:none; z-index:100; padding:30px; overflow-y:auto; }}
 #modal.open {{ display:block; }}
-#modal .close {{ position:fixed; top:16px; right:22px; font-size:26px; cursor:pointer; color:var(--text-dim); }}
-#modal .close:hover {{ color:var(--text); }}
-#modal h2 {{ font-size:15px; margin:0 0 14px; color:var(--text); }}
+#modal .close {{ position:fixed; top:16px; right:22px; font-size:26px; cursor:pointer; color:var(--guide-ink); }}
+#modal .close:hover {{ color:var(--paper); }}
+#modal h2 {{ font-size:15px; margin:0 0 14px; color:var(--guide-ink); }}
 #modalGrid {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px; max-width:1200px; }}
-#modalGrid .item {{ background:var(--panel); border-radius:8px; overflow:hidden; }}
+#modalGrid .item {{ background:var(--paper); border:1px solid var(--rule); overflow:hidden; }}
 #modalGrid img {{ width:100%; aspect-ratio:1; object-fit:cover; display:block; }}
-#modalGrid .meta {{ font-size:10px; color:var(--text-dim); padding:5px 6px; line-height:1.5; }}
+#modalGrid .meta {{ font-size:10px; color:var(--text-soft); padding:5px 6px; line-height:1.5; }}
 @media (max-width: 640px) {{
   #modal {{ padding:14px; }}
   #modalGrid {{ grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }}
@@ -247,7 +265,7 @@ all. Click a cell to preview its top image, or "view all" to see every image in 
   <div style="display:flex; gap:8px;">
     <div id="axisY">novelty &rarr;</div>
     <div>
-      <div id="grid"></div>
+      <div id="grid" role="grid" aria-label="Coverage frontier"></div>
       <div id="axisX">faithfulness &rarr;</div>
     </div>
   </div>
@@ -299,9 +317,15 @@ for (let nb = N_BINS - 1; nb >= 0; nb--) {{
     const div = document.createElement('div');
     const color = colorFor(c.count);
     div.className = 'cell' + (c.count === 0 ? ' empty' : '') + (c.frontier ? ' frontier' : '');
+    div.setAttribute('role', 'gridcell');
+    div.setAttribute('aria-rowindex', String(N_BINS - nb));
+    div.setAttribute('aria-colindex', String(fb + 1));
+    div.setAttribute('aria-label',
+      (c.frontier ? 'frontier cell, ' : 'cell, ') +
+      `faith [${{c.faith_lo}}, ${{c.faith_hi}}) novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) count ${{c.count}}`);
     if (color) div.style.background = color;
-    div.textContent = c.count || (c.frontier ? '\\u2605' : '');
-    div.title = `faith [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) | n=${{c.count}}`;
+    div.textContent = c.count || '';
+    div.title = `faith [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) | n=${{c.count}}${{c.frontier ? ' (frontier)' : ''}}`;
     div.onclick = () => showCell(c);
     grid.appendChild(div);
   }}
@@ -362,11 +386,12 @@ const legend = document.getElementById('legend');
 legend.innerHTML = `<span class="swatch" style="background:${{colorFor(1)}}"></span> 1`
   + `<span style="margin-left:6px;">median ${{MEDIAN_COUNT}}</span>`
   + `<span class="swatch" style="background:${{colorFor(MAX_COUNT)}}; margin-left:12px;"></span> max ${{MAX_COUNT}}`
-  + `<span class="swatch" style="background:transparent; outline:2px solid #f5c542; margin-left:12px;"></span> frontier (empty, adjacent to a dense cell)`;
+  + `<span class="swatch frontier-swatch" style="margin-left:12px;"></span> F frontier (empty, adjacent to a dense cell)`;
 </script>
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

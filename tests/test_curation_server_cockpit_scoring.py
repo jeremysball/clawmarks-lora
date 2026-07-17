@@ -164,12 +164,64 @@ def test_cockpit_expedition_selector_switches_to_cockpit_leg():
     assert "JSON.stringify({expedition, leg: 'cockpit'})" in page
 
 
-def test_cockpit_has_a_dark_prefers_color_scheme_variant():
+def test_cockpit_has_no_dark_prefers_color_scheme_variant():
     page = cockpit.render_html()
 
-    assert "@media (prefers-color-scheme: dark)" in page
-    assert "--paper:#0b0b0d" in page
+    assert "prefers-color-scheme: dark" not in page
+    # The .topnav.cockpit-topnav rule must not be inlined in the static HTML: the page only
+    # adds that class via JS at runtime, so the in-page stylesheet must not assume it exists.
     assert ".topnav.cockpit-topnav" not in page
+
+
+def test_cockpit_render_html_uses_sulfur_proof_shell():
+    """Task 5 (cockpit) render contract: the cockpit sits on the Sulfur Proof foundation, has
+    no prefers-color-scheme: dark branch (Sulfur Proof is the only theme), embeds the shared
+    header's context-switcher script, and ships a semantic <header> from the shared topnav."""
+    page = cockpit.render_html()
+    assert "--paper:#C3C5BA" in page
+    assert "prefers-color-scheme: dark" not in page
+    assert "shared-ui.js" in page
+    assert "<header" in page
+
+
+def test_cockpit_render_html_embeds_sulfur_depth_classes():
+    """Task 5 brief structural rule: 'Cockpit becomes one ruled recipe with a recessed settings
+    area and one full-width mounted payload-review strip.' SULFUR_CSS+CONTROL_CSS supply the
+    recessed-readout and mounted-evidence classes; both must be embedded in the page so the
+    structural rule can be expressed via class names on the recipe and payload-review panels."""
+    page = cockpit.render_html()
+    assert "recessed-readout" in page
+    assert "mounted-evidence" in page
+
+
+def test_cockpit_render_html_uses_sulfur_font_stack():
+    """Task 5 brief: bundled Barlow Condensed / IBM Plex fonts replace the system-ui stack.
+    The page's @font-face declarations come from SULFUR_FONT_CSS, and the body/inline font
+    references must use the SULFUR_CSS font tokens, not 'system-ui' or 'Segoe UI'."""
+    page = cockpit.render_html()
+    assert "Barlow Condensed" in page
+    assert "IBM Plex" in page
+    assert "system-ui" not in page
+    assert "Segoe UI" not in page
+
+
+def test_cockpit_layout_drops_two_column_workbench_for_full_width_strip():
+    """Task 5 brief: 'one ruled recipe with a recessed settings area and one full-width
+    mounted payload-review strip.' The 2-column .workbench grid (recipe | evidence) is replaced
+    with a stacked layout so the payload-review panel can span the full width instead of
+    sharing a narrower right-hand column with the recipe."""
+    page = cockpit.render_html()
+    assert "minmax(500px,1.25fr) minmax(330px,.75fr)" not in page
+
+
+def test_cockpit_recipe_panel_uses_recessed_readout_and_evidence_uses_mounted_evidence():
+    """Task 5 brief structural rule: the recipe settings area carries .recessed-readout (inner
+    edge bevel, no outer shadow) and the payload-review area carries .mounted-evidence (5px
+    hard-shadow depth class from CONTROL_CSS). Locking the class assignment down so a future
+    layout refactor can't silently swap the depth treatment."""
+    page = cockpit.render_html()
+    assert 'class="recessed-readout recipe' in page
+    assert 'class="mounted-evidence evidence' in page
 
 
 def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):

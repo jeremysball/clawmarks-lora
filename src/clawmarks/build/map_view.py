@@ -15,11 +15,12 @@ LiveCache's depends_on=["solution-map"] mechanism, not a standalone build step.
 from collections import Counter
 
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     DINO_TIP,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -79,40 +80,42 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS solution map</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-* {{ box-sizing:border-box; }}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:20px; }}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-h2 {{ font-size:14px; color:var(--text-dim); font-weight:600; margin:36px 0 8px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-#bar {{ display:flex; gap:16px; align-items:center; margin-top:16px; font-size:12.5px; color:var(--text-dim); flex-wrap:wrap; }}
-#bar select, #bar input[type=range] {{ background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; }}
+body {{ margin:0; padding:22px 26px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+h2 {{ font-size:14px; color:var(--text-soft); font-weight:600; margin:36px 0 8px; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+#bar {{ display:flex; gap:16px; align-items:center; margin-top:16px; font-size:12.5px; color:var(--text-soft); flex-wrap:wrap; }}
+#bar select, #bar input[type=range] {{ background:var(--paper); color:var(--ink); border:1px solid var(--ink); }}
 #bar input[type=range] {{ width:260px; }}
 #wrap {{ display:flex; gap:20px; margin-top:14px; flex-wrap:wrap; }}
 #canvasWrap {{ position:relative; max-width:100%; }}
-canvas {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; cursor:crosshair;
+canvas {{ background:var(--guide-surface); border:1px solid var(--ink); cursor:crosshair;
   max-width:100%; height:auto; display:block; }}
 #panel {{ width:260px; flex-shrink:0; }}
-#panel img {{ width:100%; border-radius:8px; display:none; }}
-#panel .info {{ font-size:12px; color:var(--text-dim); line-height:1.7; margin-top:10px; }}
-#panel .info b {{ color:var(--text); }}
+#panel img {{ width:100%; display:none; }}
+#panel .info {{ font-size:12px; color:var(--text-soft); line-height:1.7; margin-top:10px; }}
+#panel .info b {{ color:var(--ink); }}
 #panel .realWrap {{ margin-top:10px; }}
-#panel .realWrap .caption {{ font-size:11px; color:var(--text-dim); margin-top:4px; }}
-#panel .realWrap img {{ border:1px solid var(--pick); }}
-#mapLegend {{ position:absolute; left:12px; bottom:12px; background:rgba(11,11,13,0.82); border:1px solid var(--border);
-  border-radius:6px; padding:7px 9px; color:var(--text-dim); font-size:11px; line-height:1.55; pointer-events:none; }}
-button.playbtn {{ background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 12px; cursor:pointer; }}
+#panel .realWrap .caption {{ font-size:11px; color:var(--text-soft); margin-top:4px; }}
+#panel .realWrap img {{ border:1px solid var(--sulfur); }}
+#mapLegend {{ position:absolute; left:12px; bottom:12px; background:var(--guide-surface); border:1px solid var(--rule);
+  padding:7px 9px; color:var(--guide-ink); font-size:11px; line-height:1.55; pointer-events:none; }}
+button.playbtn {{ background:var(--paper); color:var(--ink); border:1px solid var(--ink); padding:4px 12px; cursor:pointer; font:600 13px/1 var(--font-body); box-shadow:2px 2px 0 var(--ink); }}
+button.playbtn:hover {{ box-shadow:3px 3px 0 var(--ink); }}
+button.playbtn:active {{ transform:translate(2px,2px); box-shadow:none; }}
 #anchorChart {{ display:flex; flex-direction:column; gap:4px; max-width:640px; }}
-.abar {{ display:flex; align-items:center; gap:8px; font-size:11.5px; cursor:pointer; }}
-.abar .label {{ width:170px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-.abar .track {{ flex:1; background:var(--panel); border-radius:3px; height:12px; overflow:hidden; }}
-.abar .fill {{ background:#7c9eff; height:100%; }}
-.abar.selected .label {{ color:var(--text); font-weight:600; }}
-.abar .count {{ color:var(--text-dim); width:36px; text-align:right; }}
+.abar {{ display:flex; align-items:center; gap:8px; font-size:11.5px; cursor:pointer; padding:2px 0; border-bottom:1px solid var(--rule); }}
+.abar .label {{ width:170px; color:var(--text-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+.abar .track {{ flex:1; background:var(--paper-deep); height:12px; overflow:hidden; border:1px solid var(--rule); }}
+.abar .fill {{ background:var(--ink); height:100%; }}
+.abar.selected .label {{ color:var(--ink); font-weight:600; }}
+.abar .count {{ color:var(--text-soft); width:36px; text-align:right; font-family:var(--font-mono); }}
 @media (max-width: 640px) {{
   #wrap {{ flex-direction:column; }}
   #panel {{ width:100%; }}
@@ -160,7 +163,7 @@ in embedding space, whether or not the faithfulness/novelty grid shows it as "ex
 <p class="sub">Which of the 31 real training images each generated image anchors closest to. A
 population piling onto a handful of bars means the search is faithful to a narrow slice of the
 real style, not the whole training set; click a bar to highlight those images on the map above.</p>
-<div id="anchorChart"></div>
+<div id="anchorChart" aria-label="Solution map evidence list"></div>
 
 <script>
 // json_script() only protects this declaration from a <\\/script> breakout; it does not
@@ -352,6 +355,7 @@ draw();
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

@@ -18,10 +18,11 @@ from clawmarks.search import embed_cache, preference_pairwise_model
 from clawmarks.search.manifest_index import index_by_tag, item_summary
 from clawmarks.search.preference_pairwise_model import score
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -63,8 +64,24 @@ def compute_data(sweep_dir):
 def render_html(data, active_expedition=None, active_leg=None, running=None):
     if not data["has_model"]:
         return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>:root {{ color-scheme:dark; --bg:#0b0b0d; --text:#eaeaee; --text-dim:#9a9aa4; --border:#2a2a30; }} body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }} {TOPNAV_CSS} {MOBILE_BASE_CSS} p {{ color:var(--text-dim); }}</style>
-</head><body>{nav_bar_html('preference_rank.html', active_expedition, active_leg)}<h1>Predicted preference</h1><p>No trained model at <code>{data["model_file"]}</code>. Run <code>python -m clawmarks.search.preference_pairwise_model</code> first. It needs 50 or more comparisons.</p></body></html>"""
+<style>
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.empty {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.7;
+  padding:14px 0; border-bottom:1px solid var(--rule); }}
+</style>
+</head><body>
+{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+<h1>Predicted preference</h1>
+<p class="empty">No trained model at <code>{data["model_file"]}</code>. Run <code>python -m clawmarks.search.preference_pairwise_model</code> first. It needs 50 or more comparisons.</p>
+<script src="scrollnav.js"></script>
+<script src="/shared-ui.js"></script>
+</body></html>"""
 
     items = data["items"]
 
@@ -80,22 +97,37 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS predicted preference</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-#grid {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin-top:20px; }}
-.cell {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; }}
-.cell img {{ width:100%; aspect-ratio:1; object-fit:cover; display:block; cursor:pointer; }}
-.cell .meta {{ padding:6px 8px; font-size:11px; color:var(--text-dim); }}
-.cell .review {{ display:flex; gap:4px; padding:0 8px 8px; }}
-.cell .review button {{ font-size:10px; background:transparent; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; cursor:pointer; }}
-.cell .review button.selected {{ color:var(--text); border-color:var(--text); background:var(--border); }}
-#review-controls {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12.5px; color:var(--text-dim); }}
-.flag-error {{ color:#f28b82; min-height:1em; }}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6;
+  padding-bottom:14px; border-bottom:1px solid var(--rule); }}
+#list {{ display:flex; flex-direction:column; gap:0; margin-top:8px; max-width:960px; }}
+.row {{ display:flex; align-items:center; gap:16px; padding:12px 0; border-bottom:1px solid var(--rule); }}
+.row:last-child {{ border-bottom:none; }}
+.row img {{ width:72px; height:72px; object-fit:cover; flex-shrink:0; cursor:pointer;
+  border:1px solid var(--ink); }}
+.row .meta {{ flex:1; font:12.5px/1.4 var(--font-mono); color:var(--text-soft); }}
+.row .meta b {{ color:var(--ink); font-weight:600; }}
+.row .review {{ display:flex; gap:6px; flex-shrink:0; }}
+.row .review button {{ font:600 11.5px/1 var(--font-body); padding:6px 10px; cursor:pointer;
+  background:var(--paper); color:var(--ink); border:1px solid var(--ink); }}
+.row .review button:hover {{ background:var(--sulfur); }}
+.row .review button.selected {{ background:var(--sulfur); color:var(--ink); }}
+#review-controls {{ display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  font-size:12.5px; color:var(--text-soft); margin-top:14px; padding:8px 0;
+  border-bottom:1px solid var(--rule); }}
+.flag-error {{ color:#a84820; min-height:1em; font-size:12px; }}
+@media (max-width: 700px) {{
+  .row {{ flex-wrap:wrap; gap:10px; padding:10px 0; }}
+  .row img {{ width:64px; height:64px; }}
+  .row .meta {{ flex:1 1 100%; order:3; }}
+  .row .review {{ order:2; }}
+}}
 {INFOTIP_CSS}
 </style></head><body>
 
@@ -103,9 +135,9 @@ p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6
 <h1>Predicted preference{rank_tip}</h1>
 <p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="review-controls"><label><input id="reviewMode" type="checkbox"> Review top, middle, and bottom</label><span id="reviewCount"></span><span id="flagError" class="flag-error" role="alert" aria-live="polite"></span></div>
-<div id="grid"></div>
+<div id="list"></div>
 <script>
-// json_script() only protects this declaration from a <\\/script> breakout; it does not
+// json_script() only protects this declaration from a <\/script> breakout; it does not
 // HTML-escape decoded string values. Every ITEMS field written into innerHTML/an attribute
 // below must go through escHtml() first.
 function escHtml(s) {{
@@ -155,10 +187,10 @@ function render() {{
   const indexes = reviewIndexes();
   const visible = reviewMode ? ITEMS.map((it, i) => [it, i]).filter(([, i]) => indexes.has(i)) : ITEMS.map((it, i) => [it, i]);
   document.getElementById('reviewCount').textContent = reviewMode ? `${{visible.length}} representative images` : '';
-  document.getElementById('grid').innerHTML = visible.map(([it, i]) => `
-   <div class="cell">
+  document.getElementById('list').innerHTML = visible.map(([it, i]) => `
+   <div class="row">
      <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}" onclick="openItem(${{i}})">
-    <div class="meta">Rank #${{i + 1}} | p=${{it.predicted_preference}} | f=${{it.faith}} n=${{it.novelty}}</div>
+    <div class="meta"><b>Rank #${{i + 1}}</b> | p=${{it.predicted_preference}} | f=${{it.faith}} n=${{it.novelty}}</div>
      ${{reviewMode ? `<div class="review"><button class="flag-button ${{flagSelected(it.tag, 'matches')}}" aria-pressed="${{flags[it.tag]?.flag === 'matches'}}" data-review-index="${{i}}" data-flag="matches">matches my taste</button><button class="flag-button ${{flagSelected(it.tag, 'questionable')}}" aria-pressed="${{flags[it.tag]?.flag === 'questionable'}}" data-review-index="${{i}}" data-flag="questionable">questionable</button></div>` : ''}}
    </div>`).join('');
   document.querySelectorAll('[data-review-index]').forEach(button => button.addEventListener('click', () => {{
@@ -172,6 +204,7 @@ document.getElementById('reviewMode').addEventListener('change', e => {{ reviewM
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

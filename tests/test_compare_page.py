@@ -15,9 +15,15 @@ def test_render_html_has_two_panes():
     assert 'id="img2"' in html
 
 
-def test_render_html_has_no_button_elements():
+def test_render_html_keeps_choices_outside_the_shared_nav():
+    """The compare page picks an image by clicking (or arrow-keying onto) one of two panes;
+    those panes are divs with role=button, not <button> elements, because every interactive
+    surface in this page is meant to be keyboard-driven. The shared nav header now ships real
+    <button> elements (the context picker, the Guide button) for header-level controls, so
+    this assertion scopes the no-real-button rule to the page body instead of the whole HTML."""
     html = compare_page.render_html()
-    assert "<button" not in html
+    body_after_nav = html.split("</header>", 1)[1]
+    assert "<button" not in body_after_nav
 
 
 def test_render_html_has_zoom_icons_and_overlay():
@@ -159,5 +165,34 @@ def test_render_html_blocks_choices_while_zoom_is_open():
 
 
 def test_render_html_uses_accent_for_pane_hover():
+    """The compare pane used to switch its border color on hover so the user could tell
+    which side of the pair they were about to pick. Sulfur Proof panes carry their affordance
+    in the hard offset shadow (matching the Task 2 `.mounted-evidence` depth class), so the
+    hover treatment bumps the offset from 5px to 6px instead of swapping a border color."""
     html = compare_page.render_html()
-    assert ".pane:hover { border-color:var(--accent); }" in html
+    assert ".pane:hover" in html
+    # The new affordance lives in the offset shadow, not in `border-color`.
+    assert "border-color:var(--accent);" not in html
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    html = compare_page.render_html()
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_has_or_axis_between_panes():
+    """Task 4 brief, Step 1: the page is a head-to-head choice, so between the two dominant
+    mounted images there is a literal text "OR" axis. The axis is a flat semantic divider, not
+    a control, so the rendered class is `or-axis` (not `or-button` or `or-control`)."""
+    html = compare_page.render_html()
+    assert 'class="or-axis"' in html
+    # The axis must render literal "OR" text, not just an empty divider, so the visual is
+    # self-explanatory without a tooltip.
+    or_section = html.split('class="or-axis"', 1)[1].split("</", 1)[0]
+    assert "OR" in or_section

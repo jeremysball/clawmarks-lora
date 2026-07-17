@@ -11,7 +11,15 @@ Run after scored_manifest.json exists: python3 -m clawmarks.build.lineage_view
 import html
 import json
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS
+from clawmarks.shared_ui import (
+    CONTROL_CSS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
+    TOPNAV_CSS,
+    nav_bar_html,
+)
 
 
 def compute_data(sweep_dir):
@@ -39,13 +47,16 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS lineage tree</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; }}
-body {{ background:#0b0b0d; color:#eaeaee; font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; }}
-p {{ color:#9a9aa4; max-width:640px; font-size:13px; line-height:1.7; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; }}
+p {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.7; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+{INFOTIP_CSS}
 </style></head><body>
 {nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Lineage tree</h1>
@@ -56,6 +67,9 @@ time that process is (re)started, not for a run already in progress.</p>
 <p>Once round 2 restarts (or a future round runs) with the patch active, reload this page and it
 will render exploit chains: each parent image and the children it spawned, with faithfulness/novelty
 deltas at each step, to show whether exploiting actually improves on its parent or just wobbles.</p>
+<script src="scrollnav.js"></script>
+<script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     by_tag = data["by_tag"]
@@ -80,14 +94,19 @@ deltas at each step, to show whether exploiting actually improves on its parent 
 <title>CLAWMARKS lineage tree</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root {{ color-scheme: dark; }}
-body {{ background:#0b0b0d; color:#eaeaee; font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-ul {{ list-style:none; padding-left:20px; border-left:1px solid #2a2a30; }}
-.node {{ font-size:12.5px; padding:3px 0; color:#9a9aa4; cursor:pointer; }}
-.node b {{ color:#eaeaee; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+ul {{ list-style:none; padding-left:20px; border-left:1px solid var(--rule); }}
+ul li > .node {{ padding:6px 0; border-bottom:1px solid var(--rule); }}
+ul li:last-child > .node {{ border-bottom:none; }}
+.node {{ font-size:12.5px; color:var(--text-soft); cursor:pointer; }}
+.node b {{ color:var(--ink); }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+{INFOTIP_CSS}
 </style></head><body>
 {nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
 <h1>Lineage tree</h1>
@@ -100,5 +119,7 @@ document.querySelectorAll('.node[data-tag]').forEach(el => {{
 </script>
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
+<script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
     return page_html

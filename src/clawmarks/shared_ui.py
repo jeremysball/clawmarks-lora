@@ -3,13 +3,16 @@ Shared UI pieces used by every build/*.py tool-page generator, so the lightbox, 
 navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated across
 every page. Import and use:
 
-    from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS
+    from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS, SHARED_UI_JS
 
-`curation_server.py` serves `_LIGHTBOX_JS`, `SCROLLNAV_JS`, and `INFOTIP_JS` directly from
-`/lightbox.js`, `/scrollnav.js`, and `/infotip.js` routes; every generated page includes them
-with `<script src="lightbox.js"></script>` and opens images via `Lightbox.open(tag)` instead of
+`curation_server.py` serves `_LIGHTBOX_JS`, `SCROLLNAV_JS`, `INFOTIP_JS`, and `SHARED_UI_JS`
+directly from `/lightbox.js`, `/scrollnav.js`, `/infotip.js`, and `/shared-ui.js` routes; every
+generated page includes them with `<script src="lightbox.js"></script>` and
+`<script src="shared-ui.js"></script>` and opens images via `Lightbox.open(tag)` instead of
 `window.open('scan.html?open=...')`: no new tab, no page load, works from any page because the
-module fetches scan_data.json itself.
+module fetches scan_data.json itself. `SHARED_UI_JS` wires the context-switcher dialog emitted
+by `nav_bar_html()` to the `/api/expeditions` and `/api/active-leg` endpoints, so the active
+expedition/leg can change from any page without duplicating the per-page fetch+POST logic.
 """
 import html
 import json
@@ -26,6 +29,12 @@ def json_script(data):
 
 
 NAV_GROUPS = [
+    ("Explore", [("/", "all tools (hub)"),
+                 ("/status.html", "session status"),
+                 ("/map.html", "scout: solution map (UMAP)"),
+                 ("/redundancy.html", "explain: redundancy clusters"),
+                 ("/cockpit.html", "act: generation cockpit"),
+                 ("/runs.html", "learn: search runs")]),
     ("Generate", [("cockpit.html", "generation cockpit"), ("runs.html", "search runs"),
                   ("seeds.html", "candidate seeds")]),
     ("Curate", [("compare.html", "compare images (head-to-head)"),
@@ -38,15 +47,119 @@ NAV_GROUPS = [
     ("Preference model", [("preference_status.html", "preference status"),
                           ("preference_rank.html", "predicted preference")]),
 ]
-NAV_OPTIONS = [("explore.html", "all tools (hub)")] + [
-    option for _group, options in NAV_GROUPS for option in options
-]
+NAV_OPTIONS = [option for _group, options in NAV_GROUPS for option in options]
 
 
 DARK_TOKENS = """
 :root { color-scheme:dark; --bg:#0b0b0d; --panel:#16161a; --panel-2:#1d1d22; --border:#2a2a30;
   --text:#eaeaee; --text-dim:#9a9aa4; --text-faint:#6a6a74; --accent:#7c9eff; --pick:#f5c542;
   --up:#5ec98a; --down:#e0605e; }
+"""
+
+# Sulfur Proof foundation (Task 2 of feat/sulfur-proof-shared-shell). Tokens, typography, and
+# base page chrome are defined here so page migration can replace the legacy DARK_TOKENS/BTN_CSS
+# styles incrementally. See docs/superpowers/specs/2026-07-16-sulfur-proof-design-system.md.
+
+SULFUR_FONT_CSS = """
+@font-face { font-family:"Barlow Condensed"; src:url('/assets/fonts/BarlowCondensed-SemiBold.ttf') format('truetype'); font-weight:600; font-display:swap; }
+@font-face { font-family:"Barlow Condensed"; src:url('/assets/fonts/BarlowCondensed-ExtraBold.ttf') format('truetype'); font-weight:800; font-display:swap; }
+@font-face { font-family:"IBM Plex Sans"; src:url('/assets/fonts/IBMPlexSans-Variable.ttf') format('truetype'); font-weight:100 700; font-stretch:75% 100%; font-display:swap; }
+@font-face { font-family:"IBM Plex Mono"; src:url('/assets/fonts/IBMPlexMono-Regular.ttf') format('truetype'); font-weight:400; font-display:swap; }
+@font-face { font-family:"IBM Plex Mono"; src:url('/assets/fonts/IBMPlexMono-SemiBold.ttf') format('truetype'); font-weight:600; font-display:swap; }
+"""
+
+SULFUR_CSS = """
+:root { color-scheme:light; --paper:#C3C5BA; --paper-deep:#B3B5A9; --ink:#11120F;
+  --text-soft:#4D5048; --rule:#898D81; --sulfur:#CBD63F; --guide-surface:#20251B;
+  --guide-ink:#ECEFDF; --font-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --font-body:"IBM Plex Sans",Arial,sans-serif; --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+  --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
+  --text:var(--ink); --text-dim:var(--text-soft); --accent:var(--ink); --pick:var(--sulfur); }
+* { box-sizing:border-box; }
+body { background-color:var(--paper); color:var(--ink); font:14px/1.5 var(--font-body);
+  background-image:repeating-linear-gradient(0deg,rgba(17,18,15,.045) 0 1px,transparent 1px 8px),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 1px,transparent 1px 13px),
+    radial-gradient(circle at 18% 22%,rgba(255,255,255,.08),transparent 38%); }
+h1,h2,h3 { font-family:var(--font-display); }
+code,.mono,.receipt { font-family:var(--font-mono); }
+:focus-visible { outline:3px solid var(--sulfur); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+"""
+
+# Depth treatment for the three approved strengths expressed as five named classes.
+# Hierarchy, loudest first: .mounted-evidence (5px) > .raised-control (4px) > .raised-readout
+# (3px) > .light-detent / .recessed-readout (no outer shadow). Inset shadows describe inner-edge
+# bevels only; outer depth is hard-edged per the plan's "hard unblurred depth only" Global
+# Constraint (no blur radius). Pressed/active states translate by the shadow offset and remove
+# the outer shadow; hover states increase the offset by 1px-2px. Reversed inner edges (light-
+# detent, recessed-readout) swap the light/dark inset positions to read as pressed-in rather
+# than raised-out.
+CONTROL_CSS = """
+.raised-control {
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--ink); background:var(--paper); color:var(--ink);
+  font:600 14px/1 var(--font-body); padding:8px 14px;
+  box-shadow:4px 4px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-control:hover {
+  box-shadow:5px 5px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-control:active,
+.raised-control.pressed {
+  transform:translate(4px,4px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout {
+  display:inline-block; border:1px solid var(--rule); background:var(--paper); color:var(--ink);
+  font:14px/1.4 var(--font-body); padding:6px 10px;
+  box-shadow:3px 3px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout:hover {
+  box-shadow:4px 4px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.raised-readout:active,
+.raised-readout.pressed {
+  transform:translate(3px,3px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence {
+  display:block; border:2px solid var(--ink); background:var(--paper);
+  box-shadow:5px 5px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence:hover {
+  box-shadow:6px 6px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.mounted-evidence:active,
+.mounted-evidence.pressed {
+  transform:translate(5px,5px);
+  box-shadow:inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep);
+}
+.light-detent {
+  display:inline-block; border:1px solid var(--rule); background:var(--paper); color:var(--ink);
+  box-shadow:inset 1px 1px 0 var(--paper-deep),
+    inset -1px -1px 0 var(--paper);
+}
+.recessed-readout {
+  display:block; border:1px solid var(--rule); background:var(--paper-deep); color:var(--ink);
+  font:14px/1.5 var(--font-body); padding:8px 12px;
+  box-shadow:inset 1px 1px 0 var(--paper-deep),
+    inset -1px -1px 0 var(--paper);
+}
 """
 
 BTN_CSS = """
@@ -58,50 +171,179 @@ BTN_CSS = """
 """
 
 
-def nav_bar_html(current, active_expedition=None, active_leg=None, running=None):
-    opts = '<option value="explore.html">all tools (hub)</option>' + "".join(
-        f'<optgroup label="{group}">' + "".join(
-            f'<option value="{href}"{" selected" if href == current else ""}>{label}</option>'
+def _page_name_for(current):
+    """Derive a human-readable page label for the header from NAV_GROUPS. The detailed groups
+    (Generate, Curate, Understand search, Preference model) hold the cleaner human names; the
+    Explore group lists stage-prefixed entries for quick access, so a destination that appears
+    in both should prefer the detailed-group label. Falls back to a humanized filename for
+    routes not present anywhere (e.g. the hub page itself, where `current` may be "/")."""
+    detailed = [g for g in NAV_GROUPS if g[0] != "Explore"]
+    quick = [g for g in NAV_GROUPS if g[0] == "Explore"]
+    for _group, options in detailed + quick:
+        for href, label in options:
+            if href == current:
+                return label[:1].upper() + label[1:]
+    base = current.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    return (base[:1].upper() + base[1:]) if base else current
+
+
+def nav_bar_html(current, active_expedition=None, active_leg=None, running=None, focus=None):
+    page_name = html.escape(_page_name_for(current))
+    opts = "".join(
+        f'<optgroup label="{html.escape(group)}">' + "".join(
+            f'<option value="{html.escape(href)}"'
+            f'{" selected" if href == current else ""}>{html.escape(label)}</option>'
             for href, label in options
         ) + '</optgroup>'
         for group, options in NAV_GROUPS
     )
-    active_label = ""
     if active_expedition and active_leg:
-        label = html.escape(f"{active_expedition}/{active_leg}")
-        active_label = f'<a class="nav-activeleg" href="/">{label}</a>'
+        context_label_text = html.escape(f"{active_expedition}/{active_leg}")
+        context_button = (
+            f'<button id="contextPicker" class="context-label" type="button" '
+            f'data-expedition="{html.escape(active_expedition)}" '
+            f'data-leg="{html.escape(active_leg)}" '
+            f'aria-haspopup="dialog" aria-controls="contextDialog" '
+            f'title="switch research context">{context_label_text}</button>'
+        )
+    else:
+        context_button = (
+            '<button id="contextPicker" class="context-label" type="button" '
+            'aria-haspopup="dialog" aria-controls="contextDialog" '
+            'title="choose an expedition and leg">choose context</button>'
+        )
+    focus_link = ""
+    if focus:
+        fid = focus.get("focus_id", "")
+        flabel = html.escape(focus.get("label", ""))
+        frev = focus.get("revision", "")
+        focus_link = (
+            f'<a class="focus-link" href="?focus_id={html.escape(fid)}" '
+            f'title="open this Focus ({flabel}, revision {frev})">'
+            f'<span class="focus-name">{flabel}</span> '
+            f'<span class="focus-revision">r{html.escape(str(frev))}</span></a>'
+        )
     running_label = ""
     if running:
         r_exp, r_leg = running
         running_label = (
             f'<span id="nav-running" class="nav-running" '
-            f'title="an overnight search run is live">RUNNING: {r_exp}/{r_leg}</span>'
+            f'title="an overnight search run is live">RUNNING: '
+            f'{html.escape(r_exp)}/{html.escape(r_leg)}</span>'
         )
+    guide_button = (
+        '<button id="guideOpen" class="guide-button" type="button" '
+        'aria-haspopup="dialog" aria-controls="guidePanel" '
+        'title="open the OpenCode Guide for this page">Guide</button>'
+    )
+    session_link = '<a class="session-status" href="/status.html">session status</a>'
+    dropdown = (
+        '<select onchange="if(this.value) location.href=this.value;" '
+        'aria-label="jump to another page">'
+        f'<option value="">jump to...</option>{opts}</select>'
+    )
+    context_dialog = (
+        '<dialog id="contextDialog" class="context-dialog" '
+        'aria-labelledby="contextDialogTitle">'
+        '<header class="context-dialog-header">'
+        '<h2 id="contextDialogTitle">Switch research context</h2>'
+        '<form method="dialog" class="context-dialog-close-form">'
+        '<button type="submit" class="dialog-close" aria-label="Close">&times;</button>'
+        '</form>'
+        '</header>'
+        '<div id="contextList" class="context-list" role="list" aria-live="polite">'
+        '<p class="context-empty">loading expeditions...</p>'
+        '</div>'
+        '<div id="contextError" class="context-error" role="alert"></div>'
+        '</dialog>'
+    )
     return (
-        f'<div id="topnav" class="topnav" data-autohide '
+        f'<header id="topnav" class="topnav" data-autohide '
         f'data-expedition="{html.escape(active_expedition or "")}" '
-        f'data-leg="{html.escape(active_leg or "")}">'
-        '<a class="navlink" href="explore.html">&larr; all tools</a>'
-        f'{active_label}{running_label}'
-        '<select onchange="if(this.value) location.href=this.value;">'
-        f'<option value="">jump to...</option>{opts}</select></div>'
+        f'data-leg="{html.escape(active_leg or "")}" '
+        f'data-page-name="{page_name}">'
+        f'<a class="wordmark" href="/">CLAWMARKS</a>'
+        f'<span class="page-name">{page_name}</span>'
+        f'{context_button}{focus_link}{running_label}{guide_button}{session_link}{dropdown}'
+        f'{context_dialog}'
+        '</header>'
     )
 
 
 TOPNAV_CSS = """
-.topnav { position:sticky; top:0; z-index:50; background:rgba(22,22,26,0.92); backdrop-filter:blur(10px);
-  border-bottom:1px solid var(--border,#2a2a30); padding:10px 16px; display:flex; gap:14px; align-items:center;
-  transition: transform .18s ease; }
+.topnav { position:sticky; top:0; z-index:50; background:var(--paper); color:var(--ink);
+  border-bottom:2px solid var(--ink); padding:10px 18px; display:flex; gap:12px; align-items:center;
+  font:14px/1.4 var(--font-body); transition: transform .18s ease; flex-wrap:wrap; }
 .topnav.navhidden { transform: translateY(-100%); }
-.topnav select { background:var(--panel-2,#1d1d22); color:var(--text,#eaeaee); border:1px solid var(--border,#2a2a30);
-  border-radius:6px; padding:5px 9px; font-size:12.5px; max-width:220px; }
-.topnav .nav-activeleg { color:var(--text-dim,#9a9aa4); font-size:12px; font-family:monospace;
-  text-decoration:none; padding:2px 8px; background:rgba(154,154,164,0.12); border-radius:5px; white-space:nowrap; }
-.topnav .nav-running { color:#0b0b0d; font-size:11.5px; font-weight:700; padding:2px 8px;
-  background:var(--up,#5ec98a); border-radius:5px; white-space:nowrap; letter-spacing:0.02em; }
-@media (max-width: 640px) {
-  .topnav { padding:8px 10px; gap:8px; font-size:12px; flex-wrap:wrap; }
-  .topnav select { flex:1; min-width:0; max-width:none; }
+.topnav .wordmark { font:800 18px/1 var(--font-display); color:var(--ink);
+  text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; white-space:nowrap; }
+.topnav .wordmark:hover { text-decoration:underline; }
+.topnav .page-name { font:600 14px/1.2 var(--font-body); color:var(--text-soft);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:36ch; }
+.topnav .focus-link { font:600 13px/1.2 var(--font-body); color:var(--ink);
+  text-decoration:none; padding:4px 8px; background:var(--paper);
+  border:1px solid var(--ink); display:inline-flex; align-items:center;
+  gap:6px; white-space:nowrap; box-shadow:2px 2px 0 var(--ink); }
+.topnav .focus-link:hover { text-decoration:underline; box-shadow:3px 3px 0 var(--ink); }
+.topnav .focus-link:active { transform:translate(2px,2px); box-shadow:none; }
+.topnav .focus-revision { font:600 12px/1 var(--font-mono); color:var(--text-soft);
+  background:var(--paper-deep); padding:2px 6px; }
+.topnav .nav-running { color:var(--ink); font:700 11.5px/1 var(--font-body);
+  padding:4px 10px; background:var(--sulfur); border:1px solid var(--ink);
+  white-space:nowrap; letter-spacing:0.04em; text-transform:uppercase; }
+.topnav .guide-button { font:600 12px/1 var(--font-body); background:var(--paper);
+  color:var(--ink); border:1px solid var(--ink); padding:6px 12px; cursor:pointer;
+  text-transform:uppercase; letter-spacing:0.06em; box-shadow:3px 3px 0 var(--ink); }
+.topnav .guide-button:hover { box-shadow:4px 4px 0 var(--ink); }
+.topnav .guide-button:active { transform:translate(3px,3px); box-shadow:none; }
+.topnav .session-status { font:600 12px/1 var(--font-body); color:var(--ink);
+  text-decoration:none; padding:4px 8px; background:var(--paper-deep);
+  border:1px solid var(--rule); text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+.topnav .session-status:hover { text-decoration:underline; }
+.topnav select { background:var(--paper-deep); color:var(--ink); border:1px solid var(--ink);
+  padding:6px 10px; font:14px var(--font-body); max-width:220px; }
+.context-label { display:inline-block; font:600 12px/1 var(--font-body);
+  color:var(--ink); padding:4px 8px; background:var(--paper-deep);
+  border:1px solid var(--rule); text-transform:uppercase; letter-spacing:0.04em; }
+button.context-label { cursor:pointer; box-shadow:2px 2px 0 var(--ink); }
+button.context-label:hover { box-shadow:3px 3px 0 var(--ink); }
+button.context-label:active { transform:translate(2px,2px); box-shadow:none; }
+.context-dialog { background:var(--paper); color:var(--ink); border:2px solid var(--ink);
+  padding:0; max-width:480px; width:92vw; box-shadow:5px 5px 0 var(--ink); }
+.context-dialog::backdrop { background:rgba(11,11,13,0.55); }
+.context-dialog-header { display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--rule); gap:8px; }
+.context-dialog-header h2 { font:600 14px/1.2 var(--font-display); margin:0;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--ink); }
+.context-dialog-close-form { margin:0; }
+.dialog-close { background:var(--paper-deep); border:1px solid var(--ink);
+  font:600 18px/1 var(--font-body); width:32px; height:32px;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+.dialog-close:hover { background:var(--sulfur); }
+.context-list { padding:12px 16px; max-height:60vh; overflow-y:auto; }
+.context-list .exp-row { margin:8px 0; display:flex; flex-wrap:wrap;
+  align-items:center; gap:8px; }
+.context-list .exp-name { font:600 13px/1.4 var(--font-body); min-width:140px; color:var(--ink); }
+.context-list .exp-legs { display:inline-flex; flex-wrap:wrap; gap:6px; }
+.context-list .leg-btn { background:var(--paper); color:var(--ink);
+  border:1px solid var(--ink); font:13px/1 var(--font-mono); padding:5px 10px;
+  cursor:pointer; box-shadow:2px 2px 0 var(--ink); }
+.context-list .leg-btn:hover { box-shadow:3px 3px 0 var(--ink); }
+.context-list .leg-btn:active { transform:translate(2px,2px); box-shadow:none; }
+.context-list .leg-btn.active { background:var(--sulfur); }
+.context-empty { color:var(--text-soft); font:13px/1.4 var(--font-body); margin:0; }
+.context-error { color:#8a3030; font:12.5px/1.4 var(--font-body);
+  padding:0 16px 12px; min-height:0; }
+@media (max-width:700px) {
+  .topnav { padding:8px 10px; gap:6px; }
+  .topnav .wordmark { font-size:16px; }
+  .topnav .page-name { font-size:12px; max-width:18ch; }
+  .topnav select { flex:1; min-width:0; max-width:none; font-size:14px; min-height:44px; }
+  .topnav .nav-running, .topnav .focus-link, .topnav .session-status,
+  .topnav .guide-button { font-size:12px; }
+  .topnav .wordmark, .topnav .session-status { display:inline-flex; align-items:center;
+    min-height:44px; }
+  .context-list .exp-name { min-width:0; flex:1 0 100%; }
 }
 """
 
@@ -187,11 +429,14 @@ INFOTIP_JS = """
 MOBILE_BASE_CSS = """
 html, body { max-width:100vw; overflow-x:hidden; }
 * { -webkit-tap-highlight-color: transparent; }
-@media (max-width: 640px) {
-  body { padding:10px !important; }
-  h1 { font-size:16px !important; }
-  p.sub { font-size:12.5px !important; }
-  button, select, input { font-size:14px !important; min-height:34px; }
+@media (max-width:700px) {
+  body { padding:10px !important; font-size:15px !important; line-height:1.55 !important; }
+  h1 { font-size:18px !important; }
+  p.sub { font-size:13px !important; }
+  button, select, input, [role="button"], .btn, .raised-control, .raised-readout {
+    font-size:15px !important; min-height:44px; min-width:44px;
+  }
+  a:not(.navlink):not(.nav-activeleg) { line-height:24px; }
 }
 """
 
@@ -209,6 +454,133 @@ SCROLLNAV_JS = """
   window.addEventListener('scroll', function(){
     if (!ticking) { requestAnimationFrame(onScroll); ticking = true; }
   }, {passive:true});
+})();
+"""
+
+
+SHARED_UI_JS = r"""(function(){
+  // All expedition/leg names are echoed straight into innerHTML inside renderList(); the
+  // .context-list container lives in a topnav dialog, and a malicious expedition.json could
+  // (in principle) embed a name that breaks out of the element. escHtml() below makes that
+  // impossible while still rendering the names as plain text.
+  function escHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  var dialog = document.getElementById('contextDialog');
+  var picker = document.getElementById('contextPicker');
+  if (!dialog || !picker) return;
+  var list = document.getElementById('contextList');
+  var errorEl = document.getElementById('contextError');
+
+  function setError(msg){
+    if (errorEl) errorEl.textContent = msg || '';
+  }
+
+  // A Focus is scoped to a specific (expedition, leg, evidence-set) triple. When the user
+  // switches leg via this dialog the Focus no longer applies, so the reload drops the
+  // focus/focus_id/revision query parameters. Other query params (filters, sort, page-local
+  // state) are preserved so the new leg shows up in the same view the user was on.
+  function reloadStrippingFocus(){
+    var url = new URL(window.location.href);
+    ['focus', 'focus_id', 'revision'].forEach(function(k){ url.searchParams.delete(k); });
+    var qs = url.searchParams.toString();
+    window.location.href = url.pathname + (qs ? '?' + qs : '');
+  }
+
+  function renderList(expeditions){
+    if (!expeditions || !expeditions.length) {
+      list.innerHTML = '<p class="context-empty">No expeditions exist yet. Create one from the status page.</p>';
+      return;
+    }
+    var activeExp = picker.dataset.expedition || '';
+    var activeLeg = picker.dataset.leg || '';
+    var html = '';
+    expeditions.forEach(function(exp){
+      var isActiveExp = exp.name === activeExp;
+      var expRow = '<div class="exp-row' + (isActiveExp ? ' active' : '') + '">'
+                 + '<strong class="exp-name">' + escHtml(exp.name) + '</strong> '
+                 + '<span class="exp-legs">';
+      if (exp.legs && exp.legs.length) {
+        exp.legs.forEach(function(leg){
+          var isActive = isActiveExp && leg === activeLeg;
+          expRow += '<button type="button" class="leg-btn' + (isActive ? ' active' : '') + '" '
+                  + 'data-expedition="' + escHtml(exp.name) + '" '
+                  + 'data-leg="' + escHtml(leg) + '">'
+                  + escHtml(leg) + (isActive ? ' \u2713' : '')
+                  + '</button>';
+        });
+      } else {
+        expRow += '<span class="context-empty">no legs</span>';
+      }
+      expRow += '</span></div>';
+      html += expRow;
+    });
+    list.innerHTML = html;
+    list.querySelectorAll('.leg-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        selectLeg(btn.dataset.expedition, btn.dataset.leg);
+      });
+    });
+  }
+
+  function selectLeg(expedition, leg){
+    setError('');
+    // Disable every leg button so a double-click doesn't fire two POSTs that race on the
+    // server's active_leg.json. The server _set_active_selection is itself atomic, so the
+    // worst-case is two extra round trips; the more important reason is to give the user
+    // visible feedback that something is happening (the buttons go muted on click).
+    list.querySelectorAll('.leg-btn').forEach(function(b){ b.disabled = true; });
+    fetch('/api/active-leg', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({expedition: expedition, leg: leg}),
+    })
+      .then(function(r){
+        return r.json().catch(function(){ return {}; }).then(function(d){
+          return {ok: r.ok, data: d};
+        });
+      })
+      .then(function(res){
+        if (!res.ok || res.data.error) {
+          throw new Error((res.data && res.data.error) || 'selection failed');
+        }
+        dialog.close();
+        reloadStrippingFocus();
+      })
+      .catch(function(e){
+        setError(e.message || String(e));
+        list.querySelectorAll('.leg-btn').forEach(function(b){ b.disabled = false; });
+      });
+  }
+
+  function openDialog(){
+    setError('');
+    list.innerHTML = '<p class="context-empty">loading expeditions...</p>';
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute('open', '');
+    }
+    fetch('/api/expeditions')
+      .then(function(r){ return r.json(); })
+      .then(function(data){ renderList(data.expeditions || []); })
+      .catch(function(e){
+        list.innerHTML = '';
+        setError('Could not load expeditions: ' + (e.message || e));
+      });
+  }
+
+  picker.addEventListener('click', openDialog);
+
+  // Clicking the native dialog backdrop (the dialog element itself, not its content) closes
+  // the dialog. Clicking inside the form/list area targets a child element, so the equality
+  // check correctly distinguishes "click outside" from "click inside".
+  dialog.addEventListener('click', function(e){
+    if (e.target === dialog) dialog.close();
+  });
 })();
 """
 

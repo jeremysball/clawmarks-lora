@@ -23,10 +23,11 @@ from pathlib import Path
 from clawmarks.search import preference_pairwise_model
 from clawmarks.search.manifest_index import item_summary
 from clawmarks.shared_ui import (
-    BTN_CSS,
-    DARK_TOKENS,
+    CONTROL_CSS,
     INFOTIP_CSS,
     MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
     TOPNAV_CSS,
     info_btn,
     json_script,
@@ -148,51 +149,62 @@ def render_html(data, active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS elite archive</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-:root {{ --style:#5ec98a; --conflict:#e0a25e; --predicted:#7c9eff; }}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-a.navlink {{ color:#7c9eff; font-size:12.5px; text-decoration:none; }}
-#grid {{ display:grid; grid-template-columns: repeat({N_BINS}, 1fr); gap:10px; margin-top:20px; max-width:900px; }}
-.cell {{ background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; }}
+:root {{ --predicted:#7c9eff; }}
+body {{ padding:24px; }}
+h1 {{ font-size:22px; margin:24px 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6; }}
+a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
+#grid {{ display:grid; grid-template-columns: repeat({N_BINS}, 1fr); gap:18px; margin-top:20px;
+  max-width:900px; }}
+.cell {{ background:var(--paper); border:2px solid var(--ink); overflow:hidden;
+  box-shadow:5px 5px 0 var(--ink),
+    inset 1px 1px 0 var(--paper),
+    inset -1px -1px 0 var(--paper-deep); }}
 .cell img {{ width:100%; aspect-ratio:1; object-fit:cover; display:block; cursor:pointer; }}
-.cell .meta {{ padding:8px 10px; font-size:11px; color:var(--text-dim); line-height:1.6; }}
-.cell .meta b {{ color:var(--text); }}
-.cell .meta .bin {{ display:block; margin-top:5px; padding-top:5px; border-top:1px solid var(--border);
-  color:var(--text); font-size:10.5px; }}
-.cell.human {{ box-shadow:0 0 0 2px var(--pick); }}
-.cell.predicted {{ box-shadow:0 0 0 2px var(--predicted); }}
-.badge {{ display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; margin-left:4px; }}
-.badge.human {{ background:rgba(245,197,66,0.18); color:var(--pick); }}
-.badge.predicted {{ background:rgba(124,158,255,0.18); color:var(--predicted); }}
-.badge.auto {{ background:rgba(154,154,164,0.15); color:var(--text-dim); }}
-.cell .viewall {{ display:block; width:100%; background:var(--panel-2); color:var(--text);
-  border:1px solid var(--border); border-top:none; border-radius:0 0 10px 10px; padding:6px;
-  font-size:11px; cursor:pointer; }}
-.cell .viewall:hover {{ color:#7c9eff; }}
-@media (max-width: 640px) {{
-  #grid {{ grid-template-columns: repeat(2, 1fr); gap:8px; }}
+.cell .meta {{ padding:8px 10px; font-size:11px; color:var(--text-soft); line-height:1.6;
+  font-family:var(--font-mono); }}
+.cell .meta b {{ color:var(--ink); font-family:var(--font-body); }}
+.cell .meta .bin {{ display:block; margin-top:5px; padding-top:5px; border-top:1px solid var(--rule);
+  color:var(--ink); font-size:10.5px; }}
+.cell.human {{ outline:2px solid var(--sulfur); outline-offset:2px; }}
+.cell.predicted {{ outline:2px solid var(--predicted); outline-offset:2px; }}
+.badge {{ display:inline-block; padding:1px 6px; font-size:10px; margin-left:4px;
+  font-family:var(--font-mono); border:1px solid var(--ink); }}
+.badge.human {{ background:var(--sulfur); color:var(--ink); }}
+.badge.predicted {{ background:var(--paper-deep); color:var(--predicted); }}
+.badge.auto {{ background:var(--paper-deep); color:var(--text-soft); }}
+.cell .viewall {{ display:block; width:100%; background:var(--paper-deep); color:var(--ink);
+  border:none; border-top:2px solid var(--ink); padding:6px; font-size:11px; cursor:pointer;
+  font:600 12px/1 var(--font-body); text-transform:uppercase; letter-spacing:0.04em;
+  box-shadow: inset 0 2px 0 var(--paper); }}
+.cell .viewall:hover {{ background:var(--sulfur); }}
+@media (max-width: 700px) {{
+  #grid {{ grid-template-columns: repeat(2, 1fr); gap:14px; }}
   .cell .meta {{ font-size:10px; padding:6px 8px; }}
 }}
 
 #modal {{ position:fixed; inset:0; background:rgba(8,8,10,0.94); backdrop-filter:blur(6px);
   display:none; z-index:100; padding:30px; overflow-y:auto; }}
 #modal.open {{ display:block; }}
-#modal .close {{ position:fixed; top:16px; right:22px; font-size:26px; cursor:pointer; color:var(--text-dim); }}
-#modal .close:hover {{ color:var(--text); }}
-#modal h2 {{ font-size:15px; margin:0 0 6px; color:var(--text); }}
-#modal p.hint {{ color:var(--text-dim); font-size:12px; margin:0 0 14px; max-width:640px; }}
-#modalGrid {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px; max-width:1200px; }}
-#modalGrid .item {{ background:var(--panel); border-radius:8px; overflow:hidden; cursor:pointer; }}
-#modalGrid .item.human {{ box-shadow:0 0 0 2px var(--pick); }}
+#modal .close {{ position:fixed; top:16px; right:22px; font-size:26px; cursor:pointer; color:#dcdce2; }}
+#modal .close:hover {{ color:var(--paper); }}
+#modal h2 {{ font-size:15px; margin:0 0 6px; color:var(--paper); }}
+#modal p.hint {{ color:#dcdce2; font-size:12px; margin:0 0 14px; max-width:640px; }}
+#modalGrid {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:12px;
+  max-width:1200px; }}
+#modalGrid .item {{ background:var(--paper); border:2px solid var(--ink); overflow:hidden; cursor:pointer;
+  box-shadow:3px 3px 0 var(--ink), inset 1px 1px 0 var(--paper), inset -1px -1px 0 var(--paper-deep); }}
+#modalGrid .item.human {{ outline:2px solid var(--sulfur); outline-offset:2px; }}
 #modalGrid img {{ width:100%; aspect-ratio:1; object-fit:cover; display:block; }}
-#modalGrid .meta {{ font-size:10px; color:var(--text-dim); padding:5px 6px; line-height:1.5; }}
+#modalGrid .meta {{ font-size:10px; color:var(--text-soft); padding:5px 6px; line-height:1.5;
+  font-family:var(--font-mono); }}
 #modalLoadAll {{ display:block; width:100%; margin-top:10px; }}
-@media (max-width: 640px) {{
+@media (max-width: 700px) {{
   #modal {{ padding:14px; }}
   #modalGrid {{ grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }}
 }}
@@ -322,7 +334,7 @@ function render() {{
     const badgeClass = human ? 'human' : (predicted ? 'predicted' : 'auto');
     const cellClass = human ? 'human' : (predicted ? 'predicted' : '');
     return `
-    <div class="cell ${{cellClass}}">
+    <div class="cell mounted-evidence ${{cellClass}}">
       <img src="${{escHtml(elite.thumb)}}" loading="lazy" data-tag="${{escHtml(elite.tag)}}" onclick="openElite(${{i}})">
       <div class="meta">
         <b>${{escHtml(elite.prompt_name)}}</b> <span class="badge ${{badgeClass}}">${{source}}</span><br>
@@ -361,6 +373,7 @@ fetch('/api/favorites').then(r => r.json()).then(favorites => {{
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html

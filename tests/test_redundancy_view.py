@@ -76,3 +76,42 @@ def test_render_html_never_emits_a_literal_closing_script_tag():
     script_end = html.index("</script>", script_start + len("<script>"))
     body = html[script_start + len("<script>"):script_end]
     assert "</script" not in body
+
+
+def test_render_html_uses_sulfur_proof_shell():
+    """Task 4 render contract: the page sits on the Sulfur Proof foundation, includes the
+    shared header's context-switcher script, ships a semantic <header>, and has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme)."""
+    data = {"sim_scored": {}, "thumbs": {}, "meta": {}}
+    html = redundancy_view.render_html(data)
+    assert "--paper:#C3C5BA" in html
+    assert "shared-ui.js" in html
+    assert "<header" in html
+    assert "prefers-color-scheme: dark" not in html
+
+
+def test_render_html_clusters_are_ruled_rows_not_stat_cards():
+    """Task 4 brief, Step 3 (Redundancy): the page shows clusters as ruled evidence rows,
+    not a grid of rounded bordered stat cards. Each cluster row is flat (no card border, no
+    border-radius on the page-local .cluster rule) and is separated from the next by a
+    `border-bottom:1px solid var(--rule)` rule line, exactly like a flat prose/data row in
+    the brief's Global Constraint. The shared INFOTIP_CSS carve-out (the infopop has
+    border-radius:8px) is allowed by the brief, so we check the page-local portion only."""
+    data = {"sim_scored": {}, "thumbs": {}, "meta": {}}
+    html = redundancy_view.render_html(data)
+
+    # The page-local CSS lives in the <style> block before the first .infobtn rule, which
+    # is the start of the shared INFOTIP_CSS.
+    infobtn_start = html.index(".infobtn")
+    page_local = html[:infobtn_start]
+
+    assert ".cluster" in page_local
+    # New ruled-row treatment: each cluster row has a `border-bottom:1px solid var(--rule)`.
+    assert "border-bottom:1px solid var(--rule)" in page_local
+    # No border-radius in the page-local CSS (only the shared INFOTIP_CSS carve-out may have it).
+    assert "border-radius" not in page_local
+    # The legacy `--panel` filled-card background on .cluster is gone; the row is flat on paper.
+    assert "background:var(--panel)" not in page_local
+    # No hex-coded border color on the page-local selectors; everything routes through the
+    # shared rule/ink tokens.
+    assert "border:1px solid var(--border)" not in page_local

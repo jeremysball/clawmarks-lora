@@ -12,7 +12,16 @@ after that, since new seeds show up via the API without a rebuild.
 
 Run: python3 -m clawmarks.build.seed_browser
 """
-from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_CSS, MOBILE_BASE_CSS, TOPNAV_CSS, info_btn, nav_bar_html
+from clawmarks.shared_ui import (
+    CONTROL_CSS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    nav_bar_html,
+)
 
 
 def render_html(active_expedition=None, active_leg=None, running=None):
@@ -30,41 +39,38 @@ def render_html(active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS candidate seeds</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-* {{ box-sizing: border-box; }}
-body {{
-  background: var(--bg); color: var(--text); margin:0; padding:0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-}}
-{MOBILE_BASE_CSS}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
-{BTN_CSS}
+{MOBILE_BASE_CSS}
 {INFOTIP_CSS}
 main {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
-h1 {{ font-size:18px; margin:0 0 6px; display:flex; align-items:center; gap:8px; }}
-p.sub {{ color:var(--text-dim); font-size:13px; line-height:1.6; margin:0 0 20px; }}
-#genPanel {{ background:var(--panel); border:1px solid var(--border); border-radius:10px;
-  padding:14px 16px; margin-bottom:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }}
-#genPanel label {{ font-size:12.5px; color:var(--text-dim); display:flex; gap:6px; align-items:center; }}
-#genPanel input[type=number] {{ width:60px; background:var(--panel-2); color:var(--text);
-  border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px; }}
-#genBtn {{ background:#2a4a7c; border:1px solid #3a5a8c; color:#cddcff; border-radius:7px;
-  padding:8px 16px; font-size:13px; cursor:pointer; }}
-#genBtn:disabled {{ opacity:0.5; cursor:default; }}
-#genStatus {{ font-size:12px; color:var(--text-dim); flex-basis:100%; min-height:1.4em; }}
-#genStatus.err {{ color:#e0605e; }}
-#count {{ color:var(--text-faint); font-size:12.5px; margin-bottom:10px; }}
-#seedList {{ display:flex; flex-direction:column; gap:6px; }}
-.seed {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:10px 14px; font-size:13.5px; line-height:1.5; display:flex; justify-content:space-between;
-  align-items:center; gap:12px; }}
+h1 {{ font-size:22px; margin:0 0 6px; display:flex; align-items:center; gap:8px;
+  letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); font-size:13px; line-height:1.6; margin:0 0 20px;
+  padding-bottom:14px; border-bottom:1px solid var(--rule); max-width:780px; }}
+#genPanel {{ margin-bottom:20px; padding:12px 0; border-bottom:1px solid var(--rule);
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap; }}
+#genPanel label {{ font-size:13px; color:var(--text-soft); display:flex; gap:6px;
+  align-items:center; }}
+#genPanel input[type=number] {{ width:60px; background:var(--paper); color:var(--ink);
+  border:1px solid var(--ink); padding:5px 8px; font:14px var(--font-body); }}
+#genStatus {{ font-size:12px; color:var(--text-soft); flex-basis:100%; min-height:1.4em; }}
+#genStatus.err {{ color:#8a3030; }}
+#count {{ color:var(--text-soft); font-size:12.5px; margin-bottom:10px; }}
+#seedList {{ display:flex; flex-direction:column; gap:10px; }}
+.seed {{ display:flex; justify-content:space-between; align-items:center; gap:12px;
+  padding:10px 12px; font-size:13.5px; line-height:1.5;
+  background:var(--paper); border:1px solid var(--rule); }}
 .seed .text {{ flex:1; }}
-.seed .src {{ font-size:10.5px; color:var(--text-faint); white-space:nowrap; text-transform:uppercase;
-  letter-spacing:0.03em; }}
-.seed.new {{ border-color: var(--accent); background: rgba(124,158,255,0.08); }}
+.seed .src {{ font:600 10.5px/1 var(--font-mono); color:var(--text-soft);
+  white-space:nowrap; text-transform:uppercase; letter-spacing:0.04em;
+  background:var(--paper-deep); padding:4px 6px; border:1px solid var(--rule); }}
+.seed.new {{ border-color: var(--ink); background: var(--paper-deep); }}
 @media (max-width: 640px) {{
   main {{ padding:12px; }}
-  #genPanel {{ padding:12px; }}
+  #genPanel {{ padding:12px 0; }}
   .seed {{ flex-direction:column; align-items:flex-start; gap:4px; }}
 }}
 </style></head><body>
@@ -79,7 +85,7 @@ plateau and escalate on its own.</p>
 
 <div id="genPanel">
   <label>Generate <input type="number" id="genN" value="20" min="1" max="40"> new seeds</label>
-  <button id="genBtn">Generate</button>
+  <button id="genBtn" class="raised-control">Generate</button>
   <div id="genStatus"></div>
 </div>
 
@@ -158,6 +164,7 @@ load();
 </script>
 <script src="scrollnav.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
 
     return html
