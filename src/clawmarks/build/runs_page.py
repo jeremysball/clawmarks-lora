@@ -15,7 +15,14 @@ render time; every dynamic piece is a live fetch against curation_server.py:
 
 Served live at /runs.html by curation_server.py.
 """
-from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, MOBILE_BASE_CSS, TOPNAV_CSS, nav_bar_html
+from clawmarks.shared_ui import (
+    CONTROL_CSS,
+    MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
+    TOPNAV_CSS,
+    nav_bar_html,
+)
 
 
 def render_html(active_expedition=None, active_leg=None, running=None):
@@ -23,34 +30,52 @@ def render_html(active_expedition=None, active_leg=None, running=None):
 <title>CLAWMARKS search runs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 {TOPNAV_CSS}
 {MOBILE_BASE_CSS}
-{BTN_CSS}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p.sub {{ color:var(--text-dim); max-width:760px; font-size:13px; line-height:1.6; }}
-a.navlink {{ color:var(--accent); font-size:12.5px; text-decoration:none; }}
-.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:16px; margin-top:16px; max-width:760px; }}
-.row {{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }}
-select, button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
-  background:var(--panel-2); color:var(--text); }}
-button {{ cursor:pointer; }}
-button.danger {{ background:var(--down); color:#0b0b0d; border-color:var(--down); font-weight:600; }}
-button:disabled {{ opacity:0.4; cursor:not-allowed; }}
-#launchError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
-.statgrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-top:10px; }}
-.stat {{ background:var(--panel-2); border-radius:6px; padding:10px 12px; }}
-.stat .label {{ color:var(--text-dim); font-size:11px; text-transform:uppercase; letter-spacing:0.03em; }}
-.stat .value {{ font-size:18px; margin-top:2px; }}
-#sparkwrap {{ margin-top:14px; }}
-#spark {{ width:100%; height:60px; }}
-.catrow {{ display:flex; justify-content:space-between; font-size:12.5px; padding:4px 0;
-  border-bottom:1px solid var(--border); }}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:22px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.6;
+  padding-bottom:14px; border-bottom:1px solid var(--rule); }}
+.outcome {{ max-width:760px; margin-top:18px; padding:10px 0;
+  border-bottom:1px solid var(--rule); }}
+.statusline {{ font:600 18px/1.4 var(--font-display); color:var(--ink);
+  text-transform:uppercase; letter-spacing:0.04em; }}
+.statusline.idle {{ color:var(--text-soft); }}
+.statusline.live {{ color:var(--ink); background:var(--sulfur); padding:4px 10px;
+  display:inline-block; border:1px solid var(--ink); }}
+.controls {{ display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+  max-width:760px; margin-top:14px; padding:10px 0; border-bottom:1px solid var(--rule); }}
+.controls label {{ display:inline-flex; align-items:center; gap:6px;
+  color:var(--text-soft); font-size:13px; }}
+.controls select {{ background:var(--paper); color:var(--ink); border:1px solid var(--ink);
+  padding:6px 10px; font:14px var(--font-body); min-width:140px; }}
+#launchError {{ color:#8a3030; font-size:12.5px; margin-top:8px; max-width:760px; }}
+.report {{ max-width:760px; margin-top:14px; padding:0; }}
+.report h2 {{ font:600 13px/1.2 var(--font-display); color:var(--text-soft);
+  margin:0 0 8px; text-transform:uppercase; letter-spacing:0.08em; }}
+.stat-row {{ display:flex; gap:16px; padding:8px 0; border-bottom:1px solid var(--rule);
+  font-size:13px; align-items:baseline; }}
+.stat-row:last-child {{ border-bottom:none; }}
+.stat-row .label {{ color:var(--text-soft); min-width:160px; flex-shrink:0; }}
+.stat-row .value {{ color:var(--ink); font-family:var(--font-mono); }}
+#sparkwrap {{ margin-top:14px; padding-top:8px; border-top:1px solid var(--rule); }}
+#spark {{ width:100%; height:60px; background:var(--paper); display:block; }}
+#spark path {{ fill:none; stroke:var(--ink); stroke-width:1.5; }}
+#categoryBreakdown {{ margin-top:10px; }}
+.catrow {{ display:flex; justify-content:space-between; font-size:12.5px; padding:6px 0;
+  border-bottom:1px solid var(--rule); }}
 .catrow:last-child {{ border-bottom:none; }}
-.idle {{ color:var(--text-dim); }}
-.live {{ color:var(--up); }}
+.idle {{ color:var(--text-soft); }}
+button.danger {{ background:var(--paper); color:var(--ink); border:1px solid var(--ink);
+  font:600 13px/1 var(--font-body); padding:8px 14px; cursor:pointer;
+  box-shadow:3px 3px 0 var(--ink); }}
+button.danger:hover {{ box-shadow:4px 4px 0 var(--ink); }}
+button.danger:active {{ transform:translate(3px,3px); box-shadow:none; }}
+button.danger:disabled {{ opacity:0.4; cursor:not-allowed;
+  box-shadow:1px 1px 0 var(--ink); transform:translate(2px,2px); }}
 </style></head><body>
 
 {nav_bar_html('runs.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
@@ -60,31 +85,30 @@ backs up the round's out_dir first and refuses to start if that backup can't be 
 count, checks the RunPod balance floor once up front, and refuses a second launch while one is
 already running.</p>
 
-<div class="panel">
-  <div class="row">
-    <label for="expedition">Expedition</label>
-    <select id="expedition"></select>
-    <label for="leg">Leg</label>
-    <select id="leg"></select>
-    <button id="launchBtn" class="btn btn--primary">Back up and launch</button>
-    <button id="stopBtn" class="danger" disabled>Stop</button>
-  </div>
-  <div id="launchError"></div>
-  <div class="row"><span id="statusLine" class="idle">Not running.</span></div>
+<div class="outcome">
+  <div id="statusLine" class="statusline idle">Not running.</div>
 </div>
 
-<div class="panel">
-  <h2 style="font-size:14px;margin:0 0 4px;">Per-run report</h2>
-  <div class="statgrid">
-    <div class="stat"><div class="label">Generation</div><div class="value" id="statGen">-</div></div>
-    <div class="stat"><div class="label">Plateau count</div><div class="value" id="statPlateau">-</div></div>
-    <div class="stat"><div class="label">Total images</div><div class="value" id="statImages">-</div></div>
-    <div class="stat"><div class="label">Spend</div><div class="value" id="statSpend">-</div></div>
-  </div>
-  <div id="sparkwrap"><div class="label" style="color:var(--text-dim);font-size:11px;">Novelty trajectory</div>
+<div class="controls">
+  <label for="expedition">Expedition</label>
+  <select id="expedition"></select>
+  <label for="leg">Leg</label>
+  <select id="leg"></select>
+  <button id="launchBtn" class="raised-control">Back up and launch</button>
+  <button id="stopBtn" class="danger" disabled>Stop</button>
+</div>
+<div id="launchError"></div>
+
+<div class="report">
+  <h2>Per-run report</h2>
+  <div class="stat-row"><span class="label">Generation</span><span class="value" id="statGen">-</span></div>
+  <div class="stat-row"><span class="label">Plateau count</span><span class="value" id="statPlateau">-</span></div>
+  <div class="stat-row"><span class="label">Total images</span><span class="value" id="statImages">-</span></div>
+  <div class="stat-row"><span class="label">Spend</span><span class="value" id="statSpend">-</span></div>
+  <div id="sparkwrap"><div class="label" style="color:var(--text-soft);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;">Novelty trajectory</div>
     <svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
   </div>
-  <div id="categoryBreakdown" style="margin-top:10px;"></div>
+  <div id="categoryBreakdown"></div>
   <p id="completedLinks" class="idle" style="display:none;"><a href="scan.html" onclick="openReportTool(event, 'scan.html')">Scan images</a> · <a href="coverage.html" onclick="openReportTool(event, 'coverage.html')">Check coverage</a> · <a href="novelty_decay.html" onclick="openReportTool(event, 'novelty_decay.html')">Review novelty decay</a></p>
 </div>
 
@@ -141,7 +165,7 @@ function renderSpark(points) {{
   const xs = points.map((_, i) => pad + i * (w - 2 * pad) / Math.max(1, points.length - 1));
   const ys = points.map(v => h - pad - ((v - lo) / range) * (h - 2 * pad));
   const path = xs.map((x, i) => `${{i === 0 ? 'M' : 'L'}}${{x.toFixed(1)}},${{ys[i].toFixed(1)}}`).join(' ');
-  svg.innerHTML = `<path d="${{path}}" fill="none" stroke="#7c9eff" stroke-width="1.5"/>`;
+  svg.innerHTML = `<path d="${{path}}"/>`;
 }}
 
 function refreshReport() {{
@@ -158,7 +182,7 @@ function refreshReport() {{
     document.getElementById('categoryBreakdown').innerHTML = cats.length ? cats.map(cat =>
       `<div class="catrow"><span>${{escHtml(cat)}}</span><span>${{escHtml(d.explore_exploit_split[cat])}} images, ` +
       `${{escHtml((d.pick_rate_by_category[cat] * 100).toFixed(0))}}% picked</span></div>`
-    ).join('') : '<span style="color:var(--text-dim);font-size:12.5px;">No images scored for this leg yet.</span>';
+    ).join('') : '<span style="color:var(--text-soft);font-size:12.5px;">No images scored for this leg yet.</span>';
     document.getElementById('completedLinks').style.display = d.total_images ? 'block' : 'none';
   }});
 }}
@@ -180,14 +204,14 @@ function refreshStatus() {{
     if (d.running) {{
       lastStatusPid = d.pid;
       lastStatusStartTicks = d.start_time_ticks;
-      statusLine.className = 'live';
+      statusLine.className = 'statusline live';
       statusLine.textContent = `Running ${{escHtml(d.expedition)}}/${{escHtml(d.leg)}} (pid ${{d.pid}}), started ${{new Date(d.started_at * 1000).toLocaleString()}}.`;
       launchBtn.disabled = true;
       stopBtn.disabled = false;
     }} else {{
       lastStatusPid = null;
       lastStatusStartTicks = null;
-      statusLine.className = 'idle';
+      statusLine.className = 'statusline idle';
       statusLine.textContent = 'Not running.';
       launchBtn.disabled = false;
       stopBtn.disabled = true;
@@ -244,4 +268,5 @@ loadExpeditions().then(() => {{ refreshStatus(); refreshReport(); }});
 setInterval(() => {{ refreshStatus(); refreshReport(); }}, 4000);
 </script>
 <script src="scrollnav.js"></script>
+<script src="/shared-ui.js"></script>
 </body></html>"""
