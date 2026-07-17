@@ -94,3 +94,48 @@ def test_missing_api_route_returns_json_404(running_server):
     assert exc_info.value.headers.get_content_type() == "application/json"
     body = json.loads(exc_info.value.read().decode())
     assert body["error"] == "unknown route: /api/nonexistent-route-xyz"
+
+
+def test_404_page_uses_sulfur_proof_shell(running_server):
+    """Task 5 (404 page) render contract: the 404 sits on the Sulfur Proof foundation, has no
+    prefers-color-scheme: dark branch (Sulfur Proof is the only theme), includes the shared
+    header's context-switcher script, and ships a semantic <header> from the shared topnav.
+    The legacy 404 had its own bespoke :root dark-theme tokens (--bg/--panel/--border/--text/
+    --dim/--accent) plus border-radius:10px on the main card; both must be gone, and the
+    Sulfur foundation tokens plus CONTROL_CSS's flat-border treatment must be present
+    instead."""
+    port = running_server.server_address[1]
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/missing-page.html")
+    assert exc_info.value.code == 404
+    body = exc_info.value.read().decode()
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    # The legacy 404's bespoke :root block of dark tokens is gone.
+    assert "--bg:#0b0b0d" not in body
+    # The legacy border-radius on the main card is gone.
+    assert "border-radius:10px" not in body
+
+
+def test_500_error_page_uses_sulfur_proof_shell(running_server, monkeypatch):
+    """Task 5 (500 page) render contract: the error page sits on the Sulfur Proof foundation,
+    has no prefers-color-scheme: dark branch, includes the shared header's context-switcher
+    script, and ships a semantic <header> from the shared topnav. The legacy 500 had inline
+    style= attributes only (no <style> block at all) with a 4px border-radius on the stack
+    trace <pre>; both are gone, replaced by a <style> block with the Sulfur foundation and a
+    flat-bordered stack trace block."""
+    server = running_server
+    port = server.server_address[1]
+    monkeypatch.setattr(cs, "_get_map_data", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    body = _fetch_error_page(port, "/map.html")
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    # The legacy inline style="background:#f3f4f6;padding:1rem;border-radius:4px" on the
+    # stack trace <pre> is gone, replaced by a class-based rule in the page-local <style>.
+    assert 'style="white-space:pre-wrap;font-family:monospace;background:#f3f4f6' not in body
+    assert "border-radius:4px" not in body

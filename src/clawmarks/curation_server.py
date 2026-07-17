@@ -111,7 +111,18 @@ from clawmarks.search.seed_pool import merge as seed_pool_merge
 from clawmarks.search import comparison_sampler, preference_settings, preference_pairwise_model
 from clawmarks.search import embed_cache
 from clawmarks.search.manifest_index import item_summary
-from clawmarks.shared_ui import BTN_CSS, DARK_TOKENS, INFOTIP_JS, SCROLLNAV_JS, SHARED_UI_JS, _LIGHTBOX_JS
+from clawmarks.shared_ui import (
+    CONTROL_CSS,
+    INFOTIP_JS,
+    MOBILE_BASE_CSS,
+    SCROLLNAV_JS,
+    SHARED_UI_JS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
+    TOPNAV_CSS,
+    _LIGHTBOX_JS,
+    nav_bar_html,
+)
 from clawmarks.live_cache import LiveCache
 from clawmarks.build import (
     scan_gallery, similarity_index, solution_map, map_view, redundancy_view, coverage_map,
@@ -976,17 +987,42 @@ class Handler(SimpleHTTPRequestHandler):
                     "and the image no longer lives there. Re-pointing or regenerating the "
                     "manifest's <code>file</code> paths should fix it.</p>"
                 )
-        body = f"""<div style="font-family:sans-serif;max-width:48rem;margin:2rem auto;line-height:1.5">
-<h1 style="color:#b91c1c">Something went wrong</h1>
+        body = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clawmarks curation server: error</title>
+<style>
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+main {{ max-width:48rem; margin:2rem auto; line-height:1.5; padding:0 24px; }}
+h1 {{ color:var(--ink); font-size:22px; margin:0 0 12px; letter-spacing:0.02em; text-transform:uppercase; }}
+h1.bad {{ color:#8a3030; }}
+p {{ color:var(--text-soft); font-size:13.5px; line-height:1.6; }}
+p strong {{ color:var(--ink); }}
+details {{ margin-top:14px; }}
+summary {{ cursor:pointer; color:var(--ink); font-weight:600; }}
+pre.stack {{ white-space:pre-wrap; font-family:var(--font-mono); background:var(--paper-deep);
+  padding:1rem; border:1px solid var(--rule); }}
+</style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
+<main>
+<h1 class="bad">Something went wrong</h1>
 <p>Route: <code>{html.escape(self.path)}</code></p>
 <p><strong>{html.escape(message)}</strong></p>
 {hint}
 <details>
-<summary style="cursor:pointer">Show stack trace</summary>
-<pre style="white-space:pre-wrap;font-family:monospace;background:#f3f4f6;padding:1rem;border-radius:4px">{html.escape(detail)}</pre>
+<summary>Show stack trace</summary>
+<pre class="stack">{html.escape(detail)}</pre>
 </details>
 <p><a href="/">&larr; back to status page</a></p>
-</div>""".encode()
+</main>
+<script src="/shared-ui.js"></script>
+</body></html>""".encode()
         try:
             self.send_response(500)
             self.send_header("Content-Type", "text/html")
@@ -999,21 +1035,30 @@ class Handler(SimpleHTTPRequestHandler):
     def _send_404_page(self, path):
         body = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clawmarks curation server: 404</title>
 <style>
-:root {{ color-scheme:dark; --bg:#0b0b0d; --panel:#16161a; --border:#2a2a30; --text:#eaeaee; --dim:#9a9aa4; --accent:#7c9eff; }}
-* {{ box-sizing:border-box; }}
-body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
-main {{ max-width:42rem; margin:2rem; padding:2rem; border:1px solid var(--border); border-radius:10px; background:var(--panel); }}
-h1 {{ margin-top:0; }}
-p {{ color:var(--dim); line-height:1.5; }}
-code {{ color:var(--text); }}
-a {{ color:var(--accent); }}
-</style></head><body><main>
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+main {{ max-width:42rem; margin:2rem auto; padding:2rem;
+  background:var(--paper); border:1px solid var(--ink); }}
+h1 {{ font-size:22px; margin:0 0 12px; letter-spacing:0.02em; text-transform:uppercase; }}
+p {{ color:var(--text-soft); font-size:13.5px; line-height:1.6; }}
+</style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
+<main>
 <h1>Nothing here</h1>
 <p>Route: <code>{html.escape(path)}</code></p>
 <p>Check the address or return to the status page.</p>
 <p><a href="/">Back to status page</a></p>
-</main></body></html>""".encode()
+</main>
+<script src="/shared-ui.js"></script>
+</body></html>""".encode()
         self.send_response(404)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -1064,14 +1109,19 @@ a {{ color:var(--accent); }}
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
-code {{ color:var(--text); }}
-a {{ color:var(--accent); }}
-{BTN_CSS}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 </style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
 <p>sweep dir: <code>{html.escape(str(_active_out_dir() or 'none selected'))}</code></p>
 <p>{html.escape(manifest_summary)}</p>
@@ -1087,6 +1137,7 @@ fetch('/api/preference_status').then(r => r.json()).then(d => {{
 }}).catch(() => {{}});
 </script>
 <p>{links}</p>
+<script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _status_page_no_selection_body(self):
@@ -1105,25 +1156,30 @@ fetch('/api/preference_status').then(r => r.json()).then(d => {{
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
-code {{ color:var(--text); }}
-a {{ color:var(--accent); }}
-.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:16px; margin-top:16px; max-width:640px; }}
+.panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
+  margin-top:16px; max-width:640px; }}
 .exp-row {{ margin:8px 0; }}
-{BTN_CSS}
-button {{ font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid var(--border);
-  background:var(--accent); color:#0b0b0d; font-weight:600; cursor:pointer; }}
+button {{ font-size:13px; padding:6px 12px; border:1px solid var(--ink);
+  background:var(--paper); color:var(--ink); font-weight:600; cursor:pointer; }}
 button:disabled {{ opacity:0.4; cursor:not-allowed; }}
-input, select {{ font-size:13px; padding:6px 8px; border-radius:6px; border:1px solid var(--border);
-  background:var(--bg); color:var(--text); }}
+input, select {{ font-size:13px; padding:6px 8px; border:1px solid var(--ink);
+  background:var(--paper); color:var(--ink); font-family:var(--font-body); }}
 .formrow {{ display:flex; gap:8px; margin-top:8px; align-items:center; }}
-#pickError, #createExpError, #createLegError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+#pickError, #createExpError, #createLegError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
 <div class="panel">
 <p class="sub">No expedition/leg selected. Pick an existing leg below, or create a new
@@ -1210,6 +1266,7 @@ if (createLegBtn) {{
   }});
 }}
 </script>
+<script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _status_page_selected_empty_body(self, selection, manifest_summary):
@@ -1228,19 +1285,24 @@ if (createLegBtn) {{
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
-code {{ color:var(--text); }}
-a {{ color:var(--accent); }}
-.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:16px; margin-top:16px; max-width:640px; }}
+.panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
+  margin-top:16px; max-width:640px; }}
 .exp-row {{ margin:8px 0; }}
-{BTN_CSS}
-#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+#pickError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
 <p>Active: <code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code>,
 {html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>
@@ -1265,6 +1327,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
   }});
 }}));
 </script>
+<script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _status_page_data_integrity_error_body(self, selection, n_entries):
@@ -1283,26 +1346,33 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-{DARK_TOKENS}
-body {{ background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif; margin:0; padding:24px; }}
-h1 {{ font-size:18px; margin:0 0 4px; }}
-p {{ color:var(--text-dim); font-size:13px; line-height:1.6; }}
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
+{TOPNAV_CSS}
+{MOBILE_BASE_CSS}
+body {{ margin:0; padding:24px; }}
+h1 {{ font-size:18px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
+p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
-code {{ color:var(--text); }}
-a {{ color:var(--accent); }}
-.panel {{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-  padding:16px; margin-top:16px; max-width:640px; }}
+p.alert {{ background:var(--paper-deep); border:1px solid #8a3030; padding:10px 12px;
+  color:var(--ink); }}
+.panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
+  margin-top:16px; max-width:640px; }}
 .exp-row {{ margin:8px 0; }}
-{BTN_CSS}
-#pickError {{ color:var(--down); font-size:12.5px; margin-top:8px; }}
+#pickError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
+
+{nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
+              active_leg=_active_selection["leg"],
+              running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
-<div class="panel">
-<p class="sub"><strong>Data integrity warning:</strong> active leg
+<p class="sub alert" role="alert"><strong>Data integrity warning:</strong> active leg
 <code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code> lists
 {n_entries} manifest images, but none are present on disk. Do not launch a new round. Check
 your backup or the state directory at <code>$XDG_STATE_HOME/clawmarks/</code> before changing
 this leg.</p>
+<div class="panel">
 <p class="sub">Pick a different leg below if needed.</p>
 {rows or '<p class="sub">No expeditions exist yet.</p>'}
 <div id="pickError"></div>
@@ -1323,6 +1393,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
   }});
 }}));
 </script>
+<script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _do_GET(self):
@@ -1381,7 +1452,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 trials = load_store(_cockpit_queue_file())
             self._json_response(200, {"trials": sorted(trials.values(), key=lambda t: t["created_at"])})
             return
-        if self.path == "/":
+        if self.path in ("/", "/status.html"):
             self._send_status_page()
             return
 

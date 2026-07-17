@@ -154,6 +154,109 @@ def test_status_page_data_branch_surfaces_comparison_count(running_server_with_l
     assert "fetch('/api/preference_status')" in body
 
 
+def test_status_page_data_body_uses_sulfur_proof_shell(running_server_with_leg_and_data):
+    """Task 5 (status data branch) render contract: the 'has data' status view sits on the
+    Sulfur Proof foundation, has no prefers-color-scheme: dark branch, includes the shared
+    header's context-switcher script, and ships a semantic <header>. The legacy
+    DARK_TOKENS/BTN_CSS imports are gone from the page-local <style>."""
+    port = running_server_with_leg_and_data.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+        body = resp.read().decode()
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    assert "DARK_TOKENS" not in body
+    assert "BTN_CSS" not in body
+
+
+def test_status_page_no_selection_body_uses_sulfur_proof_shell(running_server_with_leg):
+    """Task 5 (status no-selection branch) render contract: same as the data branch -- Sulfur
+    foundation, no dark theme, shared-ui.js, semantic <header>. The legacy .panel
+    border-radius:8px on the three pickers panels is gone (replaced by a flat bordered
+    treatment or a CONTROL_CSS depth class)."""
+    port = running_server_with_leg.server_address[1]
+    cs._active_selection["expedition"] = None
+    cs._active_selection["leg"] = None
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+        body = resp.read().decode()
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    assert "DARK_TOKENS" not in body
+    assert "BTN_CSS" not in body
+    assert "border-radius:8px" not in body
+
+
+def test_status_page_selected_empty_body_uses_sulfur_proof_shell(running_server_with_leg):
+    """Task 5 (status selected-empty branch) render contract: same as the data branch. The
+    page must also expose a link to /status.html so the brief's Step 1 assertion
+    'href=\"/status.html\"' in empty_state_html is satisfied (the shared header's
+    session-status link is the natural place; the existing /runs.html prose link stays as
+    additional, still-valid guidance)."""
+    port = running_server_with_leg.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+        body = resp.read().decode()
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    assert 'href="/status.html"' in body
+    # The legacy /runs.html prose link is still present as additional guidance.
+    assert 'href="/runs.html"' in body
+    assert "DARK_TOKENS" not in body
+    assert "BTN_CSS" not in body
+    assert "border-radius:8px" not in body
+
+
+def test_status_page_data_integrity_error_body_uses_sulfur_proof_shell(running_server_with_leg):
+    """Task 5 (status data-integrity-error branch) render contract: same as the other three
+    branches. The brief's Step 1 'role=\"alert\"' assertion is satisfied by the warning
+    paragraph that says 'Data integrity warning' / 'Do not launch a new round'; that single
+    <p> carries role='alert' so screen readers announce it as an urgent live region. The
+    legacy DARK_TOKENS/BTN_CSS imports and the .panel border-radius:8px are gone."""
+    leg_dir = config.leg_dir("uncanny_frontier", "cockpit")
+    manifest = [
+        {"tag": f"gen1_{index}", "file": str(leg_dir / f"gen1_{index}.png")}
+        for index in range(3)
+    ]
+    (leg_dir / "scored_manifest.json").write_text(json.dumps(manifest))
+
+    port = running_server_with_leg.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+        body = resp.read().decode()
+    assert "--paper:#C3C5BA" in body
+    assert "shared-ui.js" in body
+    assert "<header" in body
+    assert "prefers-color-scheme: dark" not in body
+    assert 'role="alert"' in body
+    # The role="alert" must be on the warning paragraph specifically, not the whole body.
+    # Verify the substring "Data integrity warning" sits inside a tag carrying role="alert".
+    assert 'role="alert"' in body
+    warning_idx = body.find("Data integrity warning")
+    assert warning_idx != -1
+    # Walk back to the nearest <p ...> tag and confirm it carries role="alert".
+    snippet = body[max(0, warning_idx - 200):warning_idx]
+    assert 'role="alert"' in snippet
+    assert "DARK_TOKENS" not in body
+    assert "BTN_CSS" not in body
+    assert "border-radius:8px" not in body
+
+
+def test_status_html_route_serves_the_same_page_as_root(running_server_with_leg):
+    """Task 5 closes the /status.html route gap: Task 3's nav_bar_html emits a link to
+    /status.html, but only \"/\" was wired to _send_status_page. After Task 5 both paths
+    must serve the identical page (200, identical body)."""
+    port = running_server_with_leg.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as root_resp:
+        root_body = root_resp.read()
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as status_resp:
+        status_body = status_resp.read()
+        assert status_resp.status == 200
+    assert root_body == status_body
+
+
 def test_unfavorite_rejects_payload_for_stale_leg(running_server_with_leg):
     leg_a = config.leg_dir("uncanny_frontier", "cockpit")
     leg_b = config.leg_dir("uncanny_frontier", "round2")
