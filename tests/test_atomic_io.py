@@ -1,6 +1,8 @@
 import json
 import os
+from pathlib import Path
 
+import clawmarks.atomic_io as atomic_io
 import pytest
 
 from clawmarks.atomic_io import _replace_via_temp_file, atomic_json_write, atomic_write
@@ -100,3 +102,29 @@ def test_atomic_write_binary_survives_write_fn_raising_mid_write(tmp_path):
 
     assert target.read_bytes() == b"original"
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_atomic_json_write_fsyncs_parent_after_replace(tmp_path, monkeypatch):
+    calls = []
+    real_fsync = os.fsync
+
+    def recording_fsync(fd):
+        calls.append(fd)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    atomic_json_write(tmp_path / "record.json", {"ok": True})
+
+    assert len(calls) == 2
+
+
+def test_durable_makedirs_fsyncs_each_new_directory_and_parent(tmp_path, monkeypatch):
+    synced = []
+    monkeypatch.setattr(atomic_io, "fsync_directory", lambda path: synced.append(Path(path)))
+
+    atomic_io.durable_makedirs(tmp_path / "records" / "demo")
+
+    assert synced == [
+        tmp_path / "records", tmp_path,
+        tmp_path / "records" / "demo", tmp_path / "records",
+    ]
