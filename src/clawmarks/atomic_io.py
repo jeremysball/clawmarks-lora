@@ -7,9 +7,36 @@ import tempfile
 from pathlib import Path
 
 
+def fsync_directory(path):
+    fd = os.open(Path(path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def durable_makedirs(path):
+    path = Path(path)
+    missing = []
+    cursor = path
+    while not cursor.exists():
+        missing.append(cursor)
+        cursor = cursor.parent
+    if not cursor.is_dir():
+        raise NotADirectoryError(cursor)
+    for directory in reversed(missing):
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            if not directory.is_dir():
+                raise
+        fsync_directory(directory)
+        fsync_directory(directory.parent)
+
+
 def _replace_via_temp_file(path, mode, write_fn):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_makedirs(path.parent)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, mode) as f:
@@ -17,6 +44,7 @@ def _replace_via_temp_file(path, mode, write_fn):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, path)
+        fsync_directory(path.parent)
     except Exception:
         try:
             os.unlink(temporary)
