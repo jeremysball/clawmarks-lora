@@ -18,7 +18,16 @@ Served live at /cockpit.html by curation_server.py.
 import html
 import json
 
-from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, MOBILE_BASE_CSS, INFOTIP_CSS, info_btn
+from clawmarks.shared_ui import (
+    CONTROL_CSS,
+    INFOTIP_CSS,
+    MOBILE_BASE_CSS,
+    SULFUR_CSS,
+    SULFUR_FONT_CSS,
+    TOPNAV_CSS,
+    info_btn,
+    nav_bar_html,
+)
 
 
 MISSIONS = {
@@ -98,32 +107,26 @@ document.getElementById('expeditionSwitch').addEventListener('click', () => {{
 <title>CLAWMARKS generation cockpit</title>
 <link rel="icon" href="data:,">
 <style>
+{SULFUR_FONT_CSS}
+{SULFUR_CSS}
+{CONTROL_CSS}
 :root{{
   color-scheme:light;
-  --paper:#F5F2E9;
-  --sheet:#EFE8C2;
-  --sheet-deep:color-mix(in srgb, var(--sheet) 78%, #cbbf87);
-  --ink:#17150F;
-  --ballpoint:#32407F;
-  --teal:#4F8A75;
-  --red:#AF1F32;
-  --line:color-mix(in srgb, var(--ink) 13%, transparent);
-  --line-strong:color-mix(in srgb, var(--ink) 24%, transparent);
-  --muted:color-mix(in srgb, var(--ink) 55%, transparent);
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --sans:system-ui,"Segoe UI",Helvetica,Arial,sans-serif;
-}}
-@media (prefers-color-scheme: dark) {{
-  :root {{
-    color-scheme:dark;
-    --paper:#0b0b0d;
-    --sheet:#16161a;
-    --sheet-deep:#1d1d22;
-    --ink:#eaeaee;
-    --ballpoint:#7c9eff;
-    --teal:#5ec98a;
-    --red:#e0605e;
-  }}
+  --paper:#C3C5BA;
+  --paper-deep:#B3B5A9;
+  --ink:#11120F;
+  --text-soft:#4D5048;
+  --rule:#898D81;
+  --sulfur:#CBD63F;
+  --sheet:color-mix(in srgb, var(--paper) 88%, var(--ink));
+  --ballpoint:var(--ink);
+  --teal:#3d6a26;
+  --red:#8a3030;
+  --line:color-mix(in srgb, var(--ink) 12%, transparent);
+  --line-strong:color-mix(in srgb, var(--ink) 30%, transparent);
+  --muted:color-mix(in srgb, var(--ink) 50%, transparent);
+  --mono:var(--font-mono);
+  --sans:var(--font-body);
 }}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}}
@@ -153,8 +156,7 @@ h1{{margin:3px 0 0;font:800 26px/1.15 var(--sans);letter-spacing:-.01em}}
 .mission.active span{{color:color-mix(in srgb, var(--paper) 78%, transparent)}}
 .mission.active span:first-child{{color:var(--paper);font-weight:700}}
 
-.workbench{{display:grid;grid-template-columns:minmax(500px,1.25fr) minmax(330px,.75fr);
-  gap:3px;margin-top:24px;align-items:start}}
+.workbench{{display:grid;grid-template-columns:1fr;gap:18px;margin-top:24px;align-items:start}}
 .panel{{background:var(--sheet);border:1px solid var(--line)}}
 .recipe{{padding:0 18px 18px}}
 .evidence{{background:color-mix(in srgb, var(--sheet) 88%, var(--paper))}}
@@ -167,12 +169,12 @@ h1{{margin:3px 0 0;font:800 26px/1.15 var(--sans);letter-spacing:-.01em}}
 .panel-head h2,.evidence-head h2{{margin:0;font-size:18px;line-height:1.25;font-weight:800}}
 .small{{color:var(--muted);font-size:11.5px;line-height:1.45}}
 
-.brief{{display:grid;grid-template-columns:1fr 1fr;grid-auto-flow:row;gap:5px 15px;margin:16px 0 13px}}
+.brief{{display:grid;grid-template-columns:1fr 1fr;grid-auto-flow:row;gap:5px 15px;margin:16px 0 13px;border-top:1px solid var(--rule);padding-top:14px}}
 .field label,.brief label,.prompt-label{{display:block;margin-bottom:5px;color:var(--muted);
   font:600 11px var(--mono);letter-spacing:.02em}}
 .field input,.brief input,textarea,select{{width:100%;padding:8px 9px;background:var(--paper);color:var(--ink);
   border:1px solid var(--line);font:13px var(--mono)}}
-.prompt-row{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}}
+.prompt-row{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px;border-top:1px solid var(--rule);padding-top:14px;margin-top:16px}}
 .prompt-row .prompt-label{{margin-bottom:0}}
 .seed-picker{{max-width:220px;padding:5px 6px;background:var(--paper);color:var(--muted);
   border:1px solid var(--line);font:11px var(--mono)}}
@@ -180,7 +182,7 @@ textarea{{min-height:100px;resize:vertical;line-height:1.55}}
 input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outline-offset:1px;
   border-color:var(--ballpoint)}}
 
-.target-picker{{margin:16px 0 13px}}
+.target-picker{{margin:16px 0 13px;border-top:1px solid var(--rule);padding-top:14px}}
 .target-picker h3{{margin:0 0 8px;color:var(--muted);font:600 11px var(--mono)}}
 .target-cards{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
 .target-card{{position:relative;display:grid;grid-template-columns:34px 1fr 16px;gap:8px;
@@ -205,7 +207,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
   background:var(--sheet-deep)}}
 .nearest .thumb{{width:40px;height:40px}}
 
-.controls{{display:grid;grid-template-columns:1.1fr .7fr .7fr;gap:14px;margin-top:13px}}
+.controls{{display:grid;grid-template-columns:1.1fr .7fr .7fr;gap:14px;margin-top:13px;border-top:1px solid var(--rule);padding-top:14px}}
 .segmented,.number{{display:flex;height:34px;background:var(--paper);border:1px solid var(--line)}}
 .segmented button{{flex:1;background:transparent;border:0;border-right:1px solid var(--line);
   color:var(--muted);font:600 11px var(--mono);cursor:pointer}}
@@ -300,7 +302,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 
 @media(max-width:900px){{
   .mission-bar{{display:grid;grid-template-columns:repeat(2,1fr)}}
-  .workbench{{grid-template-columns:1fr;gap:14px}}
+  .workbench{{gap:14px}}
   .evidence{{display:grid;grid-template-columns:1fr 1fr}}
   .evidence-head{{grid-column:1/-1}}
   .suggestions{{grid-template-columns:1fr 1fr}}
@@ -373,7 +375,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 <section class="mission-bar" aria-label="Choose a mission">{missions_json_keys}</section>
 
 <section class="workbench">
-<article class="panel recipe">
+<article class="recessed-readout recipe">
 <div class="panel-head"><div><div class="section-tag">Recipe</div><div class="eyebrow" id="briefMission">Fill a coverage gap</div>
 <h2 id="briefTitle">Reach a sparse faith x novelty frontier</h2></div><span class="small">Draft trial</span></div>
 <div class="target-picker" id="targetPicker"><h3>Choose a target coverage cell
@@ -408,7 +410,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 <button class="generate striate" id="sendDraft" type="button">Send draft to queue</button></div>
 </article>
 
-<aside class="panel evidence"><div class="evidence-head"><div class="section-tag teal">Evidence</div>
+<aside class="mounted-evidence evidence"><div class="evidence-head"><div class="section-tag teal">Evidence</div>
 <div class="honest">Existing evidence only</div><h2>What is already nearby</h2>
 <div class="small">These are prompt-text neighbors and a current coverage cell, not a forecast for this draft.</div></div>
 <div class="e-section"><h3>Nearest past prompts
@@ -712,6 +714,7 @@ updateEstimate();
 <script src="scrollnav.js"></script>
 <script src="lightbox.js"></script>
 <script src="infotip.js"></script>
+<script src="/shared-ui.js"></script>
 </body>
 </html>"""
     return page_html
