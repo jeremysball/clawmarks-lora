@@ -61,6 +61,7 @@ venv/
 # local session state
 .claude/
 .superpowers/
+.lavish/
 
 # scratch git worktrees for isolated agent/opencode dispatch
 .worktrees/
