@@ -2701,3 +2701,14 @@ trust a model's mechanism claim at face value): read `_create_leg`, `_create_exp
 against the new `EXPEDITIONS_DIR` value, and confirmed `git check-ignore` returned nothing for
 `state/` before the fix. Full suite after the fix: 430 passed. Ruff, MyPy, and `git diff --check`
 clean.
+
+### 2026-07-17: Strengthened Task 2's opposite-order lock contention test
+
+The second independent review pass found that the opposite-order multiprocessing test only
+observed a worker announcing its intent to call `flock` before the syscall could block. That
+assertion could pass through scheduling luck without proving cross-process exclusion. The test now
+waits for one worker to enter while both first lock attempts have started, then requires the other
+worker's entry event to remain unset for 0.2 seconds before releasing the winner. This positively
+proves the loser is blocked while the lock is held. A temporary no-op `flock` mutation failed at
+the strengthened assertion, while the real implementation passed all 11 durable-record tests in
+five consecutive runs. Ruff and MyPy remained clean. Production code was unchanged.

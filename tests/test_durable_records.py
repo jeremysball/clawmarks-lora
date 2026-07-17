@@ -111,6 +111,10 @@ def test_file_locks_complete_when_processes_supply_opposite_orders(tmp_path):
         assert first_flock_b.wait(2)
         assert entered_any.wait(2)
         assert entered_a.is_set() != entered_b.is_set()
+        if entered_a.is_set():
+            assert not entered_b.wait(0.2)
+        else:
+            assert not entered_a.wait(0.2)
         release.set()
         assert done_a.wait(2)
         assert done_b.wait(2)
