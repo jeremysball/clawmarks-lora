@@ -24,6 +24,24 @@ def test_nav_bar_html_marks_preference_status_selected_when_current():
     assert 'value="/preference_status.html" selected' in html
 
 
+def test_nav_bar_html_without_leading_slash_matches_nav_groups():
+    html = nav_bar_html("scan.html")
+    assert 'value="/scan.html" selected' in html
+    assert 'class="page-name">Browse all images</span>' in html
+
+
+def test_nav_bar_html_cockpit_without_slash_selects_cockpit():
+    html = nav_bar_html("cockpit.html")
+    assert 'value="/cockpit.html" selected' in html
+    assert 'class="page-name">Generation cockpit</span>' in html
+
+
+def test_nav_bar_html_root_maps_to_scan_gallery():
+    html = nav_bar_html("/")
+    assert 'value="/scan.html" selected' in html
+    assert 'class="page-name">Browse all images</span>' in html
+
+
 def test_nav_bar_html_omits_active_leg_without_selection():
     html = nav_bar_html("/scan.html")
 

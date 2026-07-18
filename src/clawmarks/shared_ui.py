@@ -225,7 +225,16 @@ BTN_CSS = """
 """
 
 
+def _canonicalize(path: str) -> str:
+    if not path.startswith("/"):
+        path = "/" + path
+    if path == "/":
+        path = "/scan.html"
+    return path
+
+
 def _page_name_for(current):
+    current = _canonicalize(current)
     for _group, options in NAV_GROUPS:
         for href, label in options:
             if href == current:
@@ -235,6 +244,7 @@ def _page_name_for(current):
 
 
 def nav_bar_html(current, active_expedition=None, active_leg=None, running=None, focus=None):
+    current = _canonicalize(current)
     page_name = html.escape(_page_name_for(current))
     opts = "".join(
         f'<optgroup label="{html.escape(group)}">' + "".join(
