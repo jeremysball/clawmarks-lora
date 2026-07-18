@@ -160,6 +160,37 @@ CONTROL_CSS = """
   box-shadow:inset 1px 1px 0 var(--paper-deep),
     inset -1px -1px 0 var(--paper);
 }
+
+/* Controls > Primary actions (spec section, not the Dimensional Grammar depth strengths
+above): black fill with paper text, sulfur as a bottom registration mark. Matches the
+decided Sulfur Proof v2 Lavish artifact's sulfur-theme `.mark-button`. */
+.primary-action {
+  display:inline-flex; align-items:center; justify-content:center;
+  border:0; border-bottom:5px solid var(--sulfur);
+  background:var(--ink); color:var(--paper);
+  font:700 14px/1 var(--font-body); padding:10px 16px; cursor:pointer;
+  box-shadow:inset 2px 2px 0 rgba(255,255,255,.19),
+    inset -2px -2px 0 rgba(0,0,0,.58),
+    3px 3px 0 color-mix(in srgb, var(--sulfur) 82%, var(--ink));
+  transition:transform .12s, box-shadow .12s;
+}
+.primary-action:hover {
+  transform:translate(-2px,-2px);
+  box-shadow:inset 2px 2px 0 rgba(255,255,255,.25),
+    inset -2px -2px 0 rgba(0,0,0,.62),
+    5px 5px 0 var(--sulfur);
+}
+.primary-action:active,
+.primary-action.pressed {
+  transform:translate(3px,3px);
+  box-shadow:0 0 0 var(--sulfur);
+}
+.primary-action:disabled {
+  opacity:0.4; cursor:not-allowed; transform:none;
+  box-shadow:inset 2px 2px 0 rgba(255,255,255,.19),
+    inset -2px -2px 0 rgba(0,0,0,.58),
+    3px 3px 0 color-mix(in srgb, var(--sulfur) 82%, var(--ink));
+}
 """
 
 BTN_CSS = """
@@ -245,16 +276,33 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None,
     context_dialog = (
         '<dialog id="contextDialog" class="context-dialog" '
         'aria-labelledby="contextDialogTitle">'
-        '<header class="context-dialog-header">'
+        '<div class="context-dialog-header">'
         '<h2 id="contextDialogTitle">Switch research context</h2>'
         '<form method="dialog" class="context-dialog-close-form">'
         '<button type="submit" class="dialog-close" aria-label="Close">&times;</button>'
         '</form>'
-        '</header>'
+        '</div>'
         '<div id="contextList" class="context-list" role="list" aria-live="polite">'
         '<p class="context-empty">loading expeditions...</p>'
         '</div>'
         '<div id="contextError" class="context-error" role="alert"></div>'
+        '<div class="context-create">'
+        '<button type="button" id="contextNewExpToggle" class="context-create-toggle">'
+        '+ new expedition</button>'
+        '<form id="contextNewExpForm" class="context-create-form" hidden>'
+        '<input type="text" id="contextNewExpName" placeholder="expedition name" '
+        'aria-label="new expedition name">'
+        '<button type="submit" class="context-create-btn primary-action">create</button>'
+        '</form>'
+        '<button type="button" id="contextNewLegToggle" class="context-create-toggle">'
+        '+ new leg</button>'
+        '<form id="contextNewLegForm" class="context-create-form" hidden>'
+        '<select id="contextNewLegExpedition" aria-label="expedition for new leg"></select>'
+        '<input type="text" id="contextNewLegName" placeholder="leg name" '
+        'aria-label="new leg name">'
+        '<button type="submit" class="context-create-btn primary-action">create</button>'
+        '</form>'
+        '</div>'
         '</dialog>'
     )
     return (
@@ -334,6 +382,18 @@ button.context-label:active { transform:translate(2px,2px); box-shadow:none; }
 .context-empty { color:var(--text-soft); font:13px/1.4 var(--font-body); margin:0; }
 .context-error { color:#8a3030; font:12.5px/1.4 var(--font-body);
   padding:0 16px 12px; min-height:0; }
+.context-create { border-top:1px solid var(--rule); padding:12px 16px; display:flex;
+  flex-wrap:wrap; gap:8px; }
+.context-create-toggle { background:var(--paper-deep); color:var(--ink);
+  border:1px solid var(--ink); font:600 12px/1 var(--font-body); padding:6px 10px;
+  cursor:pointer; text-transform:uppercase; letter-spacing:0.04em; }
+.context-create-toggle:hover { background:var(--sulfur); }
+.context-create-form[hidden] { display:none; }
+.context-create-form { flex:1 0 100%; display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+.context-create-form input, .context-create-form select { background:var(--paper);
+  color:var(--ink); border:1px solid var(--ink); padding:6px 8px; font:13px var(--font-body);
+  flex:1 1 160px; min-width:0; }
+.context-create-btn { flex:0 0 auto; }
 @media (max-width:700px) {
   .topnav { padding:8px 10px; gap:6px; }
   .topnav .wordmark { font-size:16px; }
@@ -474,6 +534,13 @@ SHARED_UI_JS = r"""(function(){
   if (!dialog || !picker) return;
   var list = document.getElementById('contextList');
   var errorEl = document.getElementById('contextError');
+  var newExpToggle = document.getElementById('contextNewExpToggle');
+  var newExpForm = document.getElementById('contextNewExpForm');
+  var newExpName = document.getElementById('contextNewExpName');
+  var newLegToggle = document.getElementById('contextNewLegToggle');
+  var newLegForm = document.getElementById('contextNewLegForm');
+  var newLegExpedition = document.getElementById('contextNewLegExpedition');
+  var newLegName = document.getElementById('contextNewLegName');
 
   function setError(msg){
     if (errorEl) errorEl.textContent = msg || '';
@@ -490,9 +557,19 @@ SHARED_UI_JS = r"""(function(){
     window.location.href = url.pathname + (qs ? '?' + qs : '');
   }
 
+  function renderLegExpeditionOptions(expeditions){
+    if (!newLegExpedition) return;
+    var selected = newLegExpedition.value;
+    newLegExpedition.innerHTML = (expeditions || []).map(function(exp){
+      return '<option value="' + escHtml(exp.name) + '">' + escHtml(exp.name) + '</option>';
+    }).join('');
+    if (selected) newLegExpedition.value = selected;
+  }
+
   function renderList(expeditions){
+    renderLegExpeditionOptions(expeditions);
     if (!expeditions || !expeditions.length) {
-      list.innerHTML = '<p class="context-empty">No expeditions exist yet. Create one from the status page.</p>';
+      list.innerHTML = '<p class="context-empty">No expeditions exist yet. Use "+ new expedition" below.</p>';
       return;
     }
     var activeExp = picker.dataset.expedition || '';
@@ -556,15 +633,8 @@ SHARED_UI_JS = r"""(function(){
       });
   }
 
-  function openDialog(){
-    setError('');
-    list.innerHTML = '<p class="context-empty">loading expeditions...</p>';
-    if (typeof dialog.showModal === 'function') {
-      dialog.showModal();
-    } else {
-      dialog.setAttribute('open', '');
-    }
-    fetch('/api/expeditions')
+  function fetchExpeditions(){
+    return fetch('/api/expeditions')
       .then(function(r){ return r.json(); })
       .then(function(data){ renderList(data.expeditions || []); })
       .catch(function(e){
@@ -573,7 +643,76 @@ SHARED_UI_JS = r"""(function(){
       });
   }
 
+  function openDialog(){
+    setError('');
+    list.innerHTML = '<p class="context-empty">loading expeditions...</p>';
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute('open', '');
+    }
+    fetchExpeditions();
+  }
+
   picker.addEventListener('click', openDialog);
+
+  if (newExpToggle && newExpForm) {
+    newExpToggle.addEventListener('click', function(){
+      newExpForm.hidden = !newExpForm.hidden;
+      if (!newExpForm.hidden && newExpName) newExpName.focus();
+    });
+    newExpForm.addEventListener('submit', function(e){
+      e.preventDefault();
+      setError('');
+      var name = (newExpName.value || '').trim();
+      if (!name) { setError('expedition name required'); return; }
+      fetch('/api/expeditions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name}),
+      })
+        .then(function(r){
+          return r.json().catch(function(){ return {}; }).then(function(d){ return {ok: r.ok, data: d}; });
+        })
+        .then(function(res){
+          if (!res.ok || res.data.error) throw new Error((res.data && res.data.error) || 'create failed');
+          newExpName.value = '';
+          newExpForm.hidden = true;
+          return fetchExpeditions();
+        })
+        .catch(function(e){ setError(e.message || String(e)); });
+    });
+  }
+
+  if (newLegToggle && newLegForm) {
+    newLegToggle.addEventListener('click', function(){
+      newLegForm.hidden = !newLegForm.hidden;
+      if (!newLegForm.hidden && newLegName) newLegName.focus();
+    });
+    newLegForm.addEventListener('submit', function(e){
+      e.preventDefault();
+      setError('');
+      var expedition = newLegExpedition.value;
+      var leg = (newLegName.value || '').trim();
+      if (!expedition) { setError('create an expedition first'); return; }
+      if (!leg) { setError('leg name required'); return; }
+      fetch('/api/legs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({expedition: expedition, name: leg}),
+      })
+        .then(function(r){
+          return r.json().catch(function(){ return {}; }).then(function(d){ return {ok: r.ok, data: d}; });
+        })
+        .then(function(res){
+          if (!res.ok || res.data.error) throw new Error((res.data && res.data.error) || 'create failed');
+          newLegName.value = '';
+          newLegForm.hidden = true;
+          return fetchExpeditions();
+        })
+        .catch(function(e){ setError(e.message || String(e)); });
+    });
+  }
 
   // Clicking the native dialog backdrop (the dialog element itself, not its content) closes
   // the dialog. Clicking inside the form/list area targets a child element, so the equality

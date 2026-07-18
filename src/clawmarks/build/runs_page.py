@@ -94,7 +94,7 @@ already running.</p>
   <select id="expedition"></select>
   <label for="leg">Leg</label>
   <select id="leg"></select>
-  <button id="launchBtn" class="raised-control">Back up and launch</button>
+  <button id="launchBtn" class="primary-action">Back up and launch</button>
   <button id="stopBtn" class="danger" disabled>Stop</button>
 </div>
 <div id="launchError"></div>

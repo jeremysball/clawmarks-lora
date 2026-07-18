@@ -78,7 +78,7 @@ def test_list_expeditions_reports_every_leg():
 
 def test_status_page_shows_selected_leg_with_no_data(running_server_with_leg):
     port = running_server_with_leg.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read()
 
     assert b"no expedition/leg selected" not in body.lower()
@@ -96,7 +96,7 @@ def test_status_page_warns_when_manifest_images_are_missing(running_server_with_
     (leg_dir / "scored_manifest.json").write_text(json.dumps(manifest))
 
     port = running_server_with_leg.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
 
     assert "missing" in body.lower() or "data integrity" in body.lower()
@@ -147,7 +147,7 @@ def running_server_with_leg_and_data(tmp_path):
 
 def test_status_page_data_branch_surfaces_comparison_count(running_server_with_leg_and_data):
     port = running_server_with_leg_and_data.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
 
     assert 'id="cmpStat"' in body
@@ -160,7 +160,7 @@ def test_status_page_data_body_uses_sulfur_proof_shell(running_server_with_leg_a
     header's context-switcher script, and ships a semantic <header>. The legacy
     DARK_TOKENS/BTN_CSS imports are gone from the page-local <style>."""
     port = running_server_with_leg_and_data.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
     assert "--paper:#C3C5BA" in body
     assert "shared-ui.js" in body
@@ -178,7 +178,7 @@ def test_status_page_no_selection_body_uses_sulfur_proof_shell(running_server_wi
     port = running_server_with_leg.server_address[1]
     cs._active_selection["expedition"] = None
     cs._active_selection["leg"] = None
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
     assert "--paper:#C3C5BA" in body
     assert "shared-ui.js" in body
@@ -196,7 +196,7 @@ def test_status_page_selected_empty_body_uses_sulfur_proof_shell(running_server_
     session-status link is the natural place; the existing /runs.html prose link stays as
     additional, still-valid guidance)."""
     port = running_server_with_leg.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
     assert "--paper:#C3C5BA" in body
     assert "shared-ui.js" in body
@@ -224,7 +224,7 @@ def test_status_page_data_integrity_error_body_uses_sulfur_proof_shell(running_s
     (leg_dir / "scored_manifest.json").write_text(json.dumps(manifest))
 
     port = running_server_with_leg.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
     assert "--paper:#C3C5BA" in body
     assert "shared-ui.js" in body
@@ -244,17 +244,30 @@ def test_status_page_data_integrity_error_body_uses_sulfur_proof_shell(running_s
     assert "border-radius:8px" not in body
 
 
-def test_status_html_route_serves_the_same_page_as_root(running_server_with_leg):
-    """Task 5 closes the /status.html route gap: Task 3's nav_bar_html emits a link to
-    /status.html, but only \"/\" was wired to _send_status_page. After Task 5 both paths
-    must serve the identical page (200, identical body)."""
+def test_root_serves_the_explore_workbench_and_status_html_serves_the_picker(
+    running_server_with_leg,
+):
+    """Explore is the canonical landing page: "/" and "/explore.html" render the same Explore
+    workbench, while "/status.html" moved to its own dedicated route for today's status, the
+    data-integrity warning, and the expedition/leg picker (per the explore-root-review Lavish
+    decision)."""
     port = running_server_with_leg.server_address[1]
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as root_resp:
-        root_body = root_resp.read()
+        root_body = root_resp.read().decode()
+        assert root_resp.status == 200
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/explore.html") as explore_resp:
+        explore_body = explore_resp.read().decode()
+        assert explore_resp.status == 200
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as status_resp:
-        status_body = status_resp.read()
+        status_body = status_resp.read().decode()
         assert status_resp.status == 200
-    assert root_body == status_body
+    # "/" and "/explore.html" render the same Explore workbench template. Each call to
+    # info_btn() bumps a process-wide tip-id counter, so the two bodies aren't byte-identical
+    # across separate render calls; compare the stable title instead.
+    assert "<title>CLAWMARKS exploration tools</title>" in root_body
+    assert "<title>CLAWMARKS exploration tools</title>" in explore_body
+    assert "<title>CLAWMARKS exploration tools</title>" not in status_body
+    assert root_body != status_body
 
 
 def test_unfavorite_rejects_payload_for_stale_leg(running_server_with_leg):

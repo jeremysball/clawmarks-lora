@@ -23,25 +23,24 @@ def test_render_html_drops_legacy_dark_theme_and_rounded_cards():
     `rgba(124,158,255,0.08)` translucent .seed.new accent, the `#e0605e` error text) and
     the legacy rounded card treatments (`border-radius:10px` on the `#genPanel`,
     `border-radius:7px` on the `#genBtn`, `border-radius:6px` on the `#genPanel` input,
-    `border-radius:8px` on the `.seed` card) are all gone. The new `#genBtn` (a bounded
-    interactive control) and the new `.seed` cards (each candidate is a distinct bounded
-    working piece) pick up CONTROL_CSS depth classes, not rounded filled cards. The
-    page-local CSS carries no legacy `background:var(--panel-2)` filled-card backgrounds."""
+    `border-radius:8px` on the `.seed` card) are all gone. The new `#genBtn` (the page's
+    primary action -- generating new seeds) picks up CONTROL_CSS's `.primary-action`
+    black-fill/sulfur-underline class, not a rounded filled card. The page-local CSS carries
+    no legacy `background:var(--panel-2)` filled-card backgrounds."""
     html = seed_browser.render_html()
 
     # The legacy rounded `#genPanel` card is gone.
     assert "#genPanel { background:var(--panel); border:1px solid var(--border); border-radius:10px;" not in html
     # The legacy blue `.genBtn` is gone (it had a 7px radius, a #2a4a7c background, and a
-    # #cddcff foreground; the migrated genBtn is a raised-control with the Sulfur
-    # paper/ink tokens).
+    # #cddcff foreground; the migrated genBtn is the primary-action class with the Sulfur
+    # paper/ink/sulfur tokens).
     assert "#genBtn { background:#2a4a7c; border:1px solid #3a5a8c; color:#cddcff; border-radius:7px;" not in html
     # The legacy rounded `.seed` card is gone.
     assert ".seed { background:var(--panel); border:1px solid var(--border); border-radius:8px;" not in html
     # The legacy translucent .seed.new accent is gone (it used rgba(124,158,255,0.08)).
     assert "border-color: var(--accent); background: rgba(124,158,255,0.08);" not in html
-    # The new `.seed` cards (each candidate is a bounded working piece) carry a
-    # CONTROL_CSS depth class so they read as mounted pieces, not flat text.
-    assert "raised-readout" in html or "raised-control" in html
+    # The generate button is the page's primary action.
+    assert "primary-action" in html
     # The legacy filled-card backgrounds are gone.
     assert "background:var(--panel); border:1px solid var(--border);" not in html
     # The legacy system-font stack on the body override is gone (Sulfur's body font comes

@@ -1150,17 +1150,6 @@ fetch('/api/preference_status').then(r => r.json()).then(d => {{
 </body></html>""".encode()
 
     def _status_page_no_selection_body(self):
-        expeditions = _list_expeditions()
-        rows = "".join(
-            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
-            + " ".join(
-                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
-                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
-                for leg in e["legs"]
-            )
-            + "</div>"
-            for e in expeditions
-        )
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1176,14 +1165,6 @@ p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
 .panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
   margin-top:16px; max-width:640px; }}
-.exp-row {{ margin:8px 0; }}
-button {{ font-size:13px; padding:6px 12px; border:1px solid var(--ink);
-  background:var(--paper); color:var(--ink); font-weight:600; cursor:pointer; }}
-button:disabled {{ opacity:0.4; cursor:not-allowed; }}
-input, select {{ font-size:13px; padding:6px 8px; border:1px solid var(--ink);
-  background:var(--paper); color:var(--ink); font-family:var(--font-body); }}
-.formrow {{ display:flex; gap:8px; margin-top:8px; align-items:center; }}
-#pickError, #createExpError, #createLegError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 
 {nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
@@ -1191,105 +1172,13 @@ input, select {{ font-size:13px; padding:6px 8px; border:1px solid var(--ink);
               running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
 <div class="panel">
-<p class="sub">No expedition/leg selected. Pick an existing leg below, or create a new
-expedition first if this is a genuinely new line of work.</p>
-{rows or '<p class="sub">No expeditions exist yet.</p>'}
-<div id="pickError"></div>
+<p class="sub">No expedition/leg selected. Use "choose context" in the header above to switch
+to an existing leg, or create a new expedition or leg from that same dialog.</p>
 </div>
-<div class="panel">
-<p class="sub">Create a new expedition. It starts with an empty <code>cockpit</code> leg; add
-more legs below once it exists.</p>
-<div class="formrow">
-<input id="newExpName" placeholder="expedition name" autocomplete="off">
-<button id="createExpBtn">Create expedition</button>
-</div>
-<div id="createExpError"></div>
-</div>
-<div class="panel">
-<p class="sub">Create a new leg in an existing expedition. It inherits the expedition's
-defaults until you edit its <code>legs/&lt;name&gt;.json</code> file.</p>
-<div class="formrow">
-<select id="newLegExpedition">
-{"".join(f'<option value="{html.escape(e["name"])}">{html.escape(e["name"])}</option>' for e in expeditions) or '<option value="">no expeditions yet</option>'}
-</select>
-<input id="newLegName" placeholder="leg name" autocomplete="off">
-<button id="createLegBtn"{' disabled' if not expeditions else ''}>Create leg</button>
-</div>
-<div id="createLegError"></div>
-</div>
-<script>
-document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
-  document.getElementById('pickError').textContent = '';
-  fetch('/api/active-leg', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
-  }}).then(async r => {{
-    const d = await r.json();
-    if (!r.ok) {{
-      document.getElementById('pickError').textContent = d.error || 'selection failed';
-    }} else {{
-      location.reload();
-    }}
-  }});
-}}));
-document.getElementById('createExpBtn').addEventListener('click', () => {{
-  document.getElementById('createExpError').textContent = '';
-  const name = document.getElementById('newExpName').value.trim();
-  if (!name) {{
-    document.getElementById('createExpError').textContent = 'name is required';
-    return;
-  }}
-  fetch('/api/expeditions', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{name: name}}),
-  }}).then(async r => {{
-    const d = await r.json();
-    if (!r.ok) {{
-      document.getElementById('createExpError').textContent = d.error || 'creation failed';
-    }} else {{
-      location.reload();
-    }}
-  }});
-}});
-const createLegBtn = document.getElementById('createLegBtn');
-if (createLegBtn) {{
-  createLegBtn.addEventListener('click', () => {{
-    document.getElementById('createLegError').textContent = '';
-    const expedition = document.getElementById('newLegExpedition').value;
-    const name = document.getElementById('newLegName').value.trim();
-    if (!name) {{
-      document.getElementById('createLegError').textContent = 'name is required';
-      return;
-    }}
-    fetch('/api/legs', {{
-      method: 'POST', headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{expedition: expedition, name: name}}),
-    }}).then(async r => {{
-      const d = await r.json();
-      if (!r.ok) {{
-        document.getElementById('createLegError').textContent = d.error || 'creation failed';
-      }} else {{
-        location.reload();
-      }}
-    }});
-  }});
-}}
-</script>
 <script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _status_page_selected_empty_body(self, selection, manifest_summary):
-        expeditions = _list_expeditions()
-        rows = "".join(
-            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
-            + " ".join(
-                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
-                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
-                for leg in e["legs"]
-            )
-            + "</div>"
-            for e in expeditions
-        )
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1303,10 +1192,6 @@ body {{ margin:0; padding:24px; }}
 h1 {{ font-size:18px; margin:0 0 4px; letter-spacing:0.02em; text-transform:uppercase; }}
 p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
-.panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
-  margin-top:16px; max-width:640px; }}
-.exp-row {{ margin:8px 0; }}
-#pickError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 
 {nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
@@ -1314,43 +1199,12 @@ p.sub {{ max-width:640px; }}
               running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)}
 <h1>clawmarks curation server</h1>
 <p>Active: <code>{html.escape(selection["expedition"])}/{html.escape(selection["leg"])}</code>,
-{html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>
-or pick a different leg below.</p>
-<div class="panel">
-{rows or '<p class="sub">No expeditions exist yet.</p>'}
-<div id="pickError"></div>
-</div>
-<script>
-document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
-  document.getElementById('pickError').textContent = '';
-  fetch('/api/active-leg', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
-  }}).then(async r => {{
-    const d = await r.json();
-    if (!r.ok) {{
-      document.getElementById('pickError').textContent = d.error || 'selection failed';
-    }} else {{
-      location.reload();
-    }}
-  }});
-}}));
-</script>
+{html.escape(manifest_summary)}. Launch a round from <a href="/runs.html">runs.html</a>,
+or use "choose context" in the header above to switch to a different leg.</p>
 <script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
     def _status_page_data_integrity_error_body(self, selection, n_entries):
-        expeditions = _list_expeditions()
-        rows = "".join(
-            f'<div class="exp-row"><strong>{html.escape(e["name"])}</strong> '
-            + " ".join(
-                f'<button class="btn btn--primary leg-btn" data-expedition="{html.escape(e["name"])}" '
-                f'data-leg="{html.escape(leg)}">{html.escape(leg)}</button>'
-                for leg in e["legs"]
-            )
-            + "</div>"
-            for e in expeditions
-        )
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>clawmarks curation server</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1366,10 +1220,6 @@ p {{ color:var(--text-soft); font-size:13px; line-height:1.6; }}
 p.sub {{ max-width:640px; }}
 p.alert {{ background:var(--paper-deep); border:1px solid #8a3030; padding:10px 12px;
   color:var(--ink); }}
-.panel {{ background:var(--paper); border:1px solid var(--ink); padding:16px;
-  margin-top:16px; max-width:640px; }}
-.exp-row {{ margin:8px 0; }}
-#pickError {{ color:#8a3030; font-size:12.5px; margin-top:8px; }}
 </style></head><body>
 
 {nav_bar_html('/status.html', active_expedition=_active_selection["expedition"],
@@ -1381,27 +1231,8 @@ p.alert {{ background:var(--paper-deep); border:1px solid #8a3030; padding:10px 
 {n_entries} manifest images, but none are present on disk. Do not launch a new round. Check
 your backup or the state directory at <code>$XDG_STATE_HOME/clawmarks/</code> before changing
 this leg.</p>
-<div class="panel">
-<p class="sub">Pick a different leg below if needed.</p>
-{rows or '<p class="sub">No expeditions exist yet.</p>'}
-<div id="pickError"></div>
-</div>
-<script>
-document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click', () => {{
-  document.getElementById('pickError').textContent = '';
-  fetch('/api/active-leg', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{expedition: btn.dataset.expedition, leg: btn.dataset.leg}}),
-  }}).then(async r => {{
-    const d = await r.json();
-    if (!r.ok) {{
-      document.getElementById('pickError').textContent = d.error || 'selection failed';
-    }} else {{
-      location.reload();
-    }}
-  }});
-}}));
-</script>
+<p class="sub">Use "choose context" in the header above to switch to a different leg if
+needed.</p>
 <script src="/shared-ui.js"></script>
 </body></html>""".encode()
 
@@ -1469,7 +1300,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if parsed.path.startswith("/api/foci/"):
                 self._handle_focus_get(parsed)
                 return
-        if self.path in ("/", "/status.html"):
+        if self.path == "/status.html":
             self._send_status_page()
             return
 
@@ -1620,8 +1451,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, _get_preference_status_data())
             return
 
-        if self.path == "/explore.html":
-            body = explore_hub.render_html().encode()
+        if self.path in ("/", "/explore.html"):
+            body = explore_hub.render_html(
+                active_expedition=_active_selection["expedition"],
+                active_leg=_active_selection["leg"],
+                running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))

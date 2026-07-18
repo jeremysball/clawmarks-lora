@@ -240,10 +240,11 @@ def _looks_like_length(token):
 
 
 def test_raised_control_uses_4px_offset_and_1px_inner_edges():
-    """`.raised-control` is the spec's primary interactive control. The brief pins it at
-    `box-shadow:4px 4px 0` (its own test asserts this literal string) and a 1px border or
-    inset edge. 1px ink border is the natural reading of "1px inner edges" — a deeper notch
-    would make the control feel carded, which the spec prohibits."""
+    """`.raised-control` is the depth grammar's default bounded control (paper-colored, not
+    the black-fill `.primary-action` component). The brief pins it at `box-shadow:4px 4px 0`
+    (its own test asserts this literal string) and a 1px border or inset edge. 1px ink border
+    is the natural reading of "1px inner edges" — a deeper notch would make the control feel
+    carded, which the spec prohibits."""
     from clawmarks import shared_ui
 
     css = shared_ui.CONTROL_CSS
@@ -372,6 +373,38 @@ def test_raised_control_hover_increases_offset():
     assert "5px 5px 0" in block or "6px 6px 0" in block
 
 
+def test_primary_action_uses_black_fill_and_sulfur_underline():
+    """Spec section "Controls > Primary actions": black fill with paper text, sulfur as a
+    bottom registration mark or short underline. This is a distinct component from
+    `.raised-control` (the depth-grammar's default control, paper-colored) — Task 2 of the
+    original sulfur-proof-shared-shell plan only extracted the Dimensional Grammar section
+    into CSS and never built this Controls-section component, so no button on the live site
+    could ever look like a primary action. `.primary-action` closes that gap."""
+    from clawmarks import shared_ui
+
+    css = shared_ui.CONTROL_CSS
+    start = css.index(".primary-action {")
+    end = css.index("}", start)
+    block = css[start:end]
+    assert "background:var(--ink)" in block
+    assert "color:var(--paper)" in block
+    assert "border-bottom" in block and "var(--sulfur)" in block
+
+
+def test_primary_action_press_state_flattens_to_sulfur_zero_shadow():
+    """Matches the decided Lavish artifact's sulfur-theme `.mark-button:active` rule: pressed
+    primary actions translate into their offset and settle to a flat `0 0 0` sulfur shadow,
+    distinct from the depth-grammar classes' inset-only press state."""
+    from clawmarks import shared_ui
+
+    css = shared_ui.CONTROL_CSS
+    start = css.index(".primary-action:active")
+    brace = css.index("{", start)
+    end = css.index("}", brace)
+    block = css[brace:end]
+    assert "box-shadow:0 0 0 var(--sulfur)" in block
+
+
 def test_topnav_css_has_responsive_breakpoint_and_context_label():
     """Task 3's brief asserts both `@media (max-width:700px)` and `.context-label` are present
     in TOPNAV_CSS. This task owns the constant but Task 3 fills in the header-specific rules;
@@ -430,3 +463,34 @@ def test_header_names_page_scope_focus_and_guide():
 def test_narrow_header_keeps_context_and_guide_labels():
     assert "@media (max-width:700px)" in shared_ui.TOPNAV_CSS
     assert ".context-label" in shared_ui.TOPNAV_CSS
+
+
+# ---------------------------------------------------------------------------
+# Leg-picker-into-shell: create expedition/leg from the shared context dialog
+# ---------------------------------------------------------------------------
+
+
+def test_context_dialog_offers_create_expedition_and_create_leg_forms():
+    """Approved via Lavish review (2026-07-18): expedition/leg creation, previously only
+    available on /status.html, now lives in the shared contextDialog so it's reachable from
+    every page, not just the one that used to own the picker."""
+    markup = nav_bar_html("map.html", "demo", "round1")
+    assert 'id="contextNewExpToggle"' in markup
+    assert 'id="contextNewExpForm"' in markup
+    assert 'id="contextNewExpName"' in markup
+    assert 'id="contextNewLegToggle"' in markup
+    assert 'id="contextNewLegForm"' in markup
+    assert 'id="contextNewLegExpedition"' in markup
+    assert 'id="contextNewLegName"' in markup
+
+
+def test_topnav_css_styles_context_create_forms():
+    assert ".context-create" in shared_ui.TOPNAV_CSS
+
+
+def test_shared_ui_js_wires_up_create_expedition_and_create_leg():
+    js = shared_ui.SHARED_UI_JS
+    assert "contextNewExpToggle" in js
+    assert "contextNewLegToggle" in js
+    assert "/api/expeditions'" in js or '/api/expeditions"' in js
+    assert "/api/legs'" in js or '/api/legs"' in js

@@ -85,7 +85,7 @@ plateau and escalate on its own.</p>
 
 <div id="genPanel">
   <label>Generate <input type="number" id="genN" value="20" min="1" max="40"> new seeds</label>
-  <button id="genBtn" class="raised-control">Generate</button>
+  <button id="genBtn" class="primary-action">Generate</button>
   <div id="genStatus"></div>
 </div>
 

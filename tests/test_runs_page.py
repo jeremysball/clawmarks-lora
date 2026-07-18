@@ -33,15 +33,15 @@ def test_render_html_uses_sulfur_proof_outcome_first_inline_statistics():
     `.stat { background:var(--panel-2); border-radius:6px; padding:10px 12px; }` filled card
     grid is gone; the new statistics are flat text on the paper background, separated by a
     rule line per the same pattern Task 4c used for redundancy/novelty/lineage evidence rows.
-    The launch button is a bounded interactive control so it picks up CONTROL_CSS's
-    `.raised-control` depth class; the stop button is a danger button and gets a depth
-    treatment of its own. The legacy `border-radius:6px` on form controls is gone, per the
-    no-rounded-card rule."""
+    The launch button is the page's primary action so it picks up CONTROL_CSS's
+    `.primary-action` black-fill/sulfur-underline class; the stop button is a danger button
+    and gets a depth treatment of its own. The legacy `border-radius:6px` on form controls is
+    gone, per the no-rounded-card rule."""
     html = runs_page.render_html()
 
-    # The launch button carries the raised-control depth class (a bounded interactive
-    # control) -- not a flat var(--panel-2) fill and not a border-radius:6px rounded bar.
-    assert "raised-control" in html
+    # The launch button carries the primary-action class (the page's single commit action)
+    # -- not a flat var(--panel-2) fill and not a border-radius:6px rounded bar.
+    assert "primary-action" in html
     # The legacy filled `.stat` card grid is gone: no border-radius:6px on the stat
     # rounded card, and no background:var(--panel-2) on the .stat selector. The legacy
     # `select, button { ...; border-radius:6px; ... background:var(--panel-2); }` rounded

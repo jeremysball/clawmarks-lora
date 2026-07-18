@@ -58,7 +58,7 @@ def running_server_no_leg(tmp_path, monkeypatch):
 
 def test_status_page_shows_no_leg_selected_without_error_string(running_server_no_leg):
     port = running_server_no_leg.server_address[1]
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as resp:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as resp:
         body = resp.read().decode()
     assert resp.status == 200
     assert "no expedition/leg selected" in body.lower()
