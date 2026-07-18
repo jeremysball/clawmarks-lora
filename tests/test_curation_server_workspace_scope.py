@@ -52,6 +52,9 @@ def server_fixture(tmp_path, monkeypatch):
                 "negative": "",
                 "file": str(image_path),
             })
+        if leg == "current":
+            source_path = config.leg_dir("demo", "round1") / "one-0.png"
+            records.append({"tag": "outside", "file": str(source_path)})
         (out_dir / "scored_manifest.json").write_text(json.dumps(records))
 
     focus_store = FocusStore(state_dir, real_dir)
@@ -143,7 +146,23 @@ def test_legacy_thumbnail_rejects_path_traversal_before_cache_write(server_fixtu
     status, _ = get_response(server, "/thumbs/../../outside.jpg")
 
     assert status == 404
-    assert not (config.EXPEDITIONS_DIR / "demo" / "legs" / "outside.jpg").exists()
+    assert not (config.EXPEDITIONS_DIR / "demo" / "outside.jpg").exists()
+
+
+def test_generated_image_rejects_path_traversal_tag_before_manifest_lookup(
+    server_fixture, monkeypatch
+):
+    server, _ = server_fixture
+
+    def unexpected_manifest_lookup(*args):
+        pytest.fail("traversal-shaped generated tag reached manifest lookup")
+
+    monkeypatch.setattr(cs, "manifest_entry_by_tag", unexpected_manifest_lookup)
+    status, _ = get_response(
+        server, "/generated/../../outside?expedition=demo&leg=round1"
+    )
+
+    assert status == 404
 
 
 def test_generated_image_rejects_manifest_path_outside_requested_leg(server_fixture, tmp_path):

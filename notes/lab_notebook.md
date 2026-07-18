@@ -2874,3 +2874,21 @@ Regression coverage includes the traversal rejection, no-Focus navigation URL, s
 Runs renderer calls, requested-leg seed generation, Focus trial provenance, queue display, and both
 favorite mutation endpoints. The final verification passed 602 tests, Ruff across `src tests`,
 MyPy across `src`, and `git diff --check`. Existing scikit-learn optimization warnings remain.
+
+### 2026-07-18: Follow-up review closed the remaining workspace authorization gaps
+
+The follow-up review of commit `4671456` found two regression tests that could pass through
+unrelated 404 paths and one paid-generation authorization gap. The legacy `/thumbs/` regression
+now adds an `outside` manifest tag to the active fixture, matching the tag that the old
+`os.path.basename()` extraction would have produced from `/thumbs/../../outside.jpg`, and checks
+the actual escaped path outside the active leg. The `/generated/` regression uses a manifest
+lookup sentinel so a traversal-shaped URL tag must be rejected before manifest contents are read.
+
+The counterfactual POST handler now validates an optional `focus_id` against the resolved
+expedition and leg before checking the RunPod balance or submitting a generation. Its regression
+creates a Focus in `round2`, requests a counterfactual for `round1`, and confirms both mocked
+RunPod calls remain untouched while the endpoint returns HTTP 400.
+
+The focused tests passed 20 tests. Final verification passed 604 tests, Ruff across `src tests`,
+MyPy across `src`, and `git diff --check`. The full suite emitted the existing scikit-learn
+`OptimizeWarning` messages about the `iprint` solver option.

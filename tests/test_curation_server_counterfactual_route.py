@@ -220,3 +220,56 @@ def test_scoped_counterfactual_rejects_unsafe_scope(running_server, monkeypatch)
     assert status == 400
     assert "scope" in data["error"] or "separator" in data["error"]
     assert calls["balance"] == 0
+
+
+def test_counterfactual_rejects_focus_from_a_different_leg_before_generation(
+    running_server, monkeypatch, tmp_path
+):
+    server, _ = running_server
+    expeditions = tmp_path / "expeditions"
+    expedition_dir = expeditions / "demo"
+    (expedition_dir / "legs").mkdir(parents=True)
+    (expedition_dir / "expedition.json").write_text("{}")
+    for leg in ("round1", "round2"):
+        (expedition_dir / "legs" / f"{leg}.json").write_text("{}")
+        (expedition_dir / leg).mkdir()
+    monkeypatch.setattr(cs.config, "EXPEDITIONS_DIR", expeditions)
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(cs.config, "STATE_DIR", state_dir)
+
+    source_path = expedition_dir / "round2" / "source.png"
+    source_path.write_bytes(b"image")
+    focus = cs.FocusStore(state_dir, tmp_path).create(
+        cs.Scope("demo", "round2"),
+        {
+            "label": "Round two focus",
+            "source": {
+                "view": "map",
+                "kind": "map_members",
+                "member_tags": ["source"],
+                "real_anchor_tags": [],
+            },
+            "question": "q",
+            "observation": "o",
+            "hypothesis_text": "h",
+            "test_contract": None,
+        },
+        [{"tag": "source", "file": str(source_path)}],
+    )
+    calls = _stub_immediate_completion(monkeypatch)
+
+    status, data = _post_json(
+        f"http://127.0.0.1:{server.server_address[1]}/api/counterfactual",
+        {
+            "origin_tag": "a",
+            "prompt": "a cat",
+            "expedition": "demo",
+            "leg": "round1",
+            "focus_id": focus["focus_id"],
+        },
+    )
+
+    assert status == 400
+    assert "focus_id" in data["error"]
+    assert calls["balance"] == 0
+    assert calls["submit"] == 0

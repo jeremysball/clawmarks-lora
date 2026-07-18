@@ -2798,6 +2798,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(400, {"error": str(e)})
             return
         focus_id = payload.get("focus_id")
+        try:
+            self._validate_focus_for_scope(expedition, leg, focus_id)
+        except ValueError as e:
+            self._json_response(400, {"error": str(e)})
+            return
 
         try:
             n = int(payload.get("n", 1))
