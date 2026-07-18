@@ -32,6 +32,7 @@ import torch
 from transformers import AutoModel
 
 from clawmarks.search.score_manifest import preprocess, MODEL_ID, REAL_DIR
+from clawmarks.durable_records import sha256_json
 
 TOP_K = 16
 BATCH_SIZE = 16
@@ -152,7 +153,7 @@ def compute_data(sweep_dir):
     import umap
 
     all_embs = torch.cat([real_embs, gen_embs], dim=0).numpy()
-    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42)
+    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42, n_jobs=1)
     coords = reducer.fit_transform(all_embs)
     real_coords = coords[:len(real_paths)]
     gen_coords = coords[len(real_paths):]
@@ -181,6 +182,10 @@ def compute_data(sweep_dir):
     ]
 
     return {
-        "solution_map_data": {"points": points, "real_points": real_points},
+        "solution_map_data": {
+            "points": points,
+            "real_points": real_points,
+            "projection_version": sha256_json({"points": points, "real_points": real_points}),
+        },
         "similarity_scored": similarity_scored,
     }

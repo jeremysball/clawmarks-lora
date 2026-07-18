@@ -99,3 +99,20 @@ def test_render_html_labels_solution_map_evidence_list():
     data = {"points": [], "real_points": [], "max_gen": 0, "real_anchor_counts": []}
     html = map_view.render_html(data)
     assert 'aria-label="Solution map evidence list"' in html
+
+
+def test_map_renders_lasso_label_accessible_list_and_create_action():
+    data = {
+        "points": [{"tag": "a", "x": 0.1, "y": 0.2, "gen": 0, "prompt_name": "p",
+                    "prompt_type": "conflict", "faith": 0.5, "novelty": 0.5, "category": "seedrun1",
+                    "thumb": "thumbs/a.jpg", "nearest_real": "r0", "nearest_real_sim": 0.9}],
+        "real_points": [{"name": "r0", "x": 0.0, "y": 0.0}],
+        "max_gen": 0,
+        "real_anchor_counts": [("r0", 1)],
+    }
+    page = map_view.render_html(data, active_expedition="demo", active_leg="round1")
+    assert 'id="selectionLabel"' in page
+    assert "SELECTED REGION" in page
+    assert 'aria-label="Solution map evidence list"' in page
+    assert 'id="createMapFocus"' in page
+    assert "selectedTagsFromPolygon" in page

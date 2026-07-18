@@ -1,6 +1,7 @@
 import json
 
 from clawmarks.build import solution_map
+from clawmarks.durable_records import sha256_json
 
 
 def test_compute_data_returns_both_outputs(monkeypatch, tmp_path):
@@ -37,4 +38,8 @@ def test_compute_data_returns_both_outputs(monkeypatch, tmp_path):
     assert "similarity_scored" in data
     assert len(data["solution_map_data"]["points"]) == 10
     assert len(data["solution_map_data"]["real_points"]) == 6
+    assert data["solution_map_data"]["projection_version"] == sha256_json({
+        "points": data["solution_map_data"]["points"],
+        "real_points": data["solution_map_data"]["real_points"],
+    })
     assert set(data["similarity_scored"].keys()) == {f"gen0_{i}" for i in range(10)}
