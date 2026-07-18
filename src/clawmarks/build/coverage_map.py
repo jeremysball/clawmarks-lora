@@ -45,11 +45,15 @@ def compute_data(sweep_dir):
     faith_vals = sorted(m["centroid_sim"] for m in manifest)
     novelty_vals = sorted(m["novelty"] for m in manifest)
 
-    def bin_edges(vals, n):
+    def bin_edges(vals, n, domain):
+        if not vals:
+            lo, hi = domain
+            step = (hi - lo) / n
+            return [lo + i * step for i in range(1, n)]
         return [vals[int(i * len(vals) / n)] for i in range(1, n)]
 
-    faith_edges = [METRIC_DOMAINS["faithfulness"][0], *bin_edges(faith_vals, N_BINS), METRIC_DOMAINS["faithfulness"][1]]
-    novelty_edges = [METRIC_DOMAINS["novelty"][0], *bin_edges(novelty_vals, N_BINS), METRIC_DOMAINS["novelty"][1]]
+    faith_edges = [METRIC_DOMAINS["faithfulness"][0], *bin_edges(faith_vals, N_BINS, METRIC_DOMAINS["faithfulness"]), METRIC_DOMAINS["faithfulness"][1]]
+    novelty_edges = [METRIC_DOMAINS["novelty"][0], *bin_edges(novelty_vals, N_BINS, METRIC_DOMAINS["novelty"]), METRIC_DOMAINS["novelty"][1]]
 
     def bin_of(val, edges):
         for i, e in enumerate(edges):
@@ -392,7 +396,7 @@ for (let nb = N_BINS - 1; nb >= 0; nb--) {{
     const div = document.createElement(c.frontier ? 'button' : 'div');
     const color = colorFor(c.count);
     div.className = 'cell' + (c.count === 0 ? ' empty' : '') + (c.frontier ? ' frontier' : '');
-    div.setAttribute('role', 'gridcell');
+    if (!c.frontier) div.setAttribute('role', 'gridcell');
     div.type = 'button';
     div.setAttribute('aria-rowindex', String(N_BINS - nb));
     div.setAttribute('aria-colindex', String(fb + 1));
@@ -413,6 +417,10 @@ CELLS.forEach(c => {{
   row.innerHTML = `<td>${{c.faith_lo}} to ${{c.faith_hi}}</td><td>${{c.novelty_lo}} to ${{c.novelty_hi}}</td>`
     + `<td>${{c.count}}</td><td>${{c.frontier ? 'frontier' : (c.count ? 'occupied' : 'empty')}}</td>`;
   row.onclick = () => showCell(c);
+  row.tabIndex = 0;
+  row.addEventListener('keydown', e => {{
+    if (e.key === 'Enter' || e.key === ' ') {{ e.preventDefault(); showCell(c); }}
+  }});
   valuesBody.appendChild(row);
 }});
 

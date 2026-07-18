@@ -149,6 +149,14 @@ def test_outer_bins_use_declared_metric_domains(tmp_path):
     assert max(c["novelty_hi"] for c in data["cells"]) == 2.0
 
 
+def test_empty_manifest_keeps_coverage_cells_finite(tmp_path):
+    (tmp_path / "scored_manifest.json").write_text("[]")
+    data = coverage_map.compute_data(str(tmp_path))
+    assert len(data["cells"]) == coverage_map.N_BINS ** 2
+    assert all(c["faith_lo"] is not None and c["faith_hi"] is not None for c in data["cells"])
+    assert all(c["novelty_lo"] is not None and c["novelty_hi"] is not None for c in data["cells"])
+
+
 def test_repeated_quantile_edges_never_expose_zero_width_frontier(tmp_path):
     (tmp_path / "scored_manifest.json").write_text(json.dumps([
         {"tag": "a", "centroid_sim": 0.2, "novelty": 0.7,

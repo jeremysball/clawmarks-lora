@@ -17,8 +17,8 @@ def coverage_server(tmp_path, monkeypatch):
     real_dir = tmp_path / "real"
     real_dir.mkdir()
     monkeypatch.setattr(cs, "REAL_DIR", str(real_dir))
-    cs._active_selection["expedition"] = None
-    cs._active_selection["leg"] = None
+    monkeypatch.setitem(cs._active_selection, "expedition", None)
+    monkeypatch.setitem(cs._active_selection, "leg", None)
     cs._create_expedition({"name": "demo", "textures": [], "fallback_subjects": []})
     leg_dir = config.leg_dir("demo", "round1")
     leg_dir.mkdir(parents=True, exist_ok=True)
@@ -63,11 +63,28 @@ def test_frontier_is_labeled_and_has_accessible_equivalent(data):
     assert "Create Focus" in page
     assert "promising" not in page.lower()
     assert "createCoverageFocus" in page
+    assert "if (!c.frontier) div.setAttribute('role', 'gridcell')" in page
+    assert "row.tabIndex = 0" in page
+    assert "row.addEventListener('keydown'" in page
 
 
 def test_coverage_frontier_payload_round_trips_over_http(coverage_server):
     leg_dir = config.leg_dir("demo", "round1")
     computed = coverage_map.compute_data(str(leg_dir))
+    page = coverage_map.render_html(computed, active_expedition="demo", active_leg="round1")
+    for fragment in (
+        "score_ranges:",
+        "faithfulness: [currentCell.faith_lo, currentCell.faith_hi]",
+        "novelty: [currentCell.novelty_lo, currentCell.novelty_hi]",
+        "adjacent_member_tags: adjacentTags(currentCell)",
+        "real_anchor_tags: anchor ? [anchor] : []",
+        "coverage_hint:",
+        "row: currentCell.nb",
+        "column: currentCell.fb",
+        "domains: DATA.metric_domains",
+        "binning_version: DATA.binning_version",
+    ):
+        assert fragment in page
     cell = next(cell for cell in computed["cells"] if cell["frontier"])
     payload = {
         "scope": {"expedition": "demo", "leg": "round1"},
