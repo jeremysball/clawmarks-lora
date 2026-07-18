@@ -11,7 +11,9 @@ occupied-cell count) called out separately from ordinary empty cells.
 
 Run after scored_manifest.json exists: python3 -m clawmarks.build.coverage_map
 """
+import html as html_lib
 import json
+import math
 import os
 
 from clawmarks.shared_ui import (
@@ -27,8 +29,13 @@ from clawmarks.shared_ui import (
     nav_bar_html,
 )
 from clawmarks.workspace_context import WorkspaceContext, generated_image_url
+from clawmarks.durable_records import sha256_json
 
 N_BINS = 8
+METRIC_DOMAINS = {
+    "faithfulness": [-1.0, 1.0],
+    "novelty": [0.0, 2.0],
+}
 
 
 def compute_data(sweep_dir):
@@ -41,8 +48,8 @@ def compute_data(sweep_dir):
     def bin_edges(vals, n):
         return [vals[int(i * len(vals) / n)] for i in range(1, n)]
 
-    faith_edges = bin_edges(faith_vals, N_BINS)
-    novelty_edges = bin_edges(novelty_vals, N_BINS)
+    faith_edges = [METRIC_DOMAINS["faithfulness"][0], *bin_edges(faith_vals, N_BINS), METRIC_DOMAINS["faithfulness"][1]]
+    novelty_edges = [METRIC_DOMAINS["novelty"][0], *bin_edges(novelty_vals, N_BINS), METRIC_DOMAINS["novelty"][1]]
 
     def bin_of(val, edges):
         for i, e in enumerate(edges):
@@ -61,10 +68,24 @@ def compute_data(sweep_dir):
     median_count = occupied_counts[len(occupied_counts) // 2] if occupied_counts else 0
     max_count = max(occupied_counts) if occupied_counts else 1
 
+    def cell_ranges(fb, nb):
+        return {
+            "faith_lo": faith_edges[fb], "faith_hi": faith_edges[fb + 1],
+            "novelty_lo": novelty_edges[nb], "novelty_hi": novelty_edges[nb + 1],
+        }
+
+    def actionable(ranges):
+        return all(math.isfinite(ranges[key]) for key in ranges) and (
+            ranges["faith_lo"] < ranges["faith_hi"]
+            and ranges["novelty_lo"] < ranges["novelty_hi"]
+        )
+
     frontier = set()
     for fb in range(N_BINS):
         for nb in range(N_BINS):
             if (fb, nb) in counts:
+                continue
+            if not actionable(cell_ranges(fb, nb)):
                 continue
             neighbors = [(fb + 1, nb), (fb - 1, nb), (fb, nb + 1), (fb, nb - 1)]
             if any(counts.get(n, 0) >= median_count and counts.get(n, 0) > 0 for n in neighbors):
@@ -86,20 +107,27 @@ def compute_data(sweep_dir):
             items = sorted(grid.get((fb, nb), []), key=lambda m: -m["novelty"])
             n = len(items)
             best = items[0] if items else None
+            ranges = cell_ranges(fb, nb)
             cells_json.append({
                 "fb": fb, "nb": nb, "count": n,
-                "frontier": (fb, nb) in frontier,
-                "faith_lo": round(faith_edges[fb - 1], 3) if fb > 0 else None,
-                "faith_hi": round(faith_edges[fb], 3) if fb < len(faith_edges) else None,
-                "novelty_lo": round(novelty_edges[nb - 1], 3) if nb > 0 else None,
-                "novelty_hi": round(novelty_edges[nb], 3) if nb < len(novelty_edges) else None,
+                "frontier": (fb, nb) in frontier and actionable(ranges),
+                **ranges,
                 "thumb": (f"thumbs/{best['tag']}.jpg" if best and os.path.exists(f"{sweep_dir}/thumbs/{best['tag']}.jpg")
                           else (os.path.basename(best["file"]) if best else None)),
                 "best_tag": best["tag"] if best else None,
                 "items": [item_summary(m) for m in items],
             })
 
-    return {"cells": cells_json, "median_count": median_count, "max_count": max_count}
+    canonical_cell_ranges = [
+        {key: cell[key] for key in ("fb", "nb", "faith_lo", "faith_hi", "novelty_lo", "novelty_hi")}
+        for cell in cells_json
+    ]
+    return {
+        "cells": cells_json, "median_count": median_count, "max_count": max_count,
+        "metric_domains": METRIC_DOMAINS,
+        "binning_version": sha256_json({"cells": canonical_cell_ranges, "domains": METRIC_DOMAINS}),
+        "real_anchor_tags": sorted({m["nearest_real"] for m in manifest if m.get("nearest_real")}),
+    }
 
 
 def _fmt_range(lo, hi, decimals=2):
@@ -191,13 +219,18 @@ def render_html(
     median_count = data.get("median_count", 0)
     max_count = data["max_count"]
     data_json = json_script(cells_json)
+    context_json = json.dumps({"expedition": active_expedition, "leg": active_leg})
+    anchor_options = "".join(
+        f'<option value="{html_lib.escape(tag, quote=True)}">{html_lib.escape(tag)}</option>'
+        for tag in data.get("real_anchor_tags", [])
+    )
 
     axes_tip = info_btn(
         "Faithfulness (x-axis) measures how close an image stays to the original training photos, "
         "from 0 (no resemblance) to 1 (near-identical). Novelty (y-axis) measures how different an "
         "image is from everything already explored, so 1 means nothing found so far looks like it. "
         "Every image lands in exactly one cell of this grid based on those two scores; a frontier "
-        "cell is an empty one next to a well-populated one, a promising, reachable gap the search "
+        "cell is an empty one next to a well-populated one, a reachable gap the search "
         "hasn't filled yet. The grid uses quantile bins, so each axis is split into ranges with "
         "roughly equal numbers of images. The median frontier gate only highlights empty cells "
         "beside occupied cells at or above the median count."
@@ -282,7 +315,7 @@ a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 <p class="sub">Same DINOv2{dino_tip}-based faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
 grid and colored by image count instead of showing thumbnails per cell. Gold-outlined cells are
 empty but sit next to a cell at or above the median occupied-cell count: the shortlist of gaps
-worth targeting, rather than gaps that are empty because nothing in that region is reachable at
+ worth examining, rather than gaps that are empty because nothing in that region is reachable at
 all. Click a cell to preview its top image, or "view all" to see every image in that cell.</p>
 
 <div id="wrap">
@@ -295,11 +328,27 @@ all. Click a cell to preview its top image, or "view all" to see every image in 
   </div>
   <div id="panel">
     <img id="panelImg">
-    <div class="info" id="panelInfo">Click a cell to see its highest-novelty image.</div>
-    <button class="viewall" id="viewAllBtn">view all images in this cell</button>
-    <a class="cockpit-link" id="cockpitLink" href="cockpit.html">Target this gap in cockpit</a>
-  </div>
-</div>
+     <div class="info" id="panelInfo">Click a cell to see its highest-novelty image.</div>
+     <button class="viewall" id="viewAllBtn">view all images in this cell</button>
+     <label for="realAnchor">REAL-ART ANCHOR
+       <select id="realAnchor"><option value="">none selected</option>{anchor_options}</select>
+     </label>
+     <label for="focusLabel">FOCUS LABEL
+       <input id="focusLabel" type="text" placeholder="Name this frontier">
+     </label>
+     <label for="focusQuestion">QUESTION
+       <textarea id="focusQuestion" placeholder="What do you want to learn from this frontier?"></textarea>
+     </label>
+     <button id="createCoverageFocus" class="raised-control" type="button" disabled>Create Focus</button>
+     <div id="selectionStatus" role="status" aria-live="polite"></div>
+     <a class="cockpit-link" id="cockpitLink" href="cockpit.html">Target this gap in cockpit</a>
+   </div>
+ </div>
+ <table id="coverageValues" aria-label="Coverage values">
+   <caption>Coverage values</caption>
+   <thead><tr><th>Faithfulness</th><th>Novelty</th><th>Count</th><th>State</th></tr></thead>
+   <tbody id="coverageValuesBody"></tbody>
+ </table>
 <div id="legend"></div>
 
 <div id="modal">
@@ -320,6 +369,8 @@ const CELLS = {data_json};
 const N_BINS = {N_BINS};
 const MEDIAN_COUNT = {median_count};
 const MAX_COUNT = {max_count};
+const CONTEXT = {context_json};
+const DATA = {json.dumps({"metric_domains": data.get("metric_domains", METRIC_DOMAINS), "binning_version": data.get("binning_version", "")})};
 
 function colorFor(count) {{
   if (count === 0) return null;
@@ -338,10 +389,11 @@ CELLS.forEach(c => byCoord[`${{c.fb}},${{c.nb}}`] = c);
 for (let nb = N_BINS - 1; nb >= 0; nb--) {{
   for (let fb = 0; fb < N_BINS; fb++) {{
     const c = byCoord[`${{fb}},${{nb}}`];
-    const div = document.createElement('div');
+    const div = document.createElement(c.frontier ? 'button' : 'div');
     const color = colorFor(c.count);
     div.className = 'cell' + (c.count === 0 ? ' empty' : '') + (c.frontier ? ' frontier' : '');
     div.setAttribute('role', 'gridcell');
+    div.type = 'button';
     div.setAttribute('aria-rowindex', String(N_BINS - nb));
     div.setAttribute('aria-colindex', String(fb + 1));
     div.setAttribute('aria-label',
@@ -354,6 +406,15 @@ for (let nb = N_BINS - 1; nb >= 0; nb--) {{
     grid.appendChild(div);
   }}
 }}
+
+const valuesBody = document.getElementById('coverageValuesBody');
+CELLS.forEach(c => {{
+  const row = document.createElement('tr');
+  row.innerHTML = `<td>${{c.faith_lo}} to ${{c.faith_hi}}</td><td>${{c.novelty_lo}} to ${{c.novelty_hi}}</td>`
+    + `<td>${{c.count}}</td><td>${{c.frontier ? 'frontier' : (c.count ? 'occupied' : 'empty')}}</td>`;
+  row.onclick = () => showCell(c);
+  valuesBody.appendChild(row);
+}});
 
 let currentCell = null;
 
@@ -375,11 +436,64 @@ function showCell(c) {{
     + (c.best_tag ? `<b>top image</b> ${{escHtml(c.best_tag)}}` : 'no images in this cell yet');
   viewAllBtn.style.display = c.count > 0 ? 'block' : 'none';
   document.getElementById('cockpitLink').style.display = c.frontier ? 'inline-block' : 'none';
+  document.getElementById('createCoverageFocus').disabled = !c.frontier || !CONTEXT.expedition || !CONTEXT.leg;
+}}
+
+function context_url(path, created_context) {{
+  const params = new URLSearchParams();
+  if (created_context.expedition) params.set('expedition', created_context.expedition);
+  if (created_context.leg) params.set('leg', created_context.leg);
+  if (created_context.focus_id) params.set('focus_id', created_context.focus_id);
+  return `${{path}}?${{params.toString()}}`;
+}}
+
+function adjacentTags(c) {{
+  const tags = new Set();
+  [[c.fb + 1, c.nb], [c.fb - 1, c.nb], [c.fb, c.nb + 1], [c.fb, c.nb - 1]].forEach(([fb, nb]) => {{
+    const neighbor = byCoord[`${{fb}},${{nb}}`];
+    if (neighbor && neighbor.count > 0) neighbor.items.forEach(item => tags.add(item.tag));
+  }});
+  return Array.from(tags);
+}}
+
+async function createCoverageFocus() {{
+  const status = document.getElementById('selectionStatus');
+  if (!currentCell || !currentCell.frontier) return;
+  const anchor = document.getElementById('realAnchor').value;
+  const payload = {{
+    scope: {{expedition: CONTEXT.expedition, leg: CONTEXT.leg}},
+    label: document.getElementById('focusLabel').value,
+    source: {{
+      view: 'coverage', kind: 'coverage_frontier',
+      score_ranges: {{
+        faithfulness: [currentCell.faith_lo, currentCell.faith_hi],
+        novelty: [currentCell.novelty_lo, currentCell.novelty_hi],
+      }},
+      adjacent_member_tags: adjacentTags(currentCell),
+      real_anchor_tags: anchor ? [anchor] : [],
+      coverage_hint: {{row: currentCell.nb, column: currentCell.fb,
+        domains: DATA.metric_domains, binning_version: DATA.binning_version}},
+    }},
+    question: document.getElementById('focusQuestion').value,
+    observation: '', hypothesis_text: '', test_contract: null,
+  }};
+  status.textContent = 'Creating Focus...';
+  try {{
+    const response = await fetch('/api/foci', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(payload),
+    }});
+    const created = await response.json();
+    if (!response.ok) throw new Error(created.error || 'Focus creation failed');
+    window.location.href = context_url('/explore.html', {{...CONTEXT, focus_id: created.focus_id}});
+  }} catch (error) {{
+    status.textContent = error.message;
+  }}
 }}
 
 document.getElementById('viewAllBtn').addEventListener('click', () => {{
   if (currentCell) openModal(currentCell);
 }});
+document.getElementById('createCoverageFocus').addEventListener('click', createCoverageFocus);
 
 // Click handler looks the item up by its trusted array index instead of interpolating a tag
 // string into the onclick attribute, so an attacker-controlled tag can't break out of the JS

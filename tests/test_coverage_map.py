@@ -1,4 +1,5 @@
 import json
+import math
 
 from clawmarks.build import coverage_map
 
@@ -134,3 +135,44 @@ def test_render_html_labels_coverage_frontier():
     hear what the canvas shows."""
     html = coverage_map.render_html({"cells": [], "max_count": 0})
     assert 'aria-label="Coverage frontier"' in html
+
+
+def test_outer_bins_use_declared_metric_domains(tmp_path):
+    (tmp_path / "scored_manifest.json").write_text(json.dumps([
+        {"tag": "a", "centroid_sim": 0.2, "novelty": 0.7,
+         "prompt_name": "p", "file": str(tmp_path / "a.png")}
+    ]))
+    data = coverage_map.compute_data(str(tmp_path))
+    assert min(c["faith_lo"] for c in data["cells"]) == -1.0
+    assert max(c["faith_hi"] for c in data["cells"]) == 1.0
+    assert min(c["novelty_lo"] for c in data["cells"]) == 0.0
+    assert max(c["novelty_hi"] for c in data["cells"]) == 2.0
+
+
+def test_repeated_quantile_edges_never_expose_zero_width_frontier(tmp_path):
+    (tmp_path / "scored_manifest.json").write_text(json.dumps([
+        {"tag": "a", "centroid_sim": 0.2, "novelty": 0.7,
+         "prompt_name": "p", "file": str(tmp_path / "a.png")}
+    ]))
+    data = coverage_map.compute_data(str(tmp_path))
+    assert not [cell for cell in data["cells"] if cell["frontier"]]
+
+
+def test_every_frontier_has_finite_strict_ranges(tmp_path):
+    manifest = []
+    for index in range(16):
+        manifest.append({
+            "tag": f"a{index}", "centroid_sim": 0.05 + index * 0.05,
+            "novelty": 0.1 + index * 0.1, "prompt_name": "p",
+            "file": str(tmp_path / f"a{index}.png"),
+        })
+    (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
+    data = coverage_map.compute_data(str(tmp_path))
+    frontiers = [cell for cell in data["cells"] if cell["frontier"]]
+    assert frontiers
+    for cell in frontiers:
+        assert all(math.isfinite(cell[key]) for key in (
+            "faith_lo", "faith_hi", "novelty_lo", "novelty_hi"
+        ))
+        assert cell["faith_lo"] < cell["faith_hi"]
+        assert cell["novelty_lo"] < cell["novelty_hi"]
