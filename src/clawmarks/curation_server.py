@@ -404,7 +404,7 @@ def _get_preference_status_data(expedition, leg):
     )
 
 
-def _preference_retrain_gate_error():
+def _preference_retrain_gate_error(expedition=None, leg=None):
     """Mirrors preference_pairwise_model.train_and_save's own gates exactly, using
     build_training_set so a comparison referencing a tag without a cached embedding can't make
     this check pass while the real training call still has too few usable rows. Distinguishes
@@ -412,9 +412,9 @@ def _preference_retrain_gate_error():
     cached", and "comparisons exist and are cached but repeated judgments on the same pairs
     consolidated below the floor" (see preference_pairwise_model.n_consolidated_pairs) -- each has
     a different fix, and pointing someone at the wrong one wastes their time."""
-    comparisons = load_comparisons()
+    comparisons = load_comparisons(expedition, leg)
     n_raw_comparisons = len(comparisons)
-    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(_require_out_dir()))
+    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(_scope_out_dir(expedition, leg)))
     _, y = preference_pairwise_model.build_training_set(tags, embeddings, comparisons)
     n_usable = len(y) // 2
     if n_usable < preference_pairwise_model.MIN_COMPARISONS:
@@ -446,8 +446,8 @@ def _preference_rank_flags_file(expedition=None, leg=None):
     return _scope_out_dir(expedition, leg) / "preference_rank_flags.json"
 
 
-def _counterfactuals_dir():
-    return _require_out_dir() / "counterfactuals"
+def _counterfactuals_dir(expedition=None, leg=None):
+    return _scope_out_dir(expedition, leg) / "counterfactuals"
 
 
 def _counterfactuals_file(expedition=None, leg=None):
@@ -1656,9 +1656,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             with _lock:
                 self._json_response(200, load_store(_counterfactuals_file(expedition, leg)))
             return
-        if self.path == "/api/seeds":
+        if route_path == "/api/seeds":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                self._json_response(200, load_store(_seeds_file()))
+                self._json_response(200, load_store(_seeds_file(expedition, leg)))
             return
         if route_path == "/api/cockpit/target_cells":
             context = self._page_context()
@@ -2127,18 +2129,25 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, {"ok": True, "tag": tag, "flag": flag})
             return
 
-        if self.path == "/api/preference_retrain":
+        if route_path == "/api/preference_retrain":
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
             try:
                 with _lock:
-                    gate_error = _preference_retrain_gate_error()
+                    gate_error = _preference_retrain_gate_error(expedition, leg)
                     if gate_error:
                         self._json_response(400, {"error": gate_error})
                         return
-                    comparisons = load_comparisons()
+                    comparisons = load_comparisons(expedition, leg)
                 # Fit outside _lock: a full model fit can take a while, and every other route
                 # (favorites, compare, cockpit) shares this same lock, so holding it here blocks
                 # them for the fit's whole duration instead of just the state swap below.
-                result = preference_pairwise_model.train_and_save(comparisons, _active_out_dir())
+                result = preference_pairwise_model.train_and_save(
+                    comparisons, _scope_out_dir(expedition, leg)
+                )
                 if result is None:
                     self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
                     return
@@ -2148,7 +2157,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 self._json_response(500, {"error": f"preference retrain crashed: {e}"})
                 return
             self._json_response(200, _get_preference_status_data(
-                *_active_scope()
+                expedition, leg
             ))
             return
 
@@ -2213,8 +2222,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, {"ok": True, "id": trial_id})
             return
 
-        if self.path.startswith("/api/cockpit/queue/") and self.path.endswith("/run"):
-            trial_id = self.path[len("/api/cockpit/queue/"):-len("/run")]
+        if route_path.startswith("/api/cockpit/queue/") and route_path.endswith("/run"):
+            trial_id = route_path[len("/api/cockpit/queue/"):-len("/run")]
             self._handle_cockpit_run(trial_id, payload.get("expedition"), payload.get("leg"))
             return
 
@@ -2227,11 +2236,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 self._handle_focus_archive(parsed, payload)
                 return
 
-        if self.path == "/api/cockpit/autopilot":
-            self._handle_cockpit_autopilot()
+        if route_path == "/api/cockpit/autopilot":
+            self._handle_cockpit_autopilot(payload)
             return
 
-        if self.path == "/api/counterfactual":
+        if route_path == "/api/counterfactual":
             self._handle_counterfactual(payload)
             return
 
@@ -2568,6 +2577,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if not origin_tag or not prompt:
             self._json_response(400, {"error": "missing 'origin_tag' or 'prompt'"})
             return
+        expedition = payload.get("expedition")
+        leg = payload.get("leg")
+        if (expedition is None) != (leg is None):
+            self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            return
 
         try:
             n = int(payload.get("n", 1))
@@ -2606,6 +2620,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 record = self._submit_and_wait_for_counterfactual(
                     api_key, origin_tag, prompt, strength, cfg, seed, steps, sampler, negative,
                     payload.get("overridden", []), i,
+                    expedition, leg,
                 )
             except (RuntimeError, TimeoutError) as e:
                 self._json_response(502, {"ok": False, "error": str(e), "results": results})
@@ -2615,7 +2630,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         self._json_response(200, {"ok": True, "results": results})
 
     def _submit_and_wait_for_counterfactual(self, api_key, origin_tag, prompt, strength, cfg,
-                                             seed, steps, sampler, negative, overridden, batch_index):
+                                             seed, steps, sampler, negative, overridden, batch_index,
+                                             expedition=None, leg=None):
         wf = build_workflow(prompt, seed, strength, cfg, steps, sampler, negative)
         try:
             res = comfy_post("/run", wf, api_key)
@@ -2640,8 +2656,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 # uuid suffix (not just batch_index) avoids two concurrent requests for the same
                 # origin_tag racing on the same filename and corrupting each other's PNG.
                 new_tag = f"cf_{int(time.time())}_{batch_index}_{uuid.uuid4().hex[:8]}_{origin_tag[:30]}"
-                os.makedirs(_counterfactuals_dir(), exist_ok=True)
-                fname = str(_counterfactuals_dir() / f"{new_tag}.png")
+                os.makedirs(_counterfactuals_dir(expedition, leg), exist_ok=True)
+                fname = str(_counterfactuals_dir(expedition, leg) / f"{new_tag}.png")
                 with open(fname, "wb") as f:
                     f.write(base64.b64decode(images[0]["data"]))
                 record = {
@@ -2653,9 +2669,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 with _lock:
-                    records = load_store(_counterfactuals_file())
+                    records = load_store(_counterfactuals_file(expedition, leg))
                     records[new_tag] = record
-                    save_store(_counterfactuals_file(), records)
+                    save_store(_counterfactuals_file(expedition, leg), records)
                 return record
             if status in ("FAILED", "CANCELLED"):
                 raise RuntimeError(f"generation job {status.lower()}: {res}")
@@ -2725,18 +2741,26 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             save_store(_seeds_file(), updated)
         self._json_response(200, {"ok": True, "added": added, "count": len(updated)})
 
-    def _handle_cockpit_autopilot(self):
+    def _handle_cockpit_autopilot(self, payload=None):
+        payload = payload or {}
+        expedition = payload.get("expedition")
+        leg = payload.get("leg")
+        if (expedition is None) != (leg is None):
+            self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            return
+        if expedition is None:
+            expedition, leg = _active_scope()
         with _lock:
-            favorites = load_store(_favorites_file())
-            comparisons = load_comparisons()
-        manifest = load_manifest(*_active_scope())
+            favorites = load_store(_favorites_file(expedition, leg))
+            comparisons = load_comparisons(expedition, leg)
+        manifest = load_manifest(expedition, leg)
         coverage_data = _get_manifest_cached(
             "coverage", coverage_map.compute_data,
-            *_active_scope(),
+            expedition, leg,
         )
         context = build_autopilot_context(coverage_data, manifest, favorites, comparisons)
 
-        tmp_path = str(_active_out_dir() / f"cockpit_autopilot_{int(time.time())}.json")
+        tmp_path = str(_scope_out_dir(expedition, leg) / f"cockpit_autopilot_{int(time.time())}.json")
         prompt = (
             "You are proposing 2-3 next generation trials for a LoRA style-transfer search tool "
             "called CLAWMARKS. Ground every suggestion ONLY in the data below; do not invent "

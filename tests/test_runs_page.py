@@ -1,13 +1,20 @@
 from clawmarks.build import runs_page
 
 
-def test_completed_report_links_activate_the_selected_leg_before_navigation():
-    html = runs_page.render_html()
+def test_completed_report_links_preserve_scope_before_navigation():
+    html = runs_page.render_html(
+        active_expedition="demo",
+        active_leg="round1",
+        focus={"focus_id": "focus_11111111111111111111111111111111"},
+    )
 
     assert "function openReportTool(event, path)" in html
     assert "event.preventDefault()" in html
-    assert "fetch('/api/active-leg'" in html
-    assert "location.href = path" in html
+    report_js = html[html.index("function openReportTool(event, path)"):]
+    assert "fetch('/api/active-leg'" not in report_js
+    assert "URLSearchParams(window.location.search)" in report_js
+    assert "location.href = target.pathname" in report_js
+    assert "expedition=demo&amp;leg=round1&amp;focus_id=focus_11111111111111111111111111111111" in html
     assert 'onclick="openReportTool(event, \'scan.html\')"' in html
     assert 'onclick="openReportTool(event, \'coverage.html\')"' in html
     assert 'onclick="openReportTool(event, \'novelty_decay.html\')"' in html

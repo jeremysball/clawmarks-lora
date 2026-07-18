@@ -236,7 +236,9 @@ const DATA = {{projection_version: {json_script(data.get("projection_version", "
 const CONTEXT = {context_json};
 const FOCUS = {focus_json};
 let picks = {{}};
-fetch('/api/favorites').then(r => r.json()).then(favorites => {{
+const favoritesUrl = new URL('/api/favorites', window.location.origin);
+['expedition', 'leg'].forEach(key => {{ if (CONTEXT[key]) favoritesUrl.searchParams.set(key, CONTEXT[key]); }});
+fetch(favoritesUrl).then(r => r.json()).then(favorites => {{
   picks = {{}};
   Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
   draw();

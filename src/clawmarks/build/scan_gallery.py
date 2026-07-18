@@ -282,8 +282,14 @@ const DATA = {data_json};
 let view = DATA.slice();
 let picks = {{}};
 let favorites = {{}};
+const SCOPE_QUERY = new URLSearchParams(window.location.search);
+function scopedApi(path) {{
+  const url = new URL(path, window.location.origin);
+  ['expedition', 'leg'].forEach(key => {{ if (SCOPE_QUERY.has(key)) url.searchParams.set(key, SCOPE_QUERY.get(key)); }});
+  return url.toString();
+}}
 
-fetch('/api/favorites').then(r => r.json()).then(f => {{
+fetch(scopedApi('/api/favorites')).then(r => r.json()).then(f => {{
   favorites = f;
   picks = {{}};
   Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
@@ -303,6 +309,9 @@ const FILTER_IDS = ['sortKey', 'typeFilter', 'catFilter', 'promptFilter', 'faith
 
 function syncStateToUrl() {{
   const params = new URLSearchParams();
+  ['expedition', 'leg', 'focus_id'].forEach(key => {{
+    if (SCOPE_QUERY.has(key)) params.set(key, SCOPE_QUERY.get(key));
+  }});
   FILTER_IDS.forEach(id => {{
     const el = document.getElementById(id);
     const val = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value;

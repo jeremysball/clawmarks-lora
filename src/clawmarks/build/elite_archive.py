@@ -387,7 +387,9 @@ document.addEventListener('keydown', e => {{
   if (e.key === 'Escape') closeModal();
 }});
 
-fetch('/api/favorites').then(r => r.json()).then(favorites => {{
+const favoritesUrl = new URL('/api/favorites', window.location.origin);
+['expedition', 'leg'].forEach(key => {{ if (new URLSearchParams(window.location.search).has(key)) favoritesUrl.searchParams.set(key, new URLSearchParams(window.location.search).get(key)); }});
+fetch(favoritesUrl).then(r => r.json()).then(favorites => {{
   picks = {{}};
   Object.keys(favorites).forEach(tag => {{ picks[tag] = true; }});
   render();

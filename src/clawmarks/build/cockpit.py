@@ -26,6 +26,7 @@ from clawmarks.shared_ui import (
     TOPNAV_CSS,
     info_btn,
     nav_bar_html,
+    scoped_href,
 )
 
 
@@ -63,6 +64,7 @@ MISSIONS = {
 
 def render_html(expeditions=None, current_expedition=None, active_expedition=None, active_leg=None, running=None, focus=None):
     selector = '<p class="small">Standalone generation remains available. No Focus provenance.</p>' if focus is None else ''
+    runs_href = scoped_href('/runs.html', active_expedition or current_expedition, active_leg, focus)
     missions_json_keys = "".join(
         f'<button class="mission striate{" active" if key == "gap" else ""}" data-mission="{key}">'
         f'<span>Mission</span><b>{m["name"]}</b><span>{m["title"]}</span></button>'
@@ -467,7 +469,7 @@ function fetchTargetCells(){{
   fetch(scopedApi('/api/cockpit/target_cells')).then(r=>r.json().then(d=>({{ok:r.ok,d}}))).then(({{ok,d}})=>{{
     if(!ok){{
       $('targetCards').innerHTML = d.no_manifest
-        ? '<div class="target-empty">No search data yet. <a href="/runs.html?expedition=' + encodeURIComponent(CONTEXT.expedition || '') + '&leg=' + encodeURIComponent(CONTEXT.leg || '') + '">Launch a search round</a> to get started.</div>'
+        ? '<div class="target-empty">No search data yet. <a href="{runs_href}">Launch a search round</a> to get started.</div>'
         : '<div class="target-empty">Could not load frontier cells.</div>';
       frontierCells=[]; selectedCell=null;
       return;
@@ -601,7 +603,7 @@ function renderQueue(){{
 
   const completed=queue.filter(t=>t.status==='completed');
   $('resultsPane').innerHTML = completed.length ? completed.map(t=>
-    (t.result_tags||[]).map(tag=>`<span class="result-card" data-tag="${{escapeHtml(tag)}}"><span class="thumb" style="background-image:url('thumbs/${{escapeHtml(tag)}}.jpg')"></span><span>${{escapeHtml(tag)}}</span></span>`).join('')
+     (t.result_tags||[]).map(tag=>`<span class="result-card" data-tag="${{escapeHtml(tag)}}"><span class="thumb" style="background-image:url('${{scopedApi('/thumbs/' + encodeURIComponent(tag) + '.jpg')}}')"></span><span>${{escapeHtml(tag)}}</span></span>`).join('')
   ).join('') : '<div class="empty-note">No completed trials yet.</div>';
   $('resultsPane').querySelectorAll('[data-tag]').forEach(el=>el.onclick=()=>{{if(window.Lightbox)Lightbox.open(el.dataset.tag)}});
 

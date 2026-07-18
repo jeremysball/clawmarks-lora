@@ -190,14 +190,12 @@ function refreshReport() {{
 
 function openReportTool(event, path) {{
   event.preventDefault();
-  if (!expeditionSel.value || !legSel.value) return;
-  fetch('/api/active-leg', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{expedition: expeditionSel.value, leg: legSel.value}}),
-  }}).then(async r => {{
-    if (!r.ok) throw new Error((await r.json()).error || 'selection failed');
-    location.href = path;
-  }}).catch(e => {{ launchError.textContent = String(e); }});
+  const target = new URL(event.currentTarget.href, window.location.href);
+  const current = new URLSearchParams(window.location.search);
+  ['expedition', 'leg', 'focus_id'].forEach(key => {{
+    if (current.has(key)) target.searchParams.set(key, current.get(key));
+  }});
+  location.href = target.pathname + (target.search ? target.search : '');
 }}
 
 function refreshStatus() {{

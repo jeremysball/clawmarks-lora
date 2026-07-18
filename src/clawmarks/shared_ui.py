@@ -807,7 +807,10 @@ _LIGHTBOX_JS = r"""(function(){
     const scripts = document.getElementsByTagName('script');
     for (const s of scripts) {
       if (s.src && s.src.indexOf('lightbox.js') !== -1) {
-        return new URL('scan_data.json', s.src).toString();
+        const url = new URL('scan_data.json', s.src);
+        if (LB_EXPEDITION) url.searchParams.set('expedition', LB_EXPEDITION);
+        if (LB_LEG) url.searchParams.set('leg', LB_LEG);
+        return url.toString();
       }
     }
     const url = new URL('scan_data.json', window.location.href);

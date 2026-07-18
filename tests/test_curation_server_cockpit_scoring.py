@@ -261,11 +261,24 @@ def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
     assert cs._active_selection == {"expedition": "demo", "leg": "round1"}
 
 
-def test_cockpit_get_does_not_change_active_leg():
+def test_focus_scoped_cockpit_get_does_not_change_active_leg(monkeypatch):
     round1 = config.EXPEDITIONS_DIR / "demo" / "legs" / "round1.json"
     round1.write_text("{}")
     config.leg_dir("demo", "round1").mkdir(parents=True)
     cs._set_active_selection("demo", "round1")
+    focus = {
+        "focus_id": "focus_11111111111111111111111111111111",
+        "label": "Ink anchor",
+        "revision": 1,
+    }
+
+    class Store:
+        def get(self, scope, focus_id):
+            assert (scope.expedition, scope.leg) == ("demo", "round1")
+            assert focus_id == focus["focus_id"]
+            return focus
+
+    monkeypatch.setattr(cs.Handler, "_focus_store", lambda _handler: Store())
     before = config.ACTIVE_LEG_FILE.read_bytes()
     server = HTTPServer(("127.0.0.1", 0), cs.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -273,6 +286,7 @@ def test_cockpit_get_does_not_change_active_leg():
     try:
         with urllib.request.urlopen(
             f"http://127.0.0.1:{server.server_address[1]}/cockpit.html"
+            f"?expedition=demo&leg=round1&focus_id={focus['focus_id']}"
         ) as response:
             assert response.status == 200
     finally:
