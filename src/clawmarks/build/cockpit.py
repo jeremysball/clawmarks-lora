@@ -598,7 +598,7 @@ function renderQueue(){{
     <span class="small">${{t.n}} images &middot; ${{escapeHtml(t.seed_strategy)}} seeds &middot; ${{t.strength.toFixed(2)}} strength &middot; ${{escapeHtml(t.sampler)}} / ${{t.steps}} / ${{t.cfg}}</span>
     ${{t.focus_id ? `<br><span class="small">Focus: ${{escapeHtml(t.focus_id)}}</span>` : ''}}</div>
     <span class="status ${{t.status}}">${{t.status}}${{t.error?': '+escapeHtml(t.error):''}}</span>
-    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button">Review and run</button>`:''}}</div>`).join('')
+    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button" class="billable-action">Review and run</button><span class="cost-badge">Spends money</span>`:''}}</div>`).join('')
     : '<div class="empty-note">No trials queued yet.</div>';
   $('queuePane').querySelectorAll('[data-run]').forEach(button=>button.onclick=()=>reviewTrial(button.dataset.run));
 
@@ -620,10 +620,11 @@ function loadQueue(){{
 function reviewTrial(id){{
   const trial = queue.find(t=>t.id===id);
   if(!trial) return;
-  const summary = `Expedition: ${{trial.expedition||'(current)'}}\\n`+
+  const summary = `Expedition: ${{trial.expedition||CONTEXT.expedition||'(current)'}}\\n`+
+    `Leg: ${{trial.leg||CONTEXT.leg||'(current)'}}\\n`+
     `Prompt: ${{trial.prompt}}\\n`+
     `Target: ${{trial.target_cell ? JSON.stringify(trial.target_cell) : '(none)'}}\\n`+
-    `This submits ${{trial.n}} paid RunPod job(s).`;
+    `Cost: ${{trial.n}} paid RunPod job(s). RunPod balance checked before running.`;
   if(!confirm(summary + '\\n\\nConfirm and run?')) return;
   runTrial(id);
 }}

@@ -30,6 +30,13 @@ def json_script(data):
     return json.dumps(data).replace("<", "\\u003c")
 
 
+def billable_badge(estimate: str | None = None) -> str:
+    text = "Spends money"
+    if estimate:
+        text = f"{estimate} {text}"
+    return f'<span class="cost-badge">{text}</span>'
+
+
 NAV_GROUPS = [
     ("Look at images", [("/scan.html", "Browse all images"),
                         ("/archive.html", "Best images by area"),
@@ -80,7 +87,8 @@ SULFUR_CSS = """
   --text-soft:#4D5048; --rule:#898D81; --sulfur:#CBD63F; --guide-surface:#20251B;
   --guide-ink:#ECEFDF; --font-display:"Barlow Condensed","Arial Narrow",sans-serif;
   --font-body:"IBM Plex Sans",Arial,sans-serif; --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
-  --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
+    --cost:#5B3A63;
+    --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
   --text:var(--ink); --text-dim:var(--text-soft); --accent:var(--ink); --pick:var(--sulfur); }
 * { box-sizing:border-box; }
 body { background-color:var(--paper); color:var(--ink); font:14px/1.5 var(--font-body);
@@ -197,6 +205,18 @@ decided Sulfur Proof v2 Lavish artifact's sulfur-theme `.mark-button`. */
   box-shadow:inset 2px 2px 0 rgba(255,255,255,.19),
     inset -2px -2px 0 rgba(0,0,0,.58),
     3px 3px 0 color-mix(in srgb, var(--sulfur) 82%, var(--ink));
+}
+.billable-action {
+  position:relative; border-left:3px solid var(--cost) !important;
+}
+.billable-action::before {
+  content:''; position:absolute; left:0; top:2px; bottom:2px; width:3px;
+  background:var(--cost);
+}
+.cost-badge {
+  display:inline-block; background:var(--cost); color:#efe7e0;
+  font:600 10px/1 var(--font-body); padding:3px 7px; text-transform:uppercase;
+  letter-spacing:0.06em;
 }
 """
 
@@ -979,7 +999,8 @@ _LIGHTBOX_JS = r"""(function(){
       <div><label>Seed</label><input class="lb-cf-seed" type="number" step="1"></div>
       <div><label>Count (n)</label><input class="lb-cf-n" type="number" step="1" min="1" max="6" value="1"></div>
     </div>
-    <button class="lb-cf-submit">Generate</button>
+    <button class="lb-cf-submit billable-action">Generate</button>
+    <span class="cost-badge">Spends money</span>
     <div class="lb-cf-status"></div>
     <div class="lb-cf-result"></div>
     <div class="lb-cf-list"></div>

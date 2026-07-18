@@ -21,6 +21,7 @@ from clawmarks.shared_ui import (
     SULFUR_CSS,
     SULFUR_FONT_CSS,
     TOPNAV_CSS,
+    billable_badge,
     json_script,
     nav_bar_html,
     scoped_href,
@@ -104,7 +105,8 @@ already running.</p>
   <select id="expedition"></select>
   <label for="leg">Leg</label>
   <select id="leg"></select>
-  <button id="launchBtn" class="primary-action">Back up and launch</button>
+  <button id="launchBtn" class="primary-action billable-action">Back up and launch</button>
+  {billable_badge()}
   <button id="stopBtn" class="danger" disabled>Stop</button>
 </div>
 <div id="launchError"></div>
@@ -249,7 +251,8 @@ launchBtn.addEventListener('click', () => {{
     return;
   }}
   const msg = `Launch a search round for ${{expeditionSel.value}}/${{legSel.value}}?\n\n` +
-    `This backs up and file-count-verifies the leg's out_dir first, then starts search.driver.`;
+    `This backs up and file-count-verifies the leg's out_dir first, then starts search.driver.\n` +
+    `RunPod balance checked before launch. Spend cap applies.`;
   if (!confirm(msg)) return;
   launchBtn.disabled = true;
   launchBtn.textContent = 'Backing up and launching...';

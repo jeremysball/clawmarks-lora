@@ -2,7 +2,10 @@
 import json
 
 from clawmarks import shared_ui
-from clawmarks.shared_ui import NAV_GROUPS, NAV_OPTIONS, _LIGHTBOX_JS, json_script, nav_bar_html
+from clawmarks.shared_ui import (
+    NAV_GROUPS, NAV_OPTIONS, _LIGHTBOX_JS, json_script, nav_bar_html,
+    billable_badge,
+)
 
 
 def test_nav_options_includes_preference_status_page():
@@ -587,3 +590,40 @@ def test_infotip_js_updates_aria_expanded_and_handles_escape():
 def test_mobile_base_css_keeps_overflow_wrap_anywhere():
     assert "overflow-wrap:anywhere" in shared_ui.MOBILE_BASE_CSS
     assert "code, pre { overflow-wrap:anywhere; }" in shared_ui.MOBILE_BASE_CSS
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Billable Action Affordances
+# ---------------------------------------------------------------------------
+
+
+def test_billable_badge_never_invents_an_estimate():
+    assert billable_badge() == '<span class="cost-badge">Spends money</span>'
+    assert "~$2.00" in billable_badge("~$2.00")
+
+
+def test_cost_token_in_sulfur_tokens():
+    assert "--cost:#5B3A63" in shared_ui.SULFUR_CSS
+
+
+def test_billable_action_css_class_exists():
+    full_css = shared_ui.CONTROL_CSS
+    assert ".billable-action" in full_css
+    assert ".cost-badge" in full_css
+
+
+def test_context_create_buttons_are_not_billable():
+    markup = nav_bar_html("/map.html", "demo", "round1")
+    assert 'class="context-create-btn primary-action"' in markup
+    idx = markup.index('context-create-btn primary-action')
+    snippet = markup[idx:idx + 60]
+    assert 'billable-action' not in snippet
+
+
+def test_billable_action_css_references_cost_token():
+    full_css = shared_ui.CONTROL_CSS
+    for cls in (".billable-action", ".cost-badge"):
+        start = full_css.index(cls)
+        end = full_css.index("}", start)
+        block = full_css[start:end]
+        assert "var(--cost)" in block, f"{cls} must reference --cost"

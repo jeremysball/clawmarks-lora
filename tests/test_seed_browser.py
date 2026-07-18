@@ -28,6 +28,28 @@ def test_render_html_uses_sulfur_proof_shell():
     assert "prefers-color-scheme: dark" not in html
 
 
+def test_render_html_marks_generate_as_billable_action():
+    html = seed_browser.render_html()
+    assert 'id="genBtn" class="primary-action billable-action"' in html
+    assert "Spends money" in html
+
+
+def test_safe_actions_on_seed_page_do_not_have_billable_markup():
+    html = seed_browser.render_html()
+    assert 'id="genBtn" class="primary-action billable-action"' in html
+    for marker in (
+            'class="topnav',
+            'class="context-label',
+            'class="guide-button',
+            'class="session-status',
+            'class="wordmark',
+        ):
+        assert marker in html, f"missing {marker}"
+        idx = html.index(marker)
+        snippet = html[idx:idx + len(marker) + 30]
+        assert 'billable-action' not in snippet, f"safe element {marker} has unwanted billable-action"
+
+
 def test_render_html_drops_legacy_dark_theme_and_rounded_cards():
     """The legacy dark theme (`#cddcff` / `#2a4a7c` / `#3a5a8c` button accents, the
     `rgba(124,158,255,0.08)` translucent .seed.new accent, the `#e0605e` error text) and

@@ -19,6 +19,7 @@ from clawmarks.shared_ui import (
     SULFUR_CSS,
     SULFUR_FONT_CSS,
     TOPNAV_CSS,
+    billable_badge,
     info_btn,
     json_script,
     nav_bar_html,
@@ -95,7 +96,8 @@ plateau and escalate on its own.</p>
 
 <div id="genPanel">
   <label>Generate <input type="number" id="genN" value="20" min="1" max="40"> new seeds</label>
-  <button id="genBtn" class="primary-action">Generate</button>
+  <button id="genBtn" class="primary-action billable-action">Generate</button>
+  {billable_badge()}
   <div id="genStatus"></div>
 </div>
 
