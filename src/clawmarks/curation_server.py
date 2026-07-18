@@ -100,6 +100,7 @@ import uuid
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from typing import Any
 
 from clawmarks.atomic_io import atomic_json_write
 
@@ -285,6 +286,22 @@ def _scope_out_dir(expedition, leg):
     return config.leg_dir(expedition, leg)
 
 
+def _request_scope(expedition, leg):
+    """Validate an optional request scope before resolving any filesystem path."""
+    if expedition is None and leg is None:
+        return _active_scope()
+    if not isinstance(expedition, str) or not isinstance(leg, str):
+        raise ValueError("'expedition' and 'leg' must be strings")
+    _validate_expedition_or_leg_name(expedition, "expedition")
+    _validate_expedition_or_leg_name(leg, "leg", reserved={"legs"})
+    expedition_dir = config.EXPEDITIONS_DIR / expedition
+    if not (expedition_dir / "expedition.json").exists():
+        raise ValueError(f"unknown expedition {expedition!r}")
+    if not (expedition_dir / "legs" / f"{leg}.json").exists() and not config.leg_dir(expedition, leg).exists():
+        raise ValueError(f"unknown leg {leg!r} in expedition {expedition!r}")
+    return expedition, leg
+
+
 def _active_scope():
     expedition = _active_selection["expedition"]
     leg = _active_selection["leg"]
@@ -389,7 +406,7 @@ def _preference_status_watched_files(expedition, leg):
         preference_pairwise_model.model_meta_file(out_dir),
         out_dir / "preference_settings.json",
     ) if out_dir else ()
-    for f in (_comparisons_file(), *leg_files):
+    for f in (_comparisons_file(expedition, leg), *leg_files):
         if os.path.exists(f):
             files.append(str(f))
     return files
@@ -548,17 +565,31 @@ def record_comparison(comparisons, winner, loser, now):
     return updated
 
 
-_pairwise_model_cache = {"model": None}
+_pairwise_model_cache: dict[str, Any] = {"model": None, "by_scope": {}}
 
 
-def _embeddings_for(items):
-    tags, embeddings = embed_cache.load_cache(embed_cache.embeddings_file(_require_out_dir()))
+def _cache_model(expedition, leg, model):
+    _pairwise_model_cache["by_scope"][(expedition, leg)] = model
+    # Keep the old inspection slot for existing callers and tests. Scoped reads never use it.
+    _pairwise_model_cache["model"] = model
+
+
+def _model_for_scope(expedition=None, leg=None):
+    if expedition is None or leg is None:
+        return _pairwise_model_cache["model"]
+    return _pairwise_model_cache["by_scope"].get((expedition, leg))
+
+
+def _embeddings_for(items, expedition=None, leg=None):
+    tags, embeddings = embed_cache.load_cache(
+        embed_cache.embeddings_file(_scope_out_dir(expedition, leg))
+    )
     tag_to_row = {t: i for i, t in enumerate(tags)}
     idx = [tag_to_row[m["tag"]] for m in items if m["tag"] in tag_to_row]
     return embeddings[idx]
 
 
-def _maybe_retrain_pairwise_model(comparisons):
+def _maybe_retrain_pairwise_model(comparisons, expedition=None, leg=None):
     """Retrains and refreshes the pairwise model cache at each training interval. Training is
     best-effort: the comparison has already been saved by the caller, so a training failure (e.g.
     a corrupt embedding cache) must not fail the comparison write. On failure the old cached model
@@ -567,14 +598,16 @@ def _maybe_retrain_pairwise_model(comparisons):
     if n < comparison_sampler.MIN_COMPARISONS or n % comparison_sampler.RETRAIN_EVERY != 0:
         return
     try:
-        result = preference_pairwise_model.train_and_save(comparisons, _active_out_dir())
+        result = preference_pairwise_model.train_and_save(
+            comparisons, _scope_out_dir(expedition, leg)
+        )
     except Exception as e:
         print(f"pairwise model auto-retrain failed at n={n}, keeping previous model: {e}",
               file=sys.stderr, flush=True)
         return
     if result is not None:
         with _lock:
-            _pairwise_model_cache["model"] = result["model"]
+            _cache_model(expedition, leg, result["model"])
 
 
 def _compared_pair_keys(comparisons):
@@ -582,12 +615,14 @@ def _compared_pair_keys(comparisons):
             if c.get("winner") and c.get("loser")}
 
 
-def next_compare_response(manifest, comparisons):
+def next_compare_response(manifest, comparisons, expedition=None, leg=None):
     """Returns a pair of item summaries, or {"done": True} when fewer than two images exist."""
-    model = _pairwise_model_cache["model"]
+    model = _model_for_scope(expedition, leg)
     candidate_manifest = manifest
     if model is not None:
-        tags, _ = embed_cache.load_cache(embed_cache.embeddings_file(_require_out_dir()))
+        tags, _ = embed_cache.load_cache(
+            embed_cache.embeddings_file(_scope_out_dir(expedition, leg))
+        )
         embedded = set(tags)
         embedded_manifest = [m for m in manifest if m["tag"] in embedded]
         if embedded_manifest:
@@ -604,14 +639,15 @@ def next_compare_response(manifest, comparisons):
                 seen[tag] = seen.get(tag, 0) + 1
     pair = comparison_sampler.pick_next_pair(
         candidate_manifest, len(comparisons), model=model,
-        score_fn=preference_pairwise_model.score, embeddings_for=_embeddings_for, seen=seen,
+         score_fn=preference_pairwise_model.score,
+         embeddings_for=lambda items: _embeddings_for(items, expedition, leg), seen=seen,
         exclude=_compared_pair_keys(comparisons),
     )
     if pair is None:
         return {"done": True}
     a, b = pair
-    return {"img1": item_summary(a, _active_out_dir()),
-            "img2": item_summary(b, _active_out_dir())}
+    out_dir = _scope_out_dir(expedition, leg)
+    return {"img1": item_summary(a, out_dir), "img2": item_summary(b, out_dir)}
 
 
 SAMPLERS = ("ddim", "dpmpp_2m", "euler")
@@ -1635,7 +1671,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             expedition, leg = self._page_scope(context)
             with _lock:
                 comparisons = load_comparisons(expedition, leg)
-                response = next_compare_response(load_manifest(expedition, leg), comparisons)
+                response = next_compare_response(
+                    load_manifest(expedition, leg), comparisons, expedition, leg
+                )
             self._json_response(200, response)
             return
         if route_path == "/api/favorites":
@@ -1995,6 +2033,20 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 generate_thumbnail(match["file"], thumb_path)
             # fall through to super().do_GET() below, which now finds the file on disk
 
+        if route_path.startswith("/counterfactuals/"):
+            tag = urllib.parse.unquote(route_path[len("/counterfactuals/"):])
+            if not tag or "/" in tag or "\\" in tag:
+                self.send_error(404, "invalid counterfactual tag")
+                return
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
+            image_path = _counterfactuals_dir(expedition, leg) / f"{tag}.png"
+            if not image_path.is_file():
+                self.send_error(404, "counterfactual image is unavailable")
+                return
+            self._send_image_file(image_path)
+            return
+
         if self.path.startswith("/real_thumbs/"):
             # Mirrors /thumbs/ above but for REAL_DIR (corrected_dataset_extract/, read-only
             # reference data): cache writes go to the active leg's real_thumbs/, never into REAL_DIR
@@ -2072,10 +2124,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if winner == loser:
                 self._json_response(400, {"error": "'winner' and 'loser' must be different images"})
                 return
-            expedition = payload.get("expedition")
-            leg = payload.get("leg")
-            if (expedition is None) != (leg is None):
-                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            try:
+                expedition, leg = _request_scope(
+                    payload.get("expedition"), payload.get("leg")
+                )
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
                 return
             with _lock:
                 comparisons = load_comparisons(expedition, leg)
@@ -2084,7 +2138,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             # Outside _lock: a full model fit can take a while, and every other route (favorites,
             # compare, cockpit) shares this same lock, so retraining here would block them for the
             # fit's whole duration instead of just the comparison write above.
-            _maybe_retrain_pairwise_model(comparisons)
+            _maybe_retrain_pairwise_model(comparisons, expedition, leg)
             self._json_response(200, {"ok": True, "count": len(comparisons)})
             return
 
@@ -2093,10 +2147,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if not isinstance(enabled, bool):
                 self._json_response(400, {"error": "missing or non-boolean 'enabled'"})
                 return
-            expedition = payload.get("expedition")
-            leg = payload.get("leg")
-            if (expedition is None) != (leg is None):
-                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            try:
+                expedition, leg = _request_scope(
+                    payload.get("expedition"), payload.get("leg")
+                )
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
                 return
             out_dir = _scope_out_dir(expedition, leg)
             if out_dir is None:
@@ -2117,10 +2173,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if not tag or flag not in {"matches", "questionable"}:
                 self._json_response(400, {"error": "'tag' and a valid 'flag' are required"})
                 return
-            expedition = payload.get("expedition")
-            leg = payload.get("leg")
-            if (expedition is None) != (leg is None):
-                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            try:
+                expedition, leg = _request_scope(
+                    payload.get("expedition"), payload.get("leg")
+                )
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
                 return
             with _lock:
                 flags = load_store(_preference_rank_flags_file(expedition, leg))
@@ -2130,10 +2188,12 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if route_path == "/api/preference_retrain":
-            expedition = payload.get("expedition")
-            leg = payload.get("leg")
-            if (expedition is None) != (leg is None):
-                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            try:
+                expedition, leg = _request_scope(
+                    payload.get("expedition"), payload.get("leg")
+                )
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
                 return
             try:
                 with _lock:
@@ -2152,7 +2212,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                     self._json_response(500, {"error": "preference retrain failed: no usable comparisons"})
                     return
                 with _lock:
-                    _pairwise_model_cache["model"] = result["model"]
+                    _cache_model(expedition, leg, result["model"])
             except Exception as e:
                 self._json_response(500, {"error": f"preference retrain crashed: {e}"})
                 return
@@ -2168,6 +2228,15 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 return
             expedition = payload.get("expedition")
             leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
+            if expedition is not None:
+                try:
+                    expedition, leg = _request_scope(expedition, leg)
+                except ValueError as e:
+                    self._json_response(400, {"error": str(e)})
+                    return
             if expedition is None or leg is None:
                 _logger.warning("favorite mutation without expedition/leg is deprecated")
                 favorites_file = _favorites_file()
@@ -2188,6 +2257,15 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             tag = payload.get("tag")
             expedition = payload.get("expedition")
             leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
+            if expedition is not None:
+                try:
+                    expedition, leg = _request_scope(expedition, leg)
+                except ValueError as e:
+                    self._json_response(400, {"error": str(e)})
+                    return
             if expedition is None or leg is None:
                 _logger.warning("favorite mutation without expedition/leg is deprecated")
                 favorites_file = _favorites_file()
@@ -2207,8 +2285,10 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             trial_id = f"trial_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
             expedition = payload.get("expedition")
             leg = payload.get("leg")
-            if (expedition is None) != (leg is None):
-                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+            try:
+                expedition, leg = _request_scope(expedition, leg)
+            except ValueError as e:
+                self._json_response(400, {"error": str(e)})
                 return
             try:
                 trial = build_trial(payload, datetime.now(timezone.utc).isoformat(), trial_id)
@@ -2577,11 +2657,14 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if not origin_tag or not prompt:
             self._json_response(400, {"error": "missing 'origin_tag' or 'prompt'"})
             return
-        expedition = payload.get("expedition")
-        leg = payload.get("leg")
-        if (expedition is None) != (leg is None):
-            self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+        try:
+            expedition, leg = _request_scope(
+                payload.get("expedition"), payload.get("leg")
+            )
+        except ValueError as e:
+            self._json_response(400, {"error": str(e)})
             return
+        focus_id = payload.get("focus_id")
 
         try:
             n = int(payload.get("n", 1))
@@ -2620,7 +2703,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 record = self._submit_and_wait_for_counterfactual(
                     api_key, origin_tag, prompt, strength, cfg, seed, steps, sampler, negative,
                     payload.get("overridden", []), i,
-                    expedition, leg,
+                    expedition, leg, focus_id,
                 )
             except (RuntimeError, TimeoutError) as e:
                 self._json_response(502, {"ok": False, "error": str(e), "results": results})
@@ -2631,7 +2714,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
 
     def _submit_and_wait_for_counterfactual(self, api_key, origin_tag, prompt, strength, cfg,
                                              seed, steps, sampler, negative, overridden, batch_index,
-                                             expedition=None, leg=None):
+                                             expedition=None, leg=None, focus_id=None):
         wf = build_workflow(prompt, seed, strength, cfg, steps, sampler, negative)
         try:
             res = comfy_post("/run", wf, api_key)
@@ -2660,11 +2743,17 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 fname = str(_counterfactuals_dir(expedition, leg) / f"{new_tag}.png")
                 with open(fname, "wb") as f:
                     f.write(base64.b64decode(images[0]["data"]))
+                image_url = f"/counterfactuals/{urllib.parse.quote(new_tag, safe='')}"
+                query = {"expedition": expedition, "leg": leg}
+                if focus_id:
+                    query["focus_id"] = focus_id
+                if expedition is not None and leg is not None:
+                    image_url += "?" + urllib.parse.urlencode(query)
                 record = {
                     "tag": new_tag, "origin_tag": origin_tag, "prompt": prompt,
                     "strength": strength, "cfg": cfg, "seed": seed, "steps": steps,
                     "sampler": sampler, "negative": negative,
-                    "file": f"counterfactuals/{new_tag}.png",
+                    "file": image_url,
                     "overridden": overridden,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
@@ -2743,13 +2832,13 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
 
     def _handle_cockpit_autopilot(self, payload=None):
         payload = payload or {}
-        expedition = payload.get("expedition")
-        leg = payload.get("leg")
-        if (expedition is None) != (leg is None):
-            self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+        try:
+            expedition, leg = _request_scope(
+                payload.get("expedition"), payload.get("leg")
+            )
+        except ValueError as e:
+            self._json_response(400, {"error": str(e)})
             return
-        if expedition is None:
-            expedition, leg = _active_scope()
         with _lock:
             favorites = load_store(_favorites_file(expedition, leg))
             comparisons = load_comparisons(expedition, leg)

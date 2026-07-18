@@ -1,3 +1,5 @@
+import re
+
 from clawmarks.build import (
     cockpit,
     compare_page,
@@ -13,6 +15,7 @@ from clawmarks.build import (
     scan_gallery,
     seed_browser,
 )
+from clawmarks import curation_server as cs
 from clawmarks.shared_ui import _LIGHTBOX_JS
 
 
@@ -45,7 +48,13 @@ def test_all_focus_tool_links_preserve_complete_context():
         cockpit.render_html(active_expedition="demo", active_leg="round1", focus=FOCUS),
     ]
 
-    assert all(suffix in page for page in rendered_pages)
+    for page in rendered_pages:
+        assert suffix in page
+        jump = page[page.index('aria-label="jump to another page"'):]
+        jump = jump[:jump.index('</select>')]
+        option_values = [value for value in re.findall(r'<option value="([^"]+)"', jump) if value]
+        assert option_values
+        assert all(suffix in value for value in option_values)
 
 
 def test_lightbox_scopes_script_relative_scan_data_url():
@@ -54,3 +63,20 @@ def test_lightbox_scopes_script_relative_scan_data_url():
 
     assert "searchParams.set('expedition'" in script_branch
     assert "searchParams.set('leg'" in script_branch
+
+
+def test_scoped_model_cache_does_not_cross_contaminate_legs():
+    cache = cs._pairwise_model_cache["by_scope"]
+    original = dict(cache)
+    try:
+        cache.clear()
+        round1_model = object()
+        round2_model = object()
+        cs._cache_model("demo", "round1", round1_model)
+        cs._cache_model("demo", "round2", round2_model)
+
+        assert cs._model_for_scope("demo", "round1") is round1_model
+        assert cs._model_for_scope("demo", "round2") is round2_model
+    finally:
+        cache.clear()
+        cache.update(original)
