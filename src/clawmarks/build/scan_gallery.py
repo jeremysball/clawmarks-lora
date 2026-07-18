@@ -229,6 +229,7 @@ def render_html(
 {nav_bar_html('scan.html', active_expedition, active_leg, focus=focus)}
 <div id="bar">
    <h1>CLAWMARKS <span>uncanny scan</span></h1>
+   <span style="color:var(--text-soft);font-size:13px;margin-right:auto">Browse and curate AI-generated artwork from this LoRA search.</span>
   <label>Sort{novelty_tip} <select id="sortKey">
     <option value="novelty_desc">Novelty (high to low)</option>
     <option value="faith_desc">Faithfulness (high to low)</option>

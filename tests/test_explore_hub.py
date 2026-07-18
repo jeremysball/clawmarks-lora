@@ -15,14 +15,14 @@ def test_hub_groups_tools_into_researcher_workflows():
         assert f"<h2>{heading}</h2>" in html
 
 
-def test_explore_has_one_connected_workflow_stepper():
+def test_explore_has_details_how_search_round_works_instead_of_workflow_stepper():
     html = explore_hub.render_html()
 
-    assert 'id="workflowStepper"' in html
-    assert html.count('class="workflow-stage"') == 5
-    assert html.count(' aria-current="step"') == 1
-    assert 'aria-live="polite"' in html
+    assert 'id="workflowStepper"' not in html
+    assert 'class="workflow-stage"' not in html
     assert "workflow-card" not in html
+    assert "<details" in html
+    assert "How a search round works" in html
 
 
 def test_render_html_uses_sulfur_proof_shell():
@@ -79,8 +79,8 @@ def test_render_html_preserves_a_compact_ruled_full_tool_index():
         assert f'href="/{path}"' in a_tag, f"link wrapping {path}'s .name has wrong href: {a_tag!r}"
         assert f'<span class="desc">{desc}</span>' in html
 
-    # The h1 still carries the page's "How does this search work?" tip link.
-    assert "How does this search work?" in html
+    # The page includes the "How a search round works" onboarding details.
+    assert "How a search round works" in html
 
 
 def test_render_html_accepts_optional_active_leg_kwargs():

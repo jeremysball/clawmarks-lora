@@ -1,3 +1,4 @@
+import json
 import threading
 from http.server import HTTPServer
 import urllib.error
@@ -65,19 +66,15 @@ def test_status_page_shows_no_leg_selected_without_error_string(running_server_n
     assert "could not read manifest" not in body
 
 
-def test_root_and_explore_are_active_desk_while_status_is_a_pure_status_page(running_server_no_leg):
+def test_explore_is_focus_desk_while_status_is_pure_status_page(running_server_no_leg):
     port = running_server_no_leg.server_address[1]
 
     def get_text(path):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as response:
             return response.read().decode()
 
-    root = get_text("/")
-    explore = get_text("/explore.html")
     status = get_text("/status.html")
 
-    assert 'id="workflowStepper"' in root
-    assert 'id="workflowStepper"' in explore
     assert "choose context" in status
     assert 'id="workflowStepper"' not in status
 
@@ -128,3 +125,56 @@ def test_cockpit_run_post_returns_a_clean_400_with_no_active_leg(running_server_
     assert exc_info.value.code == 400
     body = exc_info.value.read().decode()
     assert "no expedition/leg selected" in body
+
+
+@pytest.fixture
+def running_server_with_scan_gallery(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "EXPEDITIONS_DIR", tmp_path / "expeditions")
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    leg_dir = tmp_path / "expeditions" / "test" / "test-leg"
+    leg_dir.mkdir(parents=True)
+    (leg_dir / "scored_manifest.json").write_text(json.dumps([
+        {"file": "a.png", "tag": "a", "category": "test", "prompt_name": "fox",
+         "prompt_type": "conflict", "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1,
+         "steps": 28, "sampler": "ddim", "negative": "n", "centroid_sim": 0.5, "novelty": 0.5}
+    ]))
+    monkeypatch.setitem(cs._active_selection, "expedition", "test")
+    monkeypatch.setitem(cs._active_selection, "leg", "test-leg")
+    mock_items = [
+        {"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0, "sort_gen": 1,
+         "category": "test", "prompt_name": "fox", "prompt_type": "conflict",
+         "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28, "sampler": "ddim",
+         "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}
+    ]
+    monkeypatch.setattr(cs, "_get_scan_items", lambda expedition, leg: mock_items)
+    server = HTTPServer(("127.0.0.1", 0), cs.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    thread.join(timeout=2)
+
+
+def test_root_and_scan_render_the_same_image_gallery(running_server_with_scan_gallery):
+    port = running_server_with_scan_gallery.server_address[1]
+
+    def get_text(path):
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as response:
+            return response.read().decode()
+
+    root = get_text("/")
+    scan = get_text("/scan.html")
+
+    assert 'id="grid"' in root
+    assert 'id="grid"' in scan
+    assert "Browse and curate AI-generated artwork from this LoRA search." in root
+    assert 'id="workflowStepper"' not in root
+
+
+def test_explore_route_keeps_focus_desk_without_primary_stepper(running_server_no_leg):
+    port = running_server_no_leg.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/explore.html") as resp:
+        explore = resp.read().decode()
+    assert "Open Foci" in explore or "Focus evidence" in explore
+    assert 'id="workflowStepper"' not in explore
+    assert "How a search round works" in explore

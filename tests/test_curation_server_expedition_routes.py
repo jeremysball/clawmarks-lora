@@ -250,13 +250,17 @@ def test_status_page_data_integrity_error_body_uses_sulfur_proof_shell(running_s
     assert "border-radius:8px" not in body
 
 
-def test_root_serves_the_explore_workbench_and_status_html_serves_the_picker(
-    running_server_with_leg,
+def test_root_serves_scan_gallery_and_explore_stays_on_its_own_route(
+    running_server_with_leg, monkeypatch,
 ):
-    """Explore is the canonical landing page: "/" and "/explore.html" render the same Explore
-    workbench, while "/status.html" moved to its own dedicated route for today's status, the
-    data-integrity warning, and the expedition/leg picker (per the explore-root-review Lavish
-    decision)."""
+    """The image gallery is the homepage: "/" serves the scan gallery while "/explore.html"
+    stays on the Focus research desk. "/status.html" remains a pure status route."""
+    monkeypatch.setattr(cs, "_get_scan_items", lambda expedition, leg: [
+        {"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0, "sort_gen": 1,
+         "category": "test", "prompt_name": "fox", "prompt_type": "conflict",
+         "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28, "sampler": "ddim",
+         "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}
+    ])
     port = running_server_with_leg.server_address[1]
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as root_resp:
         root_body = root_resp.read().decode()
@@ -267,10 +271,7 @@ def test_root_serves_the_explore_workbench_and_status_html_serves_the_picker(
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.html") as status_resp:
         status_body = status_resp.read().decode()
         assert status_resp.status == 200
-    # "/" and "/explore.html" render the same Explore workbench template. Each call to
-    # info_btn() bumps a process-wide tip-id counter, so the two bodies aren't byte-identical
-    # across separate render calls; compare the stable title instead.
-    assert "<title>CLAWMARKS research desk</title>" in root_body
+    assert "<title>CLAWMARKS uncanny scan</title>" in root_body
     assert "<title>CLAWMARKS research desk</title>" in explore_body
     assert "<title>CLAWMARKS research desk</title>" not in status_body
     assert root_body != status_body

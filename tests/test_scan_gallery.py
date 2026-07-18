@@ -108,6 +108,15 @@ def test_render_html_uses_sulfur_proof_shell():
     assert "prefers-color-scheme: dark" not in html
 
 
+def test_render_html_includes_homepage_orientation_heading():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "Browse and curate AI-generated artwork from this LoRA search." in html
+
+
 def test_render_html_grid_cells_use_mounted_evidence_depth():
     """Task 4 brief, Step 3 (Scan): thumbnail grid cells are mounted evidence on the paper
     background, not rounded cards. The page-local grid CSS therefore uses
