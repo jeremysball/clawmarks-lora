@@ -15,7 +15,6 @@ content). Every dynamic piece is a live fetch against curation_server.py:
 
 Served live at /cockpit.html by curation_server.py.
 """
-import html
 import json
 
 from clawmarks.shared_ui import (
@@ -62,25 +61,8 @@ MISSIONS = {
 }
 
 
-def render_html(expeditions=None, current_expedition=None, active_expedition=None, active_leg=None, running=None):
-    expeditions = expeditions or []
-    options = "".join(
-        f'<option value="{html.escape(e)}"{" selected" if e == current_expedition else ""}>{html.escape(e)}</option>'
-        for e in expeditions
-    )
-    selector = f"""<div class="expedition-picker">
-<label>Expedition: <select id="expeditionSelect">{options}</select></label>
-<button id="expeditionSwitch">Switch</button>
-</div>
-<script>
-document.getElementById('expeditionSwitch').addEventListener('click', () => {{
-  const expedition = document.getElementById('expeditionSelect').value;
-  fetch('/api/active-leg', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{expedition, leg: 'cockpit'}}),
-  }}).then(() => location.reload());
-}});
-</script>"""
+def render_html(expeditions=None, current_expedition=None, active_expedition=None, active_leg=None, running=None, focus=None):
+    selector = '<p class="small">Standalone generation remains available. No Focus provenance.</p>' if focus is None else ''
     missions_json_keys = "".join(
         f'<button class="mission striate{" active" if key == "gap" else ""}" data-mission="{key}">'
         f'<span>Mission</span><b>{m["name"]}</b><span>{m["title"]}</span></button>'
@@ -364,8 +346,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 </head>
 <body>
 {nav_bar_html('cockpit.html', active_expedition or current_expedition,
-              active_leg or ('cockpit' if current_expedition else None),
-              running=running)}
+              active_leg, running=running, focus=focus)}
 <main>
 {selector}
 <div class="eyebrow">Interactive trial workbench</div>
@@ -439,6 +420,13 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 
 <script>
 const MISSIONS = {json.dumps(MISSIONS)};
+const CONTEXT = {json.dumps({"expedition": active_expedition or current_expedition, "leg": active_leg, "focus_id": (focus or {}).get("focus_id") if focus else None})};
+function scopedApi(path) {{
+  const url = new URL(path, window.location.origin);
+  if (CONTEXT.expedition) url.searchParams.set('expedition', CONTEXT.expedition);
+  if (CONTEXT.leg) url.searchParams.set('leg', CONTEXT.leg);
+  return url.toString();
+}}
 let current='gap',selectedCell=null,frontierCells=[],n=4,seed='random',strength=1.0,queue=[];
 let evidenceReqId=0,pollTimer=null;
 const $=id=>document.getElementById(id);
@@ -476,10 +464,10 @@ function renderCoverageBox(c){{
 }}
 
 function fetchTargetCells(){{
-  fetch('/api/cockpit/target_cells').then(r=>r.json().then(d=>({{ok:r.ok,d}}))).then(({{ok,d}})=>{{
+  fetch(scopedApi('/api/cockpit/target_cells')).then(r=>r.json().then(d=>({{ok:r.ok,d}}))).then(({{ok,d}})=>{{
     if(!ok){{
       $('targetCards').innerHTML = d.no_manifest
-        ? '<div class="target-empty">No search data yet. <a href="/runs.html">Launch a search round</a> to get started.</div>'
+        ? '<div class="target-empty">No search data yet. <a href="/runs.html?expedition=' + encodeURIComponent(CONTEXT.expedition || '') + '&leg=' + encodeURIComponent(CONTEXT.leg || '') + '">Launch a search round</a> to get started.</div>'
         : '<div class="target-empty">Could not load frontier cells.</div>';
       frontierCells=[]; selectedCell=null;
       return;
@@ -499,7 +487,7 @@ function fetchEvidence(){{
   const params=new URLSearchParams({{prompt}});
   const c=frontierCells[selectedCell];
   if(current==='gap' && c) params.set('cell', `${{c.fb}},${{c.nb}}`);
-  fetch('/api/cockpit/evidence?'+params.toString()).then(r=>r.json()).then(d=>{{
+  fetch(scopedApi('/api/cockpit/evidence?'+params.toString())).then(r=>r.json()).then(d=>{{
     if(myReq!==evidenceReqId)return;
     const items=d.nearest||[];
     list.innerHTML = items.length ? items.map(it=>`<div class="nearest"><span class="thumb" style="background-image:url('${{escapeHtml(it.thumb||'')}}')"></span><div><b>${{escapeHtml(it.prompt_name)}}</b>
@@ -512,7 +500,7 @@ let evidenceDebounce=null;
 $('prompt').addEventListener('input', ()=>{{clearTimeout(evidenceDebounce);evidenceDebounce=setTimeout(fetchEvidence,400)}});
 
 function fetchSeeds(){{
-  fetch('/api/seeds').then(r=>r.json()).then(d=>{{
+  fetch(scopedApi('/api/seeds')).then(r=>r.json()).then(d=>{{
     const seeds=Object.keys(d).sort();
     $('seedPicker').innerHTML='<option value="">Insert from seed pool&hellip;</option>'
       +seeds.map(s=>`<option value="${{escapeHtml(s)}}">${{escapeHtml(s)}}</option>`).join('');
@@ -587,6 +575,7 @@ function sendDraft(){{
   }};
   if(!body.prompt){{$('queueStatus').textContent='Write a prompt before queuing a trial.';return}}
   $('sendDraft').disabled=true;
+  body.expedition = CONTEXT.expedition; body.leg = CONTEXT.leg; body.focus_id = CONTEXT.focus_id;
   fetch('/api/cockpit/queue', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(body)}})
     .then(r=>r.json().then(data=>({{ok:r.ok,data}})))
     .then(({{ok,data}})=>{{
@@ -622,7 +611,7 @@ function renderQueue(){{
 }}
 
 function loadQueue(){{
-  fetch('/api/cockpit/queue').then(r=>r.json()).then(d=>{{queue=d.trials||[];renderQueue()}}).catch(()=>{{}});
+  fetch(scopedApi('/api/cockpit/queue')).then(r=>r.json()).then(d=>{{queue=d.trials||[];renderQueue()}}).catch(()=>{{}});
 }}
 
 function reviewTrial(id){{
@@ -639,7 +628,7 @@ function reviewTrial(id){{
 function runTrial(id){{
   const button=document.querySelector(`[data-run="${{id}}"]`);
   if(button)button.disabled=true;
-  fetch(`/api/cockpit/queue/${{id}}/run`, {{method:'POST'}})
+  fetch(scopedApi(`/api/cockpit/queue/${{id}}/run`), {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{expedition:CONTEXT.expedition, leg:CONTEXT.leg}})}})
     .then(r=>r.json().then(data=>({{ok:r.ok,data}})))
     .then(({{ok,data}})=>{{
       if(!ok||data.error){{alert(data.error||'Could not start this trial.');if(button)button.disabled=false;return}}
@@ -650,7 +639,7 @@ function runTrial(id){{
 function loadAutopilot(){{
   const wrap=$('suggestions');
   wrap.innerHTML='<div class="empty-note">Asking for suggestions grounded in current coverage and prompt history&hellip; this can take a minute.</div>';
-  fetch('/api/cockpit/autopilot', {{method:'POST'}}).then(r=>r.json()).then(d=>{{
+  fetch('/api/cockpit/autopilot', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{expedition:CONTEXT.expedition, leg:CONTEXT.leg, focus_id:CONTEXT.focus_id}})}}).then(r=>r.json()).then(d=>{{
     wrap.dataset.loaded='1';
     const items=d.suggestions||[];
     wrap.innerHTML = items.length ? items.map(s=>`

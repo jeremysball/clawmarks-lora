@@ -27,6 +27,7 @@ from clawmarks.shared_ui import (
     info_btn,
     json_script,
     nav_bar_html,
+    scoped_href,
 )
 from clawmarks.workspace_context import WorkspaceContext, generated_image_url
 from clawmarks.durable_records import sha256_json
@@ -198,7 +199,9 @@ def neighbor_tags(data, fb, nb):
 def render_html(
     data, active_expedition=None, active_leg=None, running=None,
     context: WorkspaceContext | None = None,
+    focus=None,
 ):
+    focus = focus or (context.focus if context is not None else None)
     cells_json = data["cells"]
     if context is not None:
         cells_json = [
@@ -314,7 +317,7 @@ a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('coverage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('coverage.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Coverage / void map{axes_tip}</h1>
 <p class="sub">Same DINOv2{dino_tip}-based faithfulness (x) x novelty (y) plane as gallery.html, but at a finer {N_BINS}x{N_BINS}
 grid and colored by image count instead of showing thumbnails per cell. Gold-outlined cells are
@@ -345,7 +348,7 @@ all. Click a cell to preview its top image, or "view all" to see every image in 
      </label>
      <button id="createCoverageFocus" class="raised-control" type="button" disabled>Create Focus</button>
      <div id="selectionStatus" role="status" aria-live="polite"></div>
-     <a class="cockpit-link" id="cockpitLink" href="cockpit.html">Target this gap in cockpit</a>
+     <a class="cockpit-link" id="cockpitLink" href="{scoped_href('/cockpit.html', active_expedition, active_leg, focus)}">Target this gap in cockpit</a>
    </div>
  </div>
  <table id="coverageValues" aria-label="Coverage values">

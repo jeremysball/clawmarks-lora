@@ -19,6 +19,7 @@ from clawmarks.shared_ui import (
     SULFUR_FONT_CSS,
     TOPNAV_CSS,
     nav_bar_html,
+    scoped_href,
 )
 
 
@@ -41,7 +42,7 @@ def compute_data(sweep_dir):
     return {"has_lineage": True, "by_tag": by_tag, "children_by_parent": children_by_parent}
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(data, active_expedition=None, active_leg=None, running=None, focus=None):
     if not data["has_lineage"]:
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS lineage tree</title>
@@ -58,7 +59,7 @@ p {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.7; }
 a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
-{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Lineage tree</h1>
 <p>No image in this dataset carries a <code>parent_tag</code> yet, so there's nothing to draw a
 tree from (placeholder page). Round 1's driver never recorded which parent an exploit step mutated near, and while
@@ -108,9 +109,9 @@ ul li:last-child > .node {{ border-bottom:none; }}
 a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
-{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('lineage.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Lineage tree</h1>
-<p><a class="navlink" href="cockpit.html">Continue this lineage in cockpit</a></p>
+<p><a class="navlink" href="{scoped_href('/cockpit.html', active_expedition, active_leg, focus)}">Continue this lineage in cockpit</a></p>
 {tree_html}
 <script>
 document.querySelectorAll('.node[data-tag]').forEach(el => {{

@@ -93,8 +93,10 @@ def compute_data(sweep_dir, deps):
 
 
 def render_html(
-    items, active_expedition=None, active_leg=None, context: WorkspaceContext | None = None
+    items, active_expedition=None, active_leg=None, context: WorkspaceContext | None = None,
+    focus=None,
 ):
+    focus = focus or (context.focus if context is not None else None)
     render_items = items
     if context is not None:
         render_items = [
@@ -224,7 +226,7 @@ def render_html(
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('scan.html', active_expedition, active_leg)}
+{nav_bar_html('scan.html', active_expedition, active_leg, focus=focus)}
 <div id="bar">
    <h1>CLAWMARKS <span>uncanny scan</span></h1>
   <label>Sort{novelty_tip} <select id="sortKey">

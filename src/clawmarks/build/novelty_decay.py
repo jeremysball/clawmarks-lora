@@ -58,7 +58,7 @@ def compute_data(sweep_dir):
     return {"series": series}
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(data, active_expedition=None, active_leg=None, running=None, focus=None):
     series = data["series"]
     dino_tip = info_btn(DINO_TIP)
 
@@ -78,7 +78,7 @@ p {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:1.7; }
 a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
-{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Novelty decay watchlist</h1>
 <p>DINOv2{dino_tip} scores every image before this chart groups them. No prompt family in this dataset has appeared in 2+ generations yet, so there's no decay curve
 to plot (placeholder page). This chart tracks each prompt's mean novelty generation over
@@ -133,7 +133,7 @@ a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('novelty_decay.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Novelty decay watchlist{trend_tip}</h1>
 <p class="sub">DINOv2{dino_tip} scores every image before this chart groups them. Novelty measures how unlike an image is from the images already explored. Mean novelty per generation, one line per prompt family that has appeared in 2+
 generations, sorted worst-trending first. A flat or falling line means that prompt has stopped

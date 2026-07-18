@@ -136,7 +136,9 @@ def compute_data(sweep_dir, use_predicted_preference=False):
 def render_html(
     data, active_expedition=None, active_leg=None, running=None,
     context: WorkspaceContext | None = None,
+    focus=None,
 ):
+    focus = focus or (context.focus if context is not None else None)
     cells = data["cells"]
     if context is not None:
         cells = [
@@ -232,7 +234,7 @@ a.navlink {{ color:var(--ink); font-size:12.5px; text-decoration:underline; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('archive.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('archive.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Elite archive{elite_tip}</h1>
 <p class="sub">One image per occupied cell of the faithfulness x novelty grid: the actual
 MAP-Elites archive, not the full population. Gold-bordered cells are favorited winners;

@@ -16,10 +16,11 @@ from clawmarks.shared_ui import (
     TOPNAV_CSS,
     info_btn,
     nav_bar_html,
+    scoped_href,
 )
 
 
-def render_html(active_expedition=None, active_leg=None, running=None):
+def render_html(active_expedition=None, active_leg=None, running=None, focus=None):
     compare_tip = info_btn(
         "Trains the preference model by comparison: pick whichever of the two images you "
         "prefer, as many times as you can stand. Early comparisons are sampled to spread across "
@@ -104,11 +105,11 @@ table.work-table td:first-child {{ color:var(--ink); }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('compare.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('compare.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Compare{compare_tip}</h1>
 <p class="sub">Tap or click the image you prefer (or press &larr;/&rarr;). Tap the magnifier in
 a corner to inspect that image at full resolution; tap again to close.</p>
-<p class="sub"><a href="preference_status.html">View preference status</a> or <a href="preference_rank.html">review the model's ranking</a>.</p>
+<p class="sub"><a href="{scoped_href('/preference_status.html', active_expedition, active_leg, focus)}">View preference status</a> or <a href="{scoped_href('/preference_rank.html', active_expedition, active_leg, focus)}">review the model's ranking</a>.</p>
 
 <div id="progress">
   <div id="prog-label"><span id="prog-label-text">&nbsp;</span>{accuracy_tip}</div>
@@ -151,6 +152,14 @@ let rawCount = 0;
 let statusStale = false;
 let lastAccuracy = null;
 let modelMeta = null;
+const SCOPE_QUERY = new URLSearchParams(window.location.search);
+function scopedApi(path) {{
+  const url = new URL(path, window.location.origin);
+  ['expedition', 'leg'].forEach(key => {{
+    if (SCOPE_QUERY.has(key)) url.searchParams.set(key, SCOPE_QUERY.get(key));
+  }});
+  return url.toString();
+}}
 
 const MIN_COMPARISONS = 50;
 const RETRAIN_EVERY = 10;
@@ -221,13 +230,13 @@ function renderWork(work) {{
   rows.push(['trained', m.trained_at]);
   table.innerHTML = rows.map(([k, v]) => `<tr><td>${{k}}</td><td>${{v}}</td></tr>`).join('')
     + '<tr><td colspan="2" class="work-note">full breakdown + retrain: '
-    + '<a href="preference_status.html" style="color:inherit;">preference_status.html</a></td></tr>';
+    + '<a href="{scoped_href('/preference_status.html', active_expedition, active_leg, focus)}" style="color:inherit;">preference_status.html</a></td></tr>';
   work.style.display = 'block';
 }}
 
 function fetchStatus(after) {{
   const prevTotalCount = totalCount;
-  fetch('/api/preference_status').then(r => r.ok ? r.json() : null).then(d => {{
+  fetch(scopedApi('/api/preference_status')).then(r => r.ok ? r.json() : null).then(d => {{
     if (d) {{
       statusStale = false;
       if (typeof d.n_usable === 'number') totalCount = d.n_usable;
@@ -246,7 +255,7 @@ function fetchStatus(after) {{
 }}
 
 function loadNext() {{
-  fetch('/api/compare/next').then(r => {{
+  fetch(scopedApi('/api/compare/next')).then(r => {{
     if (!r.ok) throw new Error('Could not load the next comparison');
     return r.json();
   }}).then(d => {{
@@ -286,7 +295,7 @@ function choose(side) {{
   const winner = side === 1 ? current.img1.tag : current.img2.tag;
   const loser = side === 1 ? current.img2.tag : current.img1.tag;
   fetch('/api/compare', {{method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{winner, loser}})}})
+     body: JSON.stringify({{winner, loser, expedition: SCOPE_QUERY.get('expedition'), leg: SCOPE_QUERY.get('leg')}})}})
     .then(r => {{
       if (!r.ok) throw new Error('Could not save the comparison');
       return r.json();

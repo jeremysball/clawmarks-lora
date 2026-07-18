@@ -3,7 +3,7 @@ Shared UI pieces used by every build/*.py tool-page generator, so the lightbox, 
 navigation bar, and its scroll-to-hide behavior are defined once instead of duplicated across
 every page. Import and use:
 
-    from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS, SHARED_UI_JS
+from clawmarks.shared_ui import nav_bar_html, TOPNAV_CSS, SCROLLNAV_JS, _LIGHTBOX_JS, SHARED_UI_JS
 
 `curation_server.py` serves `_LIGHTBOX_JS`, `SCROLLNAV_JS`, `INFOTIP_JS`, and `SHARED_UI_JS`
 directly from `/lightbox.js`, `/scrollnav.js`, `/infotip.js`, and `/shared-ui.js` routes; every
@@ -16,6 +16,8 @@ expedition/leg can change from any page without duplicating the per-page fetch+P
 """
 import html
 import json
+
+from clawmarks.workspace_context import WorkspaceContext, context_url
 
 
 def json_script(data):
@@ -48,6 +50,14 @@ NAV_GROUPS = [
                           ("preference_rank.html", "predicted preference")]),
 ]
 NAV_OPTIONS = [option for _group, options in NAV_GROUPS for option in options]
+
+
+def scoped_href(path, active_expedition=None, active_leg=None, focus=None):
+    """Return an HTML-escaped link carrying the page's explicit workspace scope."""
+    if not active_expedition or not active_leg or focus is None:
+        return html.escape(path, quote=True)
+    context = WorkspaceContext(active_expedition, active_leg, focus)
+    return html.escape(context_url(path, context), quote=True)
 
 
 DARK_TOKENS = """
@@ -191,7 +201,7 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None,
     page_name = html.escape(_page_name_for(current))
     opts = "".join(
         f'<optgroup label="{html.escape(group)}">' + "".join(
-            f'<option value="{html.escape(href)}"'
+            f'<option value="{scoped_href(href, active_expedition, active_leg, focus)}"'
             f'{" selected" if href == current else ""}>{html.escape(label)}</option>'
             for href, label in options
         ) + '</optgroup>'
@@ -214,11 +224,11 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None,
         )
     focus_link = ""
     if focus:
-        fid = focus.get("focus_id", "")
         flabel = html.escape(focus.get("label", ""))
         frev = focus.get("revision", "")
+        focus_url = scoped_href(current, active_expedition, active_leg, focus)
         focus_link = (
-            f'<a class="focus-link" href="?focus_id={html.escape(fid)}" '
+            f'<a class="focus-link" href="{focus_url}" '
             f'title="open this Focus ({flabel}, revision {frev})">'
             f'<span class="focus-name">{flabel}</span> '
             f'<span class="focus-revision">r{html.escape(str(frev))}</span></a>'
@@ -236,7 +246,10 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None,
         'aria-haspopup="dialog" aria-controls="guidePanel" '
         'title="open the OpenCode Guide for this page">Guide</button>'
     )
-    session_link = '<a class="session-status" href="/status.html">session status</a>'
+    session_link = (
+        f'<a class="session-status" href="{scoped_href("/status.html", active_expedition, active_leg, focus)}">'
+        'session status</a>'
+    )
     dropdown = (
         '<select onchange="if(this.value) location.href=this.value;" '
         'aria-label="jump to another page">'
@@ -262,7 +275,7 @@ def nav_bar_html(current, active_expedition=None, active_leg=None, running=None,
         f'data-expedition="{html.escape(active_expedition or "")}" '
         f'data-leg="{html.escape(active_leg or "")}" '
         f'data-page-name="{page_name}">'
-        f'<a class="wordmark" href="/">CLAWMARKS</a>'
+        f'<a class="wordmark" href="{scoped_href("/", active_expedition, active_leg, focus)}">CLAWMARKS</a>'
         f'<span class="page-name">{page_name}</span>'
         f'{context_button}{focus_link}{running_label}{guide_button}{session_link}{dropdown}'
         f'{context_dialog}'
@@ -640,6 +653,7 @@ _LIGHTBOX_JS = r"""(function(){
   let el = null;
   let LB_EXPEDITION = null;
   let LB_LEG = null;
+  let LB_FOCUS_ID = null;
 
   function ensureDom(){
     if (el) return;
@@ -758,6 +772,8 @@ _LIGHTBOX_JS = r"""(function(){
     const context = document.getElementById('topnav');
     LB_EXPEDITION = context ? context.dataset.expedition : null;
     LB_LEG = context ? context.dataset.leg : null;
+    const query = new URLSearchParams(window.location.search);
+    LB_FOCUS_ID = query.get('focus_id');
     el.dataset.expedition = LB_EXPEDITION || '';
     el.dataset.leg = LB_LEG || '';
     document.body.appendChild(el);
@@ -794,7 +810,10 @@ _LIGHTBOX_JS = r"""(function(){
         return new URL('scan_data.json', s.src).toString();
       }
     }
-    return 'scan_data.json';
+    const url = new URL('scan_data.json', window.location.href);
+    if (LB_EXPEDITION) url.searchParams.set('expedition', LB_EXPEDITION);
+    if (LB_LEG) url.searchParams.set('leg', LB_LEG);
+    return url.toString();
   }
 
   function loadData(){
@@ -807,10 +826,16 @@ _LIGHTBOX_JS = r"""(function(){
     });
   }
   function loadFavorites(){
-    return fetch('/api/favorites').then(r => r.json()).then(f => { favorites = f; }).catch(() => {});
+    const url = new URL('/api/favorites', window.location.origin);
+    if (LB_EXPEDITION) url.searchParams.set('expedition', LB_EXPEDITION);
+    if (LB_LEG) url.searchParams.set('leg', LB_LEG);
+    return fetch(url).then(r => r.json()).then(f => { favorites = f; }).catch(() => {});
   }
   function loadCounterfactuals(){
-    return fetch('/api/counterfactuals').then(r => r.json()).then(c => { counterfactuals = c; }).catch(() => {});
+    const url = new URL('/api/counterfactuals', window.location.origin);
+    if (LB_EXPEDITION) url.searchParams.set('expedition', LB_EXPEDITION);
+    if (LB_LEG) url.searchParams.set('leg', LB_LEG);
+    return fetch(url).then(r => r.json()).then(c => { counterfactuals = c; }).catch(() => {});
   }
 
   // Shared full-size prefetch cache, keyed by tag: { img, done }. `done` means the load
@@ -955,6 +980,9 @@ _LIGHTBOX_JS = r"""(function(){
     status.textContent = (n > 1 ? `Generating ${n} variations...` : 'Generating...') +
       ' a few seconds if the endpoint is already warm, up to 5 minutes if it has to cold-start a worker. Keep this tab open.';
 
+    body.expedition = LB_EXPEDITION;
+    body.leg = LB_LEG;
+    body.focus_id = LB_FOCUS_ID;
     fetch('/api/counterfactual', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
       .then(r => r.json().then(data => ({ok: r.ok, data})))
       .then(({ok, data}) => {
@@ -1005,8 +1033,8 @@ _LIGHTBOX_JS = r"""(function(){
     const isFav = !!favorites[d.tag];
     const endpoint = isFav ? '/api/unfavorite' : '/api/favorite';
     const body = isFav
-      ? {tag: d.tag, expedition: LB_EXPEDITION, leg: LB_LEG}
-      : Object.assign({}, d, {expedition: LB_EXPEDITION, leg: LB_LEG});
+      ? {tag: d.tag, expedition: LB_EXPEDITION, leg: LB_LEG, focus_id: LB_FOCUS_ID}
+      : Object.assign({}, d, {expedition: LB_EXPEDITION, leg: LB_LEG, focus_id: LB_FOCUS_ID});
     const removedRecord = isFav ? favorites[d.tag] : null;
     fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
       .then(r => { if (!r.ok) throw new Error('favorite save failed'); return r.json(); })
@@ -1032,7 +1060,7 @@ _LIGHTBOX_JS = r"""(function(){
     undoBtn = document.createElement('button');
     undoBtn.textContent = 'Undo';
     undoBtn.onclick = () => {
-      const body = Object.assign({}, record, {expedition: LB_EXPEDITION, leg: LB_LEG});
+      const body = Object.assign({}, record, {expedition: LB_EXPEDITION, leg: LB_LEG, focus_id: LB_FOCUS_ID});
       fetch('/api/favorite', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
         .then(r => { if (!r.ok) throw new Error('restore failed'); return r.json(); })
         .then(res => {

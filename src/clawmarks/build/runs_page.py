@@ -22,10 +22,11 @@ from clawmarks.shared_ui import (
     SULFUR_FONT_CSS,
     TOPNAV_CSS,
     nav_bar_html,
+    scoped_href,
 )
 
 
-def render_html(active_expedition=None, active_leg=None, running=None):
+def render_html(active_expedition=None, active_leg=None, running=None, focus=None):
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS search runs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -78,7 +79,7 @@ button.danger:disabled {{ opacity:0.4; cursor:not-allowed;
   box-shadow:1px 1px 0 var(--ink); transform:translate(2px,2px); }}
 </style></head><body>
 
-{nav_bar_html('runs.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('runs.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Search runs</h1>
 <p class="sub">Launch an overnight search round from here instead of SSHing in. Every launch
 backs up the round's out_dir first and refuses to start if that backup can't be verified by file
@@ -109,7 +110,7 @@ already running.</p>
     <svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
   </div>
   <div id="categoryBreakdown"></div>
-  <p id="completedLinks" class="idle" style="display:none;"><a href="scan.html" onclick="openReportTool(event, 'scan.html')">Scan images</a> · <a href="coverage.html" onclick="openReportTool(event, 'coverage.html')">Check coverage</a> · <a href="novelty_decay.html" onclick="openReportTool(event, 'novelty_decay.html')">Review novelty decay</a></p>
+  <p id="completedLinks" class="idle" style="display:none;"><a href="{scoped_href('/scan.html', active_expedition, active_leg, focus)}" onclick="openReportTool(event, 'scan.html')">Scan images</a> · <a href="{scoped_href('/coverage.html', active_expedition, active_leg, focus)}" onclick="openReportTool(event, 'coverage.html')">Check coverage</a> · <a href="{scoped_href('/novelty_decay.html', active_expedition, active_leg, focus)}" onclick="openReportTool(event, 'novelty_decay.html')">Review novelty decay</a></p>
 </div>
 
 <script>

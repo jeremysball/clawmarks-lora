@@ -427,6 +427,16 @@ def test_header_names_page_scope_focus_and_guide():
     assert "<dialog" in markup
 
 
+def test_nav_bar_scopes_every_tool_link_to_focus():
+    markup = nav_bar_html(
+        "map.html", "demo", "round1",
+        focus={"focus_id": "focus_11111111111111111111111111111111", "label": "Ink anchor", "revision": 3},
+    )
+
+    assert 'value="/redundancy.html?expedition=demo&amp;leg=round1&amp;focus_id=focus_11111111111111111111111111111111"' in markup
+    assert 'href="/status.html?expedition=demo&amp;leg=round1&amp;focus_id=focus_11111111111111111111111111111111"' in markup
+
+
 def test_narrow_header_keeps_context_and_guide_labels():
     assert "@media (max-width:700px)" in shared_ui.TOPNAV_CSS
     assert ".context-label" in shared_ui.TOPNAV_CSS

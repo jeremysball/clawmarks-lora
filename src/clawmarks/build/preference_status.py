@@ -20,6 +20,7 @@ from clawmarks.shared_ui import (
     TOPNAV_CSS,
     info_btn,
     nav_bar_html,
+    scoped_href,
 )
 
 
@@ -83,7 +84,7 @@ def compute_data(sweep_dir):
     }
 
 
-def render_html(data, active_expedition=None, active_leg=None, running=None):
+def render_html(data, active_expedition=None, active_leg=None, running=None, focus=None):
     gate_html = (f'<p class="gate">{data["comparisons_gate_message"]}</p>'
                  if data["comparisons_gate_message"] else '<p class="gate ok">ready to train.</p>')
 
@@ -166,9 +167,9 @@ p.stale {{ color:#a84820; padding:2px 0; }}
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_status.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('preference_status.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Preference classifier status</h1>
-<p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}). <a href="compare.html">Compare more images</a> or <a href="preference_rank.html">review the ranking</a>.</p>
+<p class="sub">Comparisons: {data["n_usable"]} usable of {data["n_comparisons"]} total (needs {data["min_comparisons"]}). <a href="{scoped_href('/compare.html', active_expedition, active_leg, focus)}">Compare more images</a> or <a href="{scoped_href('/preference_rank.html', active_expedition, active_leg, focus)}">review the ranking</a>.</p>
 <div class="readiness">
 {gate_html}
 {staleness_html}
@@ -184,9 +185,10 @@ p.stale {{ color:#a84820; padding:2px 0; }}
 function toggle(enabled) {{
   const status = document.getElementById('toggle-status');
   status.textContent = 'saving...';
+  const scope = new URLSearchParams(location.search);
   fetch('/api/preference_toggle', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{enabled: enabled}}),
+    body: JSON.stringify({{enabled: enabled, expedition: scope.get('expedition'), leg: scope.get('leg')}}),
   }}).then(r => r.json()).then(data => {{
     if (data.error) {{
       status.textContent = data.error;
@@ -202,9 +204,10 @@ function retrain() {{
   button.disabled = true;
   button.textContent = 'Retraining…';
   status.textContent = '';
+  const scope = new URLSearchParams(location.search);
   fetch('/api/preference_retrain', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{}}),
+    body: JSON.stringify({{expedition: scope.get('expedition'), leg: scope.get('leg')}}),
   }}).then(r => r.json()).then(data => {{
     if (data.error) {{
       status.textContent = data.error;

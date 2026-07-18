@@ -65,7 +65,9 @@ def compute_data(sweep_dir):
 def render_html(
     data, active_expedition=None, active_leg=None, running=None,
     context: WorkspaceContext | None = None,
+    focus=None,
 ):
+    focus = focus or (context.focus if context is not None else None)
     if not data["has_model"]:
         return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -80,7 +82,7 @@ p.empty {{ color:var(--text-soft); max-width:640px; font-size:13px; line-height:
   padding:14px 0; border-bottom:1px solid var(--rule); }}
 </style>
 </head><body>
-{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Predicted preference</h1>
 <p class="empty">No trained model at <code>{data["model_file"]}</code>. Run <code>python -m clawmarks.search.preference_pairwise_model</code> first. It needs 50 or more comparisons.</p>
 <script src="scrollnav.js"></script>
@@ -144,7 +146,7 @@ p.sub {{ color:var(--text-soft); max-width:760px; font-size:13px; line-height:1.
 {INFOTIP_CSS}
 </style></head><body>
 
-{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg, running=running)}
+{nav_bar_html('preference_rank.html', active_expedition=active_expedition, active_leg=active_leg, running=running, focus=focus)}
 <h1>Predicted preference{rank_tip}</h1>
 <p class="sub">Top {len(items)} images by predicted preference score, highest first.</p>
 <div id="review-controls"><label><input id="reviewMode" type="checkbox"> Review top, middle, and bottom</label><span id="reviewCount"></span><span id="flagError" class="flag-error" role="alert" aria-live="polite"></span></div>
@@ -160,6 +162,7 @@ function escHtml(s) {{
 const ITEMS = {data_json};
 let reviewMode = false;
 let flags = {{}};
+const SCOPE_QUERY = new URLSearchParams(window.location.search);
 
 function reviewIndexes() {{
   const middle = Math.floor(ITEMS.length / 2);
@@ -180,7 +183,7 @@ function flagSelected(tag, flag) {{
 }}
 
 function saveFlag(tag, flag) {{
-  fetch('/api/preference_rank/flag', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{tag, flag}})}})
+  fetch('/api/preference_rank/flag', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{tag, flag, expedition:SCOPE_QUERY.get('expedition'), leg:SCOPE_QUERY.get('leg')}})}})
     .then(r => {{
       if (!r.ok) throw new Error('flag save failed');
       return r.json();
@@ -211,7 +214,9 @@ function render() {{
   }}));
 }}
 
-fetch('/api/preference_rank/flags').then(r => r.ok ? r.json() : {{}}).then(data => {{ flags = data; render(); }}).catch(render);
+const flagsUrl = new URL('/api/preference_rank/flags', window.location.origin);
+['expedition', 'leg'].forEach(key => {{ if (SCOPE_QUERY.has(key)) flagsUrl.searchParams.set(key, SCOPE_QUERY.get(key)); }});
+fetch(flagsUrl).then(r => r.ok ? r.json() : {{}}).then(data => {{ flags = data; render(); }}).catch(render);
 document.getElementById('reviewMode').addEventListener('change', e => {{ reviewMode = e.target.checked; render(); }});
 </script>
 <script src="scrollnav.js"></script>

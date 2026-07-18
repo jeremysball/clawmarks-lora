@@ -438,31 +438,31 @@ def _favorites_file(expedition=None, leg=None):
     return config.leg_dir(expedition, leg) / "user_favorites.json"
 
 
-def _comparisons_file():
-    return _require_out_dir() / "user_comparisons.json"
+def _comparisons_file(expedition=None, leg=None):
+    return _scope_out_dir(expedition, leg) / "user_comparisons.json"
 
 
-def _preference_rank_flags_file():
-    return _require_out_dir() / "preference_rank_flags.json"
+def _preference_rank_flags_file(expedition=None, leg=None):
+    return _scope_out_dir(expedition, leg) / "preference_rank_flags.json"
 
 
 def _counterfactuals_dir():
     return _require_out_dir() / "counterfactuals"
 
 
-def _counterfactuals_file():
-    return _require_out_dir() / "user_counterfactuals.json"
+def _counterfactuals_file(expedition=None, leg=None):
+    return _scope_out_dir(expedition, leg) / "user_counterfactuals.json"
 
 
-def _cockpit_queue_file():
-    return _require_out_dir() / "cockpit_queue.json"
+def _cockpit_queue_file(expedition=None, leg=None):
+    return _scope_out_dir(expedition, leg) / "cockpit_queue.json"
 
 
-def _seeds_file():
+def _seeds_file(expedition=None, leg=None):
     # search/driver.py reads/writes this same file (out_dir / "seed_pool.json") as the shared
     # subject pool a leg draws from on plateau; using a different filename here silently
     # disconnects seeds topped up from this UI from anything the driver ever reads.
-    return _require_out_dir() / "seed_pool.json"
+    return _scope_out_dir(expedition, leg) / "seed_pool.json"
 
 
 DEFAULT_PORT = 8420
@@ -527,18 +527,19 @@ def save_store(path, store):
     os.replace(tmp, path)
 
 
-def load_comparisons():
-    if os.path.exists(_comparisons_file()):
-        with open(_comparisons_file()) as f:
+def load_comparisons(expedition=None, leg=None):
+    if os.path.exists(_comparisons_file(expedition, leg)):
+        with open(_comparisons_file(expedition, leg)) as f:
             return json.load(f)
     return []
 
 
-def save_comparisons(comparisons):
-    tmp = f"{_comparisons_file()}.tmp"
+def save_comparisons(comparisons, expedition=None, leg=None):
+    target = _comparisons_file(expedition, leg)
+    tmp = f"{target}.tmp"
     with open(tmp, "w") as f:
         json.dump(comparisons, f, indent=1)
-    os.replace(tmp, _comparisons_file())
+    os.replace(tmp, target)
 
 
 def record_comparison(comparisons, winner, loser, now):
@@ -1629,31 +1630,41 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             favorites = load_store(out_dir / "user_favorites.json")
             self._json_response(200, run_manager.build_report(out_dir, favorites=favorites))
             return
-        if self.path == "/api/compare/next":
+        if route_path == "/api/compare/next":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                comparisons = load_comparisons()
-                response = next_compare_response(load_manifest(*_active_scope()), comparisons)
+                comparisons = load_comparisons(expedition, leg)
+                response = next_compare_response(load_manifest(expedition, leg), comparisons)
             self._json_response(200, response)
             return
-        if self.path == "/api/favorites":
+        if route_path == "/api/favorites":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                self._json_response(200, load_store(_favorites_file()))
+                self._json_response(200, load_store(_favorites_file(expedition, leg)))
             return
-        if self.path == "/api/preference_rank/flags":
+        if route_path == "/api/preference_rank/flags":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                self._json_response(200, load_store(_preference_rank_flags_file()))
+                self._json_response(200, load_store(_preference_rank_flags_file(expedition, leg)))
             return
-        if self.path == "/api/counterfactuals":
+        if route_path == "/api/counterfactuals":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                self._json_response(200, load_store(_counterfactuals_file()))
+                self._json_response(200, load_store(_counterfactuals_file(expedition, leg)))
             return
         if self.path == "/api/seeds":
             with _lock:
                 self._json_response(200, load_store(_seeds_file()))
             return
-        if self.path == "/api/cockpit/target_cells":
+        if route_path == "/api/cockpit/target_cells":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             coverage_data = _get_manifest_cached(
-                "coverage", coverage_map.compute_data, *_active_scope(),
+                "coverage", coverage_map.compute_data, expedition, leg,
             )
             cells = coverage_map.top_frontier_cells(coverage_data, n=3)
             self._json_response(200, {"cells": cells})
@@ -1661,9 +1672,11 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if self.path.startswith("/api/cockpit/evidence"):
             self._handle_cockpit_evidence()
             return
-        if self.path == "/api/cockpit/queue":
+        if route_path == "/api/cockpit/queue":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             with _lock:
-                trials = load_store(_cockpit_queue_file())
+                trials = load_store(_cockpit_queue_file(expedition, leg))
             self._json_response(200, {"trials": sorted(trials.values(), key=lambda t: t["created_at"])})
             return
         if self.path.startswith("/api/foci"):
@@ -1722,6 +1735,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             html = scan_gallery.render_html(
                 _get_scan_items(expedition, leg), context.expedition, context.leg,
                 context=self._page_render_context(context),
+                focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1744,6 +1758,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
                 context=self._page_render_context(context),
+                focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1761,6 +1776,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
                 context=self._page_render_context(context),
+                focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1778,6 +1794,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 active_expedition=context.expedition, active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
                 context=self._page_render_context(context),
+                focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1790,7 +1807,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/novelty_decay.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data, expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = novelty_decay.render_html(_get_manifest_cached("novelty_decay", novelty_decay.compute_data, expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1802,7 +1819,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/lineage.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data, expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = lineage_view.render_html(_get_manifest_cached("lineage", lineage_view.compute_data, expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1826,7 +1843,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             html = elite_archive.render_html(
                 data, active_expedition=context.expedition, active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
-                context=self._page_render_context(context),
+                context=self._page_render_context(context), focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1847,7 +1864,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             html = preference_rank.render_html(
                 data, active_expedition=context.expedition, active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
-                context=self._page_render_context(context),
+                context=self._page_render_context(context), focus=context.focus,
             )
             body = html.encode()
             self.send_response(200)
@@ -1860,7 +1877,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         if route_path == "/preference_status.html":
             context = self._page_context()
             expedition, leg = self._page_scope(context)
-            html = preference_status.render_html(_get_preference_status_data(expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None)
+            html = preference_status.render_html(_get_preference_status_data(expedition, leg), active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus)
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1870,13 +1887,14 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             return
 
         if route_path == "/api/preference_status":
-            expedition = _active_selection["expedition"]
-            leg = _active_selection["leg"]
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
             self._json_response(200, _get_preference_status_data(expedition, leg))
             return
 
-        if self.path == "/seeds.html":
-            body = seed_browser.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
+        if route_path == "/seeds.html":
+            context = self._page_context()
+            body = seed_browser.render_html(active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -1884,8 +1902,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        if self.path == "/compare.html":
-            body = compare_page.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
+        if route_path == "/compare.html":
+            context = self._page_context()
+            body = compare_page.render_html(active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -1893,23 +1912,15 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        if self.path == "/cockpit.html":
-            # Every cockpit route (queue, target_cells, evidence, run) resolves its working
-            # directory off the globally active leg, not an explicit cockpit-scoped path, so
-            # this switch is load-bearing: without it those routes would operate against
-            # whatever leg was last active elsewhere. That does mean opening this page from a
-            # second tab silently redirects the active leg out from under a first tab still
-            # curating a different leg; there is no cockpit-scoped directory resolution to fall
-            # back to instead. Known tradeoff, not accidental.
-            if (_active_selection["expedition"] is not None
-                    and _active_selection["leg"] != "cockpit"):
-                _set_active_selection(_active_selection["expedition"], "cockpit")
+        if route_path == "/cockpit.html":
+            context = self._page_context()
             body = cockpit.render_html(
                 expeditions=[e["name"] for e in _list_expeditions()],
-                current_expedition=_active_selection["expedition"],
-                active_expedition=_active_selection["expedition"],
-                active_leg=_active_selection["leg"],
+                current_expedition=context.expedition,
+                active_expedition=context.expedition,
+                active_leg=context.leg,
                 running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None,
+                focus=context.focus,
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1918,8 +1929,9 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self.wfile.write(body)
             return
 
-        if self.path == "/runs.html":
-            body = runs_page.render_html(active_expedition=_active_selection["expedition"], active_leg=_active_selection["leg"], running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None).encode()
+        if route_path == "/runs.html":
+            context = self._page_context()
+            body = runs_page.render_html(active_expedition=context.expedition, active_leg=context.leg, running=(_run["expedition"], _run["leg"]) if (_run := run_manager.current_run()) else None, focus=context.focus).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
@@ -2007,6 +2019,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._send_json_error(e)
 
     def _do_POST(self):
+        route_path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -2048,7 +2061,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, result)
             return
 
-        if self.path == "/api/compare":
+        if route_path == "/api/compare":
             winner = payload.get("winner")
             loser = payload.get("loser")
             if not winner or not loser:
@@ -2057,10 +2070,15 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if winner == loser:
                 self._json_response(400, {"error": "'winner' and 'loser' must be different images"})
                 return
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
             with _lock:
-                comparisons = load_comparisons()
+                comparisons = load_comparisons(expedition, leg)
                 comparisons = record_comparison(comparisons, winner, loser, datetime.now(timezone.utc).isoformat())
-                save_comparisons(comparisons)
+                save_comparisons(comparisons, expedition, leg)
             # Outside _lock: a full model fit can take a while, and every other route (favorites,
             # compare, cockpit) shares this same lock, so retraining here would block them for the
             # fit's whole duration instead of just the comparison write above.
@@ -2068,12 +2086,17 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, {"ok": True, "count": len(comparisons)})
             return
 
-        if self.path == "/api/preference_toggle":
+        if route_path == "/api/preference_toggle":
             enabled = payload.get("enabled")
             if not isinstance(enabled, bool):
                 self._json_response(400, {"error": "missing or non-boolean 'enabled'"})
                 return
-            out_dir = _active_out_dir()
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
+            out_dir = _scope_out_dir(expedition, leg)
             if out_dir is None:
                 self._json_response(400, {"error": "no active leg selected"})
                 return
@@ -2082,20 +2105,25 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 return
             preference_settings.save(enabled, out_dir)
             self._json_response(200, _get_preference_status_data(
-                *_active_scope()
+                expedition, leg
             ))
             return
 
-        if self.path == "/api/preference_rank/flag":
+        if route_path == "/api/preference_rank/flag":
             tag = payload.get("tag")
             flag = payload.get("flag")
             if not tag or flag not in {"matches", "questionable"}:
                 self._json_response(400, {"error": "'tag' and a valid 'flag' are required"})
                 return
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
             with _lock:
-                flags = load_store(_preference_rank_flags_file())
+                flags = load_store(_preference_rank_flags_file(expedition, leg))
                 flags[tag] = {"flag": flag, "flagged_at": datetime.now(timezone.utc).isoformat()}
-                save_store(_preference_rank_flags_file(), flags)
+                save_store(_preference_rank_flags_file(expedition, leg), flags)
             self._json_response(200, {"ok": True, "tag": tag, "flag": flag})
             return
 
@@ -2134,7 +2162,7 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             if expedition is None or leg is None:
                 _logger.warning("favorite mutation without expedition/leg is deprecated")
                 favorites_file = _favorites_file()
-            elif (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
+            elif payload.get("focus_id") is None and (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
                 self._json_response(409, {"error": "favorite mutation targets a stale expedition/leg"})
                 return
             else:
@@ -2147,14 +2175,14 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
             self._json_response(200, {"ok": True, "count": len(favorites)})
             return
 
-        if self.path == "/api/unfavorite":
+        if route_path == "/api/unfavorite":
             tag = payload.get("tag")
             expedition = payload.get("expedition")
             leg = payload.get("leg")
             if expedition is None or leg is None:
                 _logger.warning("favorite mutation without expedition/leg is deprecated")
                 favorites_file = _favorites_file()
-            elif (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
+            elif payload.get("focus_id") is None and (expedition, leg) != (_active_selection["expedition"], _active_selection["leg"]):
                 self._json_response(409, {"error": "favorite mutation targets a stale expedition/leg"})
                 return
             else:
@@ -2168,21 +2196,26 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
 
         if self.path == "/api/cockpit/queue":
             trial_id = f"trial_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            expedition = payload.get("expedition")
+            leg = payload.get("leg")
+            if (expedition is None) != (leg is None):
+                self._json_response(400, {"error": "'expedition' and 'leg' must be provided together"})
+                return
             try:
                 trial = build_trial(payload, datetime.now(timezone.utc).isoformat(), trial_id)
             except ValueError as e:
                 self._json_response(400, {"error": str(e)})
                 return
             with _lock:
-                trials = load_store(_cockpit_queue_file())
+                trials = load_store(_cockpit_queue_file(expedition, leg))
                 trials[trial_id] = trial
-                save_store(_cockpit_queue_file(), trials)
+                save_store(_cockpit_queue_file(expedition, leg), trials)
             self._json_response(200, {"ok": True, "id": trial_id})
             return
 
         if self.path.startswith("/api/cockpit/queue/") and self.path.endswith("/run"):
             trial_id = self.path[len("/api/cockpit/queue/"):-len("/run")]
-            self._handle_cockpit_run(trial_id)
+            self._handle_cockpit_run(trial_id, payload.get("expedition"), payload.get("leg"))
             return
 
         if self.path == "/api/foci":
@@ -2443,6 +2476,8 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
         self._json_response(200, {"ok": True, **info})
 
     def _handle_cockpit_evidence(self):
+        context = self._page_context()
+        expedition, leg = self._page_scope(context)
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         prompt = (query.get("prompt") or [""])[0]
         cell = (query.get("cell") or [""])[0]
@@ -2454,28 +2489,28 @@ document.querySelectorAll('.leg-btn').forEach(btn => btn.addEventListener('click
                 fb = nb = None
             if fb is not None:
                 coverage_data = _get_manifest_cached(
-                    "coverage", coverage_map.compute_data, *_active_scope(),
+                    "coverage", coverage_map.compute_data, expedition, leg,
                 )
                 cell_tags = coverage_map.neighbor_tags(coverage_data, fb, nb)
         with _lock:
-            favorites = load_store(_favorites_file())
-            comparisons = load_comparisons()
+            favorites = load_store(_favorites_file(expedition, leg))
+            comparisons = load_comparisons(expedition, leg)
         nearest = cockpit_evidence(
-            load_manifest(*_active_scope()),
+            load_manifest(expedition, leg),
             prompt, favorites, comparisons, cell_tags=cell_tags,
         )
         self._json_response(200, {"nearest": nearest})
 
-    def _handle_cockpit_run(self, trial_id):
+    def _handle_cockpit_run(self, trial_id, expedition=None, leg=None):
         api_key = os.environ.get("RUNPOD_API_KEY")
         if not api_key:
             self._json_response(400, {"error": "RUNPOD_API_KEY not set in server environment"})
             return
 
-        expedition = _active_selection["expedition"]
-        leg = _active_selection["leg"]
-        out_dir = _require_out_dir()
-        queue_file = _cockpit_queue_file()
+        if expedition is None or leg is None:
+            expedition, leg = _active_scope()
+        out_dir = _scope_out_dir(expedition, leg)
+        queue_file = _cockpit_queue_file(expedition, leg)
 
         with _lock:
             trials = load_store(queue_file)

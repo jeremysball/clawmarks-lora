@@ -152,16 +152,14 @@ def test_cockpit_trial_keeps_launch_leg_when_active_leg_switches(monkeypatch):
     assert not (switched_dir / "cockpit_queue.json").exists()
 
 
-def test_cockpit_expedition_selector_switches_to_cockpit_leg():
+def test_cockpit_keeps_generation_available_without_focus_provenance():
     page = cockpit.render_html(
         expeditions=["demo", "other & more"],
         current_expedition="demo",
     )
 
-    assert '<option value="demo" selected>demo</option>' in page
-    assert '<option value="other &amp; more">other &amp; more</option>' in page
-    assert "fetch('/api/active-leg'" in page
-    assert "JSON.stringify({expedition, leg: 'cockpit'})" in page
+    assert "No Focus provenance" in page
+    assert "JSON.stringify({expedition, leg: 'cockpit'})" not in page
 
 
 def test_cockpit_has_no_dark_prefers_color_scheme_variant():
@@ -230,12 +228,13 @@ def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
     cs._set_active_selection("demo", "round1")
     captured = {}
 
-    def fake_render_html(*, expeditions, current_expedition, active_expedition, active_leg, running):
+    def fake_render_html(*, expeditions, current_expedition, active_expedition, active_leg, running, focus):
         captured["expeditions"] = expeditions
         captured["current_expedition"] = current_expedition
         captured["active_expedition"] = active_expedition
         captured["active_leg"] = active_leg
         captured["running"] = running
+        captured["focus"] = focus
         return "cockpit page"
 
     monkeypatch.setattr(cockpit, "render_html", fake_render_html)
@@ -255,7 +254,30 @@ def test_cockpit_route_selects_cockpit_leg_and_passes_expeditions(monkeypatch):
         "expeditions": ["demo", "other"],
         "current_expedition": "demo",
         "active_expedition": "demo",
-        "active_leg": "cockpit",
+        "active_leg": "round1",
         "running": None,
+        "focus": None,
     }
-    assert cs._active_selection == {"expedition": "demo", "leg": "cockpit"}
+    assert cs._active_selection == {"expedition": "demo", "leg": "round1"}
+
+
+def test_cockpit_get_does_not_change_active_leg():
+    round1 = config.EXPEDITIONS_DIR / "demo" / "legs" / "round1.json"
+    round1.write_text("{}")
+    config.leg_dir("demo", "round1").mkdir(parents=True)
+    cs._set_active_selection("demo", "round1")
+    before = config.ACTIVE_LEG_FILE.read_bytes()
+    server = HTTPServer(("127.0.0.1", 0), cs.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{server.server_address[1]}/cockpit.html"
+        ) as response:
+            assert response.status == 200
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+    assert config.ACTIVE_LEG_FILE.read_bytes() == before
+    assert cs._active_selection["leg"] != "cockpit"
