@@ -273,3 +273,16 @@ def test_counterfactual_rejects_focus_from_a_different_leg_before_generation(
     assert "focus_id" in data["error"]
     assert calls["balance"] == 0
     assert calls["submit"] == 0
+
+
+def test_counterfactual_markup_marks_submit_as_billable():
+    from clawmarks.shared_ui import _LIGHTBOX_JS
+    assert 'class="lb-cf-submit billable-action"' in _LIGHTBOX_JS
+    assert "Spends money" in _LIGHTBOX_JS
+
+
+def test_counterfactual_safe_actions_do_not_have_billable_markup():
+    from clawmarks.shared_ui import _LIGHTBOX_JS
+    assert 'class="lb-favorite"' in _LIGHTBOX_JS
+    assert 'class="lb-cf-toggle"' in _LIGHTBOX_JS
+    assert 'class="lb-back"' in _LIGHTBOX_JS

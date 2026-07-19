@@ -33,7 +33,7 @@ from clawmarks.shared_ui import (
 MISSIONS = {
     "gap": {
         "name": "Fill a coverage gap",
-        "title": "Reach a sparse faith x novelty frontier",
+        "title": "Reach a sparse faithfulness x novelty frontier",
         "hyp": "Test whether this prompt direction can reach a sparse, reachable frontier cell.",
         "queue": "Fill gap: coverage frontier",
         "uses_target_picker": True,
@@ -71,7 +71,7 @@ def render_html(expeditions=None, current_expedition=None, active_expedition=Non
         for key, m in MISSIONS.items()
     )
     faith_novelty_tip = info_btn(
-        "Faith is how close the model thinks an image is to real reference photos. Novelty is "
+        "Faithfulness is how close the model thinks an image is to real reference photos. Novelty is "
         "how different it is from images already made."
     )
     prompt_similarity_tip = info_btn(
@@ -79,7 +79,7 @@ def render_html(expeditions=None, current_expedition=None, active_expedition=Non
         "overlap. It does not say whether the resulting image will be good."
     )
     coverage_grid_tip = info_btn(
-        "This is a small crop of the full faith x novelty map. The outlined cell is this trial's "
+        "This is a small crop of the full faithfulness x novelty map. The outlined cell is this trial's "
         "current target."
     )
 
@@ -360,7 +360,7 @@ input:focus,textarea:focus,select:focus{{outline:2px solid var(--ballpoint);outl
 <section class="workbench">
 <article class="recessed-readout recipe">
 <div class="panel-head"><div><div class="section-tag">Recipe</div><div class="eyebrow" id="briefMission">Fill a coverage gap</div>
-<h2 id="briefTitle">Reach a sparse faith x novelty frontier</h2></div><span class="small">Draft trial</span></div>
+<h2 id="briefTitle">Reach a sparse faithfulness x novelty frontier</h2></div><span class="small">Draft trial</span></div>
 <div class="target-picker" id="targetPicker"><h3>Choose a target coverage cell
 {faith_novelty_tip}</h3>
 <div class="target-cards" id="targetCards"><div class="target-empty">Loading frontier cells&hellip;</div></div></div>
@@ -459,8 +459,8 @@ function applySelectedCell(){{
 function renderCoverageBox(c){{
   const box=$('coverageBox');
   if(!c){{box.innerHTML='<div class="empty-note">Select a target cell (Fill a coverage gap mission) to see context.</div>';return}}
-  const near = (c.near_faith!=null && c.near_novelty!=null) ? `Its nearest occupied neighbor has faith ${{c.near_faith}} and novelty ${{c.near_novelty}}.` : '';
-  box.innerHTML=`<div class="mini-grid-wrap"><span class="grid-axis top">novelty</span><span class="grid-axis side">faith</span>
+  const near = (c.near_faith!=null && c.near_novelty!=null) ? `Its nearest occupied neighbor has faithfulness ${{c.near_faith}} and novelty ${{c.near_novelty}}.` : '';
+    box.innerHTML=`<div class="mini-grid-wrap"><span class="grid-axis top">novelty</span><span class="grid-axis side">faithfulness</span>
     <div class="mini-grid">${{Array.from({{length:16}},()=>'<i class="cell"></i>').join('')}}</div></div>
     <p><b>Frontier cell: empty</b><br>Adjacent to ${{c.adjacent}} images. ${{near}}</p>`;
 }}
@@ -493,7 +493,7 @@ function fetchEvidence(){{
     if(myReq!==evidenceReqId)return;
     const items=d.nearest||[];
     list.innerHTML = items.length ? items.map(it=>`<div class="nearest"><span class="thumb" style="background-image:url('${{escapeHtml(it.thumb||'')}}')"></span><div><b>${{escapeHtml(it.prompt_name)}}</b>
-      <div class="meta">word overlap ${{Math.round(it.similarity*100)}}% &middot; faith ${{it.faith}} &middot; novelty ${{it.novelty}} &middot; <span class="status-${{it.status}}">${{it.status}}</span></div></div></div>`).join('')
+      <div class="meta">word overlap ${{Math.round(it.similarity*100)}}% &middot; faithfulness ${{it.faith}} &middot; novelty ${{it.novelty}} &middot; <span class="status-${{it.status}}">${{it.status}}</span></div></div></div>`).join('')
       : '<div class="empty-note">No manifest prompts share meaningful wording with this draft yet.</div>';
   }}).catch(()=>{{if(myReq===evidenceReqId)list.innerHTML='<div class="empty-note">Could not load evidence.</div>'}});
 }}
@@ -598,7 +598,7 @@ function renderQueue(){{
     <span class="small">${{t.n}} images &middot; ${{escapeHtml(t.seed_strategy)}} seeds &middot; ${{t.strength.toFixed(2)}} strength &middot; ${{escapeHtml(t.sampler)}} / ${{t.steps}} / ${{t.cfg}}</span>
     ${{t.focus_id ? `<br><span class="small">Focus: ${{escapeHtml(t.focus_id)}}</span>` : ''}}</div>
     <span class="status ${{t.status}}">${{t.status}}${{t.error?': '+escapeHtml(t.error):''}}</span>
-    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button">Review and run</button>`:''}}</div>`).join('')
+    ${{t.status==='draft'?`<button data-run="${{t.id}}" type="button" class="primary-action billable-action">Review and run</button><span class="cost-badge">Spends money</span>`:''}}</div>`).join('')
     : '<div class="empty-note">No trials queued yet.</div>';
   $('queuePane').querySelectorAll('[data-run]').forEach(button=>button.onclick=()=>reviewTrial(button.dataset.run));
 
@@ -620,10 +620,11 @@ function loadQueue(){{
 function reviewTrial(id){{
   const trial = queue.find(t=>t.id===id);
   if(!trial) return;
-  const summary = `Expedition: ${{trial.expedition||'(current)'}}\\n`+
+  const summary = `Expedition: ${{trial.expedition||CONTEXT.expedition||'(current)'}}\\n`+
+    `Leg: ${{trial.leg||CONTEXT.leg||'(current)'}}\\n`+
     `Prompt: ${{trial.prompt}}\\n`+
     `Target: ${{trial.target_cell ? JSON.stringify(trial.target_cell) : '(none)'}}\\n`+
-    `This submits ${{trial.n}} paid RunPod job(s).`;
+    `Cost: ${{trial.n}} paid RunPod job(s). RunPod balance checked before running.`;
   if(!confirm(summary + '\\n\\nConfirm and run?')) return;
   runTrial(id);
 }}

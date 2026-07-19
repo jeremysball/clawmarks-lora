@@ -46,6 +46,27 @@ def test_render_html_uses_sulfur_proof_shell():
     assert "prefers-color-scheme: dark" not in html
 
 
+def test_render_html_marks_launch_as_billable_action():
+    html = runs_page.render_html()
+    assert 'id="launchBtn" class="primary-action billable-action"' in html
+    assert "Spends money" in html
+
+
+def test_safe_actions_on_runs_page_do_not_have_billable_markup():
+    html = runs_page.render_html()
+    assert 'id="launchBtn" class="primary-action billable-action"' in html
+    for marker in (
+        'id="stopBtn"',
+        'class="danger"',
+        'class="topnav',
+        'class="session-status',
+    ):
+        assert marker in html, f"missing {marker}"
+        idx = html.index(marker)
+        snippet = html[idx:idx + len(marker) + 30]
+        assert 'billable-action' not in snippet, f"safe element {marker} has unwanted billable-action"
+
+
 def test_render_html_uses_sulfur_proof_outcome_first_inline_statistics():
     """Task 5 brief, Step 3 (Runs): 'Runs leads with outcome and inline statistics.' The page
     must put the run status (the outcome: 'Not running.' / 'Running <exp>/<leg> (pid <pid>),

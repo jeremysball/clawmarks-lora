@@ -1,4 +1,5 @@
 import json
+import re
 
 from clawmarks.build import lineage_view
 
@@ -86,3 +87,15 @@ def test_render_html_tree_nodes_are_ruled_rows_not_stat_cards(tmp_path):
     # No legacy dark-theme hex text colors in page-local CSS.
     assert "color:#eaeaee" not in page_local
     assert "color:#9a9aa4" not in page_local
+
+
+def test_render_html_uses_plain_metric_labels(tmp_path):
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    manifest = [
+        {"file": "/x/a.png", "tag": "a", "prompt_name": "p", "centroid_sim": 0.5, "novelty": 0.5},
+        {"file": "/x/b.png", "tag": "b", "prompt_name": "p", "centroid_sim": 0.6, "novelty": 0.4, "parent_tag": "a"},
+    ]
+    (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
+    html = lineage_view.render_html(lineage_view.compute_data(str(tmp_path)))
+    assert "faithfulness={m[" in html or "faithfulness=" in html
+    assert re.search(r'(?<!fulness)faith=', html) is None

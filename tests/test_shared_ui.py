@@ -1,40 +1,62 @@
 # tests/test_shared_ui.py
 import json
+import re
 
 from clawmarks import shared_ui
-from clawmarks.shared_ui import NAV_OPTIONS, _LIGHTBOX_JS, json_script, nav_bar_html
+from clawmarks.shared_ui import (
+    NAV_GROUPS, NAV_OPTIONS, _LIGHTBOX_JS, json_script, nav_bar_html,
+    billable_badge,
+)
 
 
 def test_nav_options_includes_preference_status_page():
     hrefs = [href for href, _label in NAV_OPTIONS]
-    assert "preference_status.html" in hrefs
+    assert "/preference_status.html" in hrefs
 
 
 def test_nav_options_has_compare_not_rate():
     hrefs = [href for href, _ in NAV_OPTIONS]
-    assert "compare.html" in hrefs
-    assert "rate.html" not in hrefs
+    assert "/compare.html" in hrefs
+    assert "/rate.html" not in hrefs
 
 
 def test_nav_bar_html_marks_preference_status_selected_when_current():
-    html = nav_bar_html("preference_status.html")
-    assert 'value="preference_status.html" selected' in html
+    html = nav_bar_html("/preference_status.html")
+    assert 'value="/preference_status.html" selected' in html
+
+
+def test_nav_bar_html_without_leading_slash_matches_nav_groups():
+    html = nav_bar_html("scan.html")
+    assert 'value="/scan.html" selected' in html
+    assert 'class="page-name">Browse all images</span>' in html
+
+
+def test_nav_bar_html_cockpit_without_slash_selects_cockpit():
+    html = nav_bar_html("cockpit.html")
+    assert 'value="/cockpit.html" selected' in html
+    assert 'class="page-name">Build one image trial</span>' in html
+
+
+def test_nav_bar_html_root_maps_to_scan_gallery():
+    html = nav_bar_html("/")
+    assert 'value="/scan.html" selected' in html
+    assert 'class="page-name">Browse all images</span>' in html
 
 
 def test_nav_bar_html_omits_active_leg_without_selection():
-    html = nav_bar_html("scan.html")
+    html = nav_bar_html("/scan.html")
 
     assert 'class="nav-activeleg"' not in html
 
 
 def test_nav_bar_groups_tools_and_links_active_context_to_home():
     html = nav_bar_html(
-        "compare.html", active_expedition="demo", active_leg="round1"
+        "/compare.html", active_expedition="demo", active_leg="round1"
     )
 
-    assert '<optgroup label="Generate">' in html
-    assert '<optgroup label="Curate">' in html
-    assert '<optgroup label="Understand search">' in html
+    assert '<optgroup label="Look at images">' in html
+    assert '<optgroup label="Make new images">' in html
+    assert '<optgroup label="Understand the search">' in html
     assert '<optgroup label="Preference model">' in html
     assert 'href="/?expedition=demo&amp;leg=round1"' in html
     assert "demo/round1" in html
@@ -45,7 +67,7 @@ def test_nav_bar_active_context_button_announces_dialog_and_carries_data():
     button that opens the context-switcher dialog. The data attributes and accessible
     relationships are how SHARED_UI_JS knows which (expedition, leg) to mark active and
     which dialog to show; verify they're wired correctly."""
-    html = nav_bar_html("scan.html", active_expedition="demo", active_leg="leg-b")
+    html = nav_bar_html("/scan.html", active_expedition="demo", active_leg="leg-b")
 
     assert 'id="contextPicker"' in html
     assert 'data-expedition="demo"' in html
@@ -71,26 +93,68 @@ def test_json_script_round_trips_normal_data():
 
 
 def test_nav_bar_shows_active_leg():
-    html = nav_bar_html("compare.html", active_expedition="uncanny_frontier", active_leg="round2")
+    html = nav_bar_html("/compare.html", active_expedition="uncanny_frontier", active_leg="round2")
     assert "uncanny_frontier" in html
     assert "round2" in html
 
 
 def test_nav_bar_omits_label_when_no_selection():
-    html = nav_bar_html("compare.html")
+    html = nav_bar_html("/compare.html")
     assert "nav-activeleg" not in html
 
 
 def test_nav_bar_shows_running_indicator():
-    html = nav_bar_html("runs.html", running=("trent_v3_epoch4", "freeform1"))
+    html = nav_bar_html("/runs.html", running=("trent_v3_epoch4", "freeform1"))
     assert "RUNNING" in html
     assert "trent_v3_epoch4/freeform1" in html
 
 
 def test_nav_bar_omits_running_indicator_when_none():
-    html = nav_bar_html("runs.html")
+    html = nav_bar_html("/runs.html")
     assert "nav-running" not in html
     assert "RUNNING" not in html
+
+
+def test_nav_groups_use_plain_task_labels():
+    groups = dict(NAV_GROUPS)
+    assert tuple(groups) == (
+        "Look at images", "Make new images", "Understand the search", "Preference model",
+    )
+    assert groups["Look at images"] == [
+        ("/scan.html", "Browse all images"),
+        ("/archive.html", "Best images by area"),
+        ("/compare.html", "Choose between two images"),
+    ]
+    assert ("/runs.html", "Run or monitor a search") in groups["Make new images"]
+    assert ("/coverage.html", "Find gaps in the image space") in groups["Understand the search"]
+
+
+def test_nav_groups_destination_labels_match_spec_exactly():
+    groups = dict(NAV_GROUPS)
+    assert groups["Make new images"] == [
+        ("/cockpit.html", "Build one image trial"),
+        ("/runs.html", "Run or monitor a search"),
+        ("/seeds.html", "Edit candidate ideas"),
+    ]
+    assert groups["Understand the search"] == [
+        ("/map.html", "Explore image neighborhoods"),
+        ("/coverage.html", "Find gaps in the image space"),
+        ("/redundancy.html", "Find near-duplicate groups"),
+        ("/novelty_decay.html", "See which prompts are running out"),
+        ("/lineage.html", "Trace image ancestry"),
+    ]
+    assert groups["Preference model"] == [
+        ("/preference_status.html", "Check taste-model readiness"),
+        ("/preference_rank.html", "See predicted favorites"),
+        ("/compare.html", "Choose between two images"),
+    ]
+
+
+def test_nav_has_no_workflow_stage_group():
+    html = nav_bar_html("/")
+    assert 'optgroup label="Explore"' not in html
+    for label in ("Orient", "Scout", "Explain", "Act", "Learn"):
+        assert f">{label}<" not in html
 
 
 def test_dark_tokens_defines_pick_as_gold():
@@ -448,11 +512,11 @@ def test_lightbox_undo_flow_honors_recovery_contract():
 
 def test_header_names_page_scope_focus_and_guide():
     markup = nav_bar_html(
-        "map.html", "demo", "round1",
+        "/map.html", "demo", "round1",
         focus={"focus_id": "focus_11111111111111111111111111111111", "label": "Ink anchor", "revision": 3},
     )
     assert "CLAWMARKS" in markup
-    assert "Solution map" in markup
+    assert "Explore image neighborhoods" in markup
     assert "demo/round1" in markup
     assert "Ink anchor" in markup and "r3" in markup
     assert 'id="contextPicker"' in markup
@@ -462,7 +526,7 @@ def test_header_names_page_scope_focus_and_guide():
 
 def test_nav_bar_scopes_every_tool_link_to_focus():
     markup = nav_bar_html(
-        "map.html", "demo", "round1",
+        "/map.html", "demo", "round1",
         focus={"focus_id": "focus_11111111111111111111111111111111", "label": "Ink anchor", "revision": 3},
     )
 
@@ -490,7 +554,7 @@ def test_context_dialog_offers_create_expedition_and_create_leg_forms():
     """Approved via Lavish review (2026-07-18): expedition/leg creation, previously only
     available on /status.html, now lives in the shared contextDialog so it's reachable from
     every page, not just the one that used to own the picker."""
-    markup = nav_bar_html("map.html", "demo", "round1")
+    markup = nav_bar_html("/map.html", "demo", "round1")
     assert 'id="contextNewExpToggle"' in markup
     assert 'id="contextNewExpForm"' in markup
     assert 'id="contextNewExpName"' in markup
@@ -510,3 +574,124 @@ def test_shared_ui_js_wires_up_create_expedition_and_create_leg():
     assert "contextNewLegToggle" in js
     assert "/api/expeditions'" in js or '/api/expeditions"' in js
     assert "/api/legs'" in js or '/api/legs"' in js
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Shared Glossary And Information Controls
+# ---------------------------------------------------------------------------
+
+
+def test_glossary_holds_plain_and_formal_metric_names_together():
+    assert shared_ui.GLOSSARY["faithfulness"][0] == "Similarity to real art"
+    assert "DINOv2 cosine similarity" in shared_ui.GLOSSARY["faithfulness"][1]
+    assert shared_ui.GLOSSARY["novelty"][0] == "How new or different"
+
+
+def test_info_btn_with_glossary_key_is_accessible_button():
+    markup = shared_ui.info_btn("novelty")
+    assert markup.startswith('<button type="button"')
+    assert '>i</button>' in markup
+    assert 'aria-label="More information about How new or different"' in markup
+    assert "?" not in markup
+
+
+def test_info_btn_with_raw_text_fallback_is_accessible_button():
+    markup = shared_ui.info_btn("Some fallback raw tip text")
+    assert markup.startswith('<button type="button"')
+    assert '>i</button>' in markup
+    assert 'aria-expanded="false"' in markup
+    assert 'aria-label="More information"' in markup
+    assert "?" not in markup
+
+
+def test_info_btn_glossary_key_has_no_question_mark():
+    markup = shared_ui.info_btn("faithfulness")
+    assert "?" not in markup
+
+
+def test_glossary_defines_required_entries():
+    for key in ("faithfulness", "novelty", "map_elites_cell", "umap", "redundancy"):
+        assert key in shared_ui.GLOSSARY
+        label, definition = shared_ui.GLOSSARY[key]
+        assert label
+        assert definition
+
+
+def test_info_btn_sets_aria_expanded_false():
+    markup = shared_ui.info_btn("novelty")
+    assert 'aria-expanded="false"' in markup
+
+
+def test_infotip_js_updates_aria_expanded_and_handles_escape():
+    js = shared_ui.INFOTIP_JS
+    assert 'setAttribute("aria-expanded"' in js or "setAttribute('aria-expanded'" in js
+    assert "Escape" in js or "escape" in js.lower() or "27" in js
+    assert ".focus()" in js
+
+
+def test_mobile_base_css_keeps_overflow_wrap_anywhere():
+    assert "overflow-wrap:anywhere" in shared_ui.MOBILE_BASE_CSS
+    assert "code, pre { overflow-wrap:anywhere; }" in shared_ui.MOBILE_BASE_CSS
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Billable Action Affordances
+# ---------------------------------------------------------------------------
+
+
+def test_billable_badge_never_invents_an_estimate():
+    assert billable_badge() == '<span class="cost-badge">Spends money</span>'
+    assert "~$2.00" in billable_badge("~$2.00")
+
+
+def test_cost_token_in_sulfur_tokens():
+    assert "--cost:#5B3A63" in shared_ui.SULFUR_CSS
+
+
+def test_billable_action_css_class_exists():
+    full_css = shared_ui.CONTROL_CSS
+    assert ".billable-action" in full_css
+    assert ".cost-badge" in full_css
+
+
+def test_context_create_buttons_are_not_billable():
+    markup = nav_bar_html("/map.html", "demo", "round1")
+    assert 'class="context-create-btn primary-action"' in markup
+    idx = markup.index('context-create-btn primary-action')
+    snippet = markup[idx:idx + 60]
+    assert 'billable-action' not in snippet
+
+
+def test_billable_action_css_references_cost_token():
+    full_css = shared_ui.CONTROL_CSS
+    for cls in (".billable-action", ".cost-badge"):
+        start = full_css.index(cls)
+        end = full_css.index("}", start)
+        block = full_css[start:end]
+        assert "var(--cost)" in block, f"{cls} must reference --cost"
+
+
+def test_billable_action_no_redundant_before_stripe():
+    assert ".billable-action::before" not in shared_ui.CONTROL_CSS
+
+
+# ---------------------------------------------------------------------------
+# Final fixes: lightbox info button labels
+# ---------------------------------------------------------------------------
+
+
+def test_lightbox_favorite_info_button_has_distinct_label():
+    assert 'aria-label="More information about favoriting"' in _LIGHTBOX_JS
+
+
+def test_lightbox_counterfactual_info_button_has_distinct_label():
+    assert 'aria-label="More information about counterfactual generation"' in _LIGHTBOX_JS
+
+
+def test_lightbox_uses_plain_metric_labels_not_forbidden_abbreviations():
+    """The lightbox info line and similar-image strip tooltip must use plain labels
+    (faithfulness=, novelty=) not forbidden abbreviations (faith=, f=, n=)."""
+    assert "faithfulness=${d.faith} novelty=${d.novelty}" in _LIGHTBOX_JS
+    assert 'faithfulness=${n.faith} novelty=${n.novelty}' in _LIGHTBOX_JS
+    assert 'f=${' not in _LIGHTBOX_JS
+    assert re.search(r'(?<!fulness)faith=', _LIGHTBOX_JS) is None

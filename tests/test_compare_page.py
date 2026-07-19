@@ -20,10 +20,14 @@ def test_render_html_keeps_choices_outside_the_shared_nav():
     those panes are divs with role=button, not <button> elements, because every interactive
     surface in this page is meant to be keyboard-driven. The shared nav header now ships real
     <button> elements (the context picker, the Guide button) for header-level controls, so
-    this assertion scopes the no-real-button rule to the page body instead of the whole HTML."""
+    this assertion scopes the no-real-button rule to the page body instead of the whole HTML.
+    Accessible info buttons (class="infobtn") from info_btn() are exempted."""
+    import re
     html = compare_page.render_html()
     body_after_nav = html.split("</header>", 1)[1]
-    assert "<button" not in body_after_nav
+    non_infobtn = re.findall(r'<button(?:\s[^>]*)?>', body_after_nav)
+    non_infobtn = [b for b in non_infobtn if 'class="infobtn"' not in b]
+    assert not non_infobtn, f"found non-infobtn <button> in compare page body: {non_infobtn}"
 
 
 def test_render_html_has_zoom_icons_and_overlay():
@@ -196,3 +200,12 @@ def test_render_html_has_or_axis_between_panes():
     # self-explanatory without a tooltip.
     or_section = html.split('class="or-axis"', 1)[1].split("</", 1)[0]
     assert "OR" in or_section
+
+
+def test_render_html_uses_plain_metric_labels():
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    html = compare_page.render_html()
+    assert 'faithfulness ${img.faith}' in html
+    assert '${img.faith}' in html  # metric values still available
+    assert 'f=${' not in html
+    assert 'n=${' not in html

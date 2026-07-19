@@ -1615,8 +1615,24 @@ needed.</p>
             self._send_status_page()
             return
 
-        if route_path in ("/", "/explore.html"):
+        if route_path == "/explore.html":
             self._send_explore_page()
+            return
+
+        if route_path == "/":
+            context = self._page_context()
+            expedition, leg = self._page_scope(context)
+            html = scan_gallery.render_html(
+                _get_scan_items(expedition, leg), context.expedition, context.leg,
+                context=self._page_render_context(context),
+                focus=context.focus,
+            )
+            body = html.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if self.path in ("/favicon.ico", "/favicon.png"):

@@ -1,4 +1,5 @@
 import json
+import re
 
 from clawmarks.build import preference_rank
 
@@ -136,3 +137,15 @@ def test_render_html_model_evidence_is_ruled_rows_not_stat_card_grid():
     assert "color:#0b0b0d" not in page_local
     # The legacy cell `border:1px solid var(--border)` filled-card wrapper is gone.
     assert "border:1px solid var(--border)" not in page_local
+
+
+def test_render_html_uses_plain_metric_labels():
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    data = {"has_model": True, "items": [
+        {"tag": "a", "thumb": "a.jpg", "faith": 0.5, "novelty": 0.4,
+         "predicted_preference": 0.8},
+    ]}
+    html = preference_rank.render_html(data)
+    assert "faithfulness=${it.faith} novelty=${it.novelty}" in html
+    assert 'f=${' not in html
+    assert re.search(r'(?<!fulness)faith=', html) is None

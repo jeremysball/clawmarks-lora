@@ -1315,3 +1315,71 @@ RunPod calls remain untouched while the endpoint returns HTTP 400.
 The focused tests passed 20 tests. Final verification passed 604 tests, Ruff across `src tests`,
 MyPy across `src`, and `git diff --check`. The full suite emitted the existing scikit-learn
 `OptimizeWarning` messages about the `iprint` solver option.
+
+### 2026-07-18: Persona audit led to an image-first information architecture specification
+
+Three independent usability walkthroughs, framed as a grandmother, an impaired casual visitor,
+and a child, converged on the same structural failures: the Explore homepage showed no artwork;
+the Orient/Scout/Explain/Act/Learn method looked like unexplained navigation; the flat tool index
+led with research jargon; `faith` read as religious language; and users could not distinguish inert
+help from controls that submit paid work. All three understood the shared page-jump select, and the
+image gallery and head-to-head comparison were the clearest destinations.
+
+An independent UX review concluded that labels alone cannot repair this shape. Jeremy approved its
+full direction: make the existing gallery the homepage, group destinations by user task, demote the
+five-stage loop to a `How a search round works` explainer, defer formal vocabulary behind plain
+labels, replace `?` tips with accessible `i` controls, and mark every billable action explicitly.
+The approved specification is
+`docs/superpowers/specs/2026-07-18-image-first-information-architecture-design.md`; the TDD plan is
+`docs/superpowers/plans/2026-07-18-image-first-information-architecture.md`. The spec reserves deep
+aubergine `#5B3A63` as a restrained cost signal that complements sulfur while remaining distinct
+from selection and error colors. No implementation or generation operation occurred in this step.
+
+### 2026-07-18: Task 5 regression gate and live accessibility verification
+
+Executed Task 5 of the image-first IA plan. Before the gate, closed two Task 4 review findings with
+TDD: the Cockpit `Review and run` button (cockpit.py:601) now carries `primary-action billable-action`
+(was bare `billable-action`), matching the pattern used by `seed_browser.py`'s Generate and
+`runs_page.py`'s Back up and launch. Removed the redundant `.billable-action::before` pseudo-element
+from `shared_ui.py`'s CONTROL_CSS while keeping the aubergine `border-left:3px solid var(--cost)`.
+Both changes passed their covering tests (RED then GREEN evidence recorded: the first run of the
+updated assertions failed because `class="primary-action billable-action"` was not yet on the Cockpit
+button and `::before` was still present; after the code changes both passed). All 105 related tests
+passed in the second run.
+
+Ran the static check gate: `uv run ruff check src tests` passed, `uv run mypy src` passed, and
+`uv run pytest -q` passed 639 tests (6396 sklearn warnings, no failures).
+
+Started `curation_server.py` bound to `0.0.0.0:8420` with `CLAWMARKS_HOST=0.0.0.0` against the
+existing read-only leg `trent_v3_epoch4/freeform1` (50 scored images, all present on disk). No
+generation state was created, deleted, overwritten, or transformed. No billable action was clicked.
+
+Live Playwright MCP verification at 1440x900 desktop covered `/`, `/scan.html`, `/explore.html`,
+`/coverage.html`, `/seeds.html`, and `/runs.html`, each with workspace-scope query parameters:
+
+- All routes loaded without real console errors (only benign `Transition was skipped` messages).
+- Thumbnails appeared above the fold: 64 of 100 image elements visible at 1440x900.
+- Task groups and plain labels present throughout.
+- The research-loop disclosure (`How a search round works`) opened on click and showed Orient/Scout/
+  Explain/Act/Learn content.
+- Information buttons opened glossary popovers with definition text; Escape closed the popover and
+  focus returned to the info button (`aria-label="More information about ..."`).
+- All paid actions visibly carry `Spends money` badges (seeds Generate, runs Back up and launch).
+- No horizontal page overflow on any desktop route.
+
+At 390x844 mobile, checked `/`, `/scan.html`, `/seeds.html`, and `/runs.html`:
+
+- Zero horizontal overflow on all routes (scrollWidth == clientWidth).
+- All visible info buttons measure exactly 44x44px (meeting the 44px touch-target minimum).
+- All visible `select` elements measure at least 44px tall.
+- Escape closes glossary popovers and focus restores to the triggering info button.
+- `Spends money` badge remains visible at 200% zoom on seeds and runs pages.
+- The `.billable-action::before` pseudo-element confirmed absent from live server CSS.
+
+No defects fixed beyond the two Task 4 review findings. No new issues found during the gate.
+
+Stopped the server after verification (`kill 857060`). Post-task `pgrep -af "clawmarks serve|clawmarks.curation_server" || true` confirmed no server process remained running. No generation state was created, deleted, overwritten, or transformed during the entire gate.
+
+Note: I was unable to find the `.claude/skills/run/SKILL.md` file referenced in the task brief. The
+project's `cli.py` already has a `clawmarks serve` command that calls `curation_server.main([])`,
+using `CLAWMARKS_HOST` env var for binding. This workaround was used without issue.

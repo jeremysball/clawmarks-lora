@@ -83,3 +83,14 @@ def test_render_html_uses_mounted_evidence_for_archive_grid_cells():
     html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
 
     assert "mounted-evidence" in html
+
+
+def test_render_html_uses_plain_metric_labels():
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    html = elite_archive.render_html({"cells": [], "n_human": 0, "faith_bins": [], "novelty_bins": []})
+    assert "faithfulness=${elite.faith} novelty=${elite.novelty}" in html
+    assert "faithfulness=${it.faith} novelty=${it.novelty}" in html
+    assert "count=${c.n} in cell" in html
+    assert "bin faithfulness ${c.fb + 1}" in html
+    assert re.search(r'(?<!fulness)faith=', html) is None
+    assert 'f=${' not in html

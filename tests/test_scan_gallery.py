@@ -108,6 +108,15 @@ def test_render_html_uses_sulfur_proof_shell():
     assert "prefers-color-scheme: dark" not in html
 
 
+def test_render_html_includes_homepage_orientation_heading():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "Browse and curate AI-generated artwork from this LoRA search." in html
+
+
 def test_render_html_grid_cells_use_mounted_evidence_depth():
     """Task 4 brief, Step 3 (Scan): thumbnail grid cells are mounted evidence on the paper
     background, not rounded cards. The page-local grid CSS therefore uses
@@ -121,3 +130,68 @@ def test_render_html_grid_cells_use_mounted_evidence_depth():
     # The grid-cell selector must reference the Task 2 depth class. Pick one of the two
     # approved treatments; either satisfies the brief.
     assert (".thumb.mounted-evidence" in html) or (".thumb.raised-readout" in html)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: plain-language glossary labels replace abbreviations
+# ---------------------------------------------------------------------------
+
+
+def test_render_html_uses_plain_language_labels_not_faith_abbreviation():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "Faith &gt;=" not in html
+    assert "Faith &lt;=" not in html
+
+
+def test_render_html_thumbnails_no_longer_contain_f_and_n_prefixes():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert '<div class="meta">' in html
+    # Thumbnail overlay should contain only the prompt name, no f=/n= prefix
+    meta_idx = html.index('<div class="meta">')
+    meta_end = html.index('</div>', meta_idx)
+    meta_content = html[meta_idx:meta_end]
+    assert 'f=' not in meta_content
+    assert 'n=' not in meta_content
+
+
+def test_render_html_sort_labels_use_plain_language():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "How new or different (high to low)" in html
+    # Sort labels now use the glossary plain labels, not bare field names
+    assert "Faithfulness (high to low)" not in html
+
+
+def test_render_html_uses_similarity_to_real_art_for_range_labels():
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert "Similarity to real art &gt;=" in html
+    assert "Similarity to real art &lt;=" in html
+
+
+def test_render_html_infobtn_calls_use_glossary_keys():
+    """Scan's info_btn calls for faithfulness/novelty/map_elites should be keyed, not raw-text."""
+    items = [{"file": "a.png", "thumb": "thumbs/a.jpg", "tag": "a", "gen": 0,
+              "category": "seedrun1", "prompt_name": "fox", "prompt_type": "conflict",
+              "prompt": "p", "strength": 1.0, "cfg": 5.0, "seed": 1, "steps": 28,
+              "sampler": "ddim", "negative": "n", "faith": 0.5, "novelty": 0.5, "sim": []}]
+    html = scan_gallery.render_html(items)
+    assert 'info_btn("faithfulness")' not in html  # Python-side, not in rendered HTML
+    # The rendered button for faithfulness looks up the glossary, so should not contain the raw
+    # definition text in its data-tip:
+    assert 'aria-label="More information about Similarity to real art"' in html
+    assert 'aria-label="More information about How new or different"' in html

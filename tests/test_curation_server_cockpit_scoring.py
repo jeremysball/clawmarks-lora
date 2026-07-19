@@ -297,3 +297,17 @@ def test_focus_scoped_cockpit_get_does_not_change_active_leg(monkeypatch):
 
     assert config.ACTIVE_LEG_FILE.read_bytes() == before
     assert cs._active_selection["leg"] != "cockpit"
+
+
+def test_cockpit_marks_run_trial_as_billable_action():
+    page = cockpit.render_html()
+    assert 'class="primary-action billable-action"' in page
+    assert "Spends money" in page
+
+
+def test_cockpit_safe_actions_do_not_have_billable_markup():
+    page = cockpit.render_html()
+    assert 'id="sendDraft"' in page
+    assert 'class="generate striate"' in page
+    assert 'class="use-suggestion"' in page
+    assert 'class="autopilot-refresh"' in page

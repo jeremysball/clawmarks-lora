@@ -1,5 +1,4 @@
 from clawmarks.build import explore_hub
-from clawmarks.shared_ui import NAV_GROUPS
 from clawmarks.workspace_context import WorkspaceContext
 
 
@@ -9,35 +8,21 @@ def test_render_html_lists_every_tool():
         assert path in html
 
 
-def test_hub_lists_the_same_tools_as_the_nav_dropdown():
-    # The home page and the jump-to dropdown must stay in sync: every navigable tool listed
-    # in the dropdown's detailed groups (Generate, Curate, Understand search, Preference
-    # model) needs a card here, in the same order. The Explore group in the dropdown is a
-    # quick-access subset of those same destinations; rendering it again would double-list
-    # every stage page and self-link to "/" (this very hub).
-    DETAILED = ("Generate", "Curate", "Understand search", "Preference model")
-    nav_tools = [
-        href for group, options in NAV_GROUPS if group in DETAILED for href, _ in options
-    ]
-    hub_tools = [path for path, _, _ in explore_hub.TOOLS]
-    assert hub_tools == nav_tools
-
-
 def test_hub_groups_tools_into_researcher_workflows():
     html = explore_hub.render_html()
 
-    for heading in ("Generate", "Curate", "Understand search", "Preference model"):
+    for heading in ("Look at images", "Make new images", "Understand the search", "Preference model"):
         assert f"<h2>{heading}</h2>" in html
 
 
-def test_explore_has_one_connected_workflow_stepper():
+def test_explore_has_details_how_search_round_works_instead_of_workflow_stepper():
     html = explore_hub.render_html()
 
-    assert 'id="workflowStepper"' in html
-    assert html.count('class="workflow-stage"') == 5
-    assert html.count(' aria-current="step"') == 1
-    assert 'aria-live="polite"' in html
+    assert 'id="workflowStepper"' not in html
+    assert 'class="workflow-stage"' not in html
     assert "workflow-card" not in html
+    assert "<details" in html
+    assert "How a search round works" in html
 
 
 def test_render_html_uses_sulfur_proof_shell():
@@ -78,7 +63,7 @@ def test_render_html_wires_the_shared_topnav_header():
 def test_render_html_preserves_a_compact_ruled_full_tool_index():
     html = explore_hub.render_html()
 
-    for heading in ("Generate", "Curate", "Understand search", "Preference model"):
+    for heading in ("Look at images", "Make new images", "Understand the search", "Preference model"):
         assert f"<h2>{heading}</h2>" in html
 
     assert 'class="tool-index"' in html
@@ -94,8 +79,8 @@ def test_render_html_preserves_a_compact_ruled_full_tool_index():
         assert f'href="/{path}"' in a_tag, f"link wrapping {path}'s .name has wrong href: {a_tag!r}"
         assert f'<span class="desc">{desc}</span>' in html
 
-    # The h1 still carries the page's "How does this search work?" tip link.
-    assert "How does this search work?" in html
+    # The page includes the "How a search round works" onboarding details.
+    assert "How a search round works" in html
 
 
 def test_render_html_accepts_optional_active_leg_kwargs():
@@ -253,3 +238,22 @@ def test_focus_tool_index_preserves_explicit_context():
     html = explore_hub.render_html(context=context, data=explore_hub.build_explore_data(context, [focus]))
 
     assert 'href="/cockpit.html?expedition=demo&amp;leg=round1&amp;focus_id=' in html
+
+
+# ---------------------------------------------------------------------------
+# Final fixes: Open Foci action layout
+# ---------------------------------------------------------------------------
+
+
+def test_open_foci_actions_use_intentional_class_not_workflow_actions():
+    html = explore_hub.render_html()
+    assert 'class="workflow-actions"' not in html
+    assert 'class="focus-actions"' in html
+
+
+def test_open_foci_actions_have_flex_wrapping_and_gap():
+    html = explore_hub.render_html()
+    assert 'class="focus-actions"' in html
+    assert "display:flex" in html or "display: flex" in html
+    assert "flex-wrap:wrap" in html or "flex-wrap: wrap" in html
+    assert "gap:" in html

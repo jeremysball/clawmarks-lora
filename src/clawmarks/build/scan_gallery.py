@@ -109,19 +109,8 @@ def render_html(
         ]
     data_json = json_script(render_items)
 
-    faith_tip = info_btn(
-        "Faithfulness measures how close an image stays to the original training photos, on a scale "
-        "from 0 (no resemblance) to 1 (near-identical). It's a cosine similarity between the image's "
-        "DINOv2 embedding and the centroid (average position) of the real training images in that "
-        "embedding space, not a human judgment of quality."
-    )
-    novelty_tip = info_btn(
-        "Novelty measures how different an image is from everything already explored: the real "
-        "training photos, plus (in round 2 onward) every image a prior generation already produced. "
-        "It's 1 minus the highest similarity to anything in that reference set, so a novelty of 1 "
-        "means nothing seen so far looks like it, and 0 means it's a near-duplicate of something "
-        "already found."
-    )
+    faith_tip = info_btn("faithfulness")
+    novelty_tip = info_btn("novelty")
     picked_only_tip = info_btn(
         "\"Picked\" images are ones a human has flagged as winners in the lightbox. The next search "
         "generation prefers picked images as starting points for new variations, ahead of the "
@@ -131,18 +120,7 @@ def render_html(
         "\"Favorited\" images are bookmarked for reference (e.g. for a writeup) but have no effect on "
         "the search, unlike picking."
     )
-    category_tip = info_btn(
-        "This is a MAP-Elites search: it keeps a grid of faithfulness x novelty bins and tries to "
-        "fill every bin with a good example, mapping the whole space instead of hill-climbing "
-        "toward one 'best' image. Each generation makes new images two ways. Explore jobs draw a "
-        "fresh random subject/texture combination unrelated to anything made before: this is how "
-        "the search finds new territory. Exploit jobs nudge an existing strong image's "
-        "strength/cfg/seed slightly, hoping a small step nearby does even better: this is how the "
-        "search refines what's already working. 'allnight'/'r2' mark which run (round 1 vs round 2) "
-        "an image came from; "
-        "'grid' and 'negtrigger'/'truncated' are earlier fixed-parameter sweeps, not part of the "
-        "generational search at all."
-    )
+    category_tip = info_btn("map_elites_cell")
 
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>CLAWMARKS uncanny scan</title>
@@ -229,10 +207,11 @@ def render_html(
 {nav_bar_html('scan.html', active_expedition, active_leg, focus=focus)}
 <div id="bar">
    <h1>CLAWMARKS <span>uncanny scan</span></h1>
+   <span style="color:var(--text-soft);font-size:13px;margin-right:auto">Browse and curate AI-generated artwork from this LoRA search.</span>
   <label>Sort{novelty_tip} <select id="sortKey">
-    <option value="novelty_desc">Novelty (high to low)</option>
-    <option value="faith_desc">Faithfulness (high to low)</option>
-    <option value="faith_asc">Faithfulness (low to high)</option>
+    <option value="novelty_desc">How new or different (high to low)</option>
+    <option value="faith_desc">Similarity to real art (high to low)</option>
+    <option value="faith_asc">Similarity to real art (low to high)</option>
     <option value="gen_desc">Generation (newest first)</option>
     <option value="gen_asc">Generation (oldest first)</option>
     <option value="prompt_asc">Prompt (A to Z)</option>
@@ -254,8 +233,8 @@ def render_html(
     <option value="r2_explore">round2 explore</option>
   </select></label>
   <label>Prompt <select id="promptFilter"><option value="">all</option></select></label>
-  <label>Faith &gt;= <input type="number" id="faithMin" step="0.05" value=""></label>
-  <label>Faith &lt;= <input type="number" id="faithMax" step="0.05" value="">{faith_tip}</label>
+  <label>Similarity to real art &gt;= <input type="number" id="faithMin" step="0.05" value=""></label>
+  <label>Similarity to real art &lt;= <input type="number" id="faithMax" step="0.05" value="">{faith_tip}</label>
   <label>Search <input type="text" id="search" placeholder="prompt name..."></label>
   <label><input type="checkbox" id="pickedOnly"> picked only{picked_only_tip}</label>
   <label><input type="checkbox" id="favoritedOnly"> favorited only{favorited_only_tip}</label>
@@ -419,7 +398,7 @@ function thumbHtml(d, i) {{
       <img loading="lazy" decoding="async" src="${{escHtml(d.thumb)}}" data-tag="${{escHtml(d.tag)}}">
       ${{picks[d.tag] ? '<div class="pickbadge">&#9733;</div>' : ''}}
       ${{favorites[d.tag] ? '<div class="favbadge">&#9829;</div>' : ''}}
-      <div class="meta">f=${{d.faith}} n=${{d.novelty}} ${{escHtml(d.prompt_name)}}</div>
+      <div class="meta">${{escHtml(d.prompt_name)}}</div>
     </div>`;
 }}
 

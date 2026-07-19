@@ -1,5 +1,6 @@
 import json
 import math
+import re
 
 from clawmarks.build import coverage_map
 
@@ -135,6 +136,16 @@ def test_render_html_labels_coverage_frontier():
     hear what the canvas shows."""
     html = coverage_map.render_html({"cells": [], "max_count": 0})
     assert 'aria-label="Coverage frontier"' in html
+
+
+def test_render_html_uses_plain_metric_labels():
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    data = {"cells": [_cell(0, 0, count=2)], "max_count": 2}
+    html = coverage_map.render_html(data)
+    assert "Faithfulness" in html
+    assert re.search(r'(?<!fulness)faith=', html) is None
+    assert 'f=${' not in html
+    assert 'count=${c.count}' in html
 
 
 def test_outer_bins_use_declared_metric_domains(tmp_path):

@@ -30,24 +30,28 @@ def json_script(data):
     return json.dumps(data).replace("<", "\\u003c")
 
 
+def billable_badge(estimate: str | None = None) -> str:
+    text = "Spends money"
+    if estimate:
+        text = f"{estimate} {text}"
+    return f'<span class="cost-badge">{text}</span>'
+
+
 NAV_GROUPS = [
-    ("Explore", [("/", "all tools (hub)"),
-                 ("/status.html", "session status"),
-                 ("/map.html", "scout: solution map (UMAP)"),
-                 ("/redundancy.html", "explain: redundancy clusters"),
-                 ("/cockpit.html", "act: generation cockpit"),
-                 ("/runs.html", "learn: search runs")]),
-    ("Generate", [("cockpit.html", "generation cockpit"), ("runs.html", "search runs"),
-                  ("seeds.html", "candidate seeds")]),
-    ("Curate", [("compare.html", "compare images (head-to-head)"),
-                ("scan.html", "scan gallery"), ("archive.html", "elite archive")]),
-    ("Understand search", [("map.html", "solution map (UMAP)"),
-                           ("coverage.html", "coverage / void map"),
-                           ("redundancy.html", "redundancy clusters"),
-                           ("novelty_decay.html", "novelty decay watchlist"),
-                           ("lineage.html", "lineage tree")]),
-    ("Preference model", [("preference_status.html", "preference status"),
-                          ("preference_rank.html", "predicted preference")]),
+    ("Look at images", [("/scan.html", "Browse all images"),
+                        ("/archive.html", "Best images by area"),
+                        ("/compare.html", "Choose between two images")]),
+    ("Make new images", [("/cockpit.html", "Build one image trial"),
+                         ("/runs.html", "Run or monitor a search"),
+                         ("/seeds.html", "Edit candidate ideas")]),
+    ("Understand the search", [("/map.html", "Explore image neighborhoods"),
+                               ("/coverage.html", "Find gaps in the image space"),
+                               ("/redundancy.html", "Find near-duplicate groups"),
+                               ("/novelty_decay.html", "See which prompts are running out"),
+                               ("/lineage.html", "Trace image ancestry")]),
+    ("Preference model", [("/preference_status.html", "Check taste-model readiness"),
+                          ("/preference_rank.html", "See predicted favorites"),
+                          ("/compare.html", "Choose between two images")]),
 ]
 NAV_OPTIONS = [option for _group, options in NAV_GROUPS for option in options]
 
@@ -83,7 +87,8 @@ SULFUR_CSS = """
   --text-soft:#4D5048; --rule:#898D81; --sulfur:#CBD63F; --guide-surface:#20251B;
   --guide-ink:#ECEFDF; --font-display:"Barlow Condensed","Arial Narrow",sans-serif;
   --font-body:"IBM Plex Sans",Arial,sans-serif; --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
-  --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
+    --cost:#5B3A63;
+    --bg:var(--paper); --panel:var(--paper); --panel-2:var(--paper-deep); --border:var(--rule);
   --text:var(--ink); --text-dim:var(--text-soft); --accent:var(--ink); --pick:var(--sulfur); }
 * { box-sizing:border-box; }
 body { background-color:var(--paper); color:var(--ink); font:14px/1.5 var(--font-body);
@@ -201,6 +206,14 @@ decided Sulfur Proof v2 Lavish artifact's sulfur-theme `.mark-button`. */
     inset -2px -2px 0 rgba(0,0,0,.58),
     3px 3px 0 color-mix(in srgb, var(--sulfur) 82%, var(--ink));
 }
+.billable-action {
+  position:relative; border-left:3px solid var(--cost) !important;
+}
+.cost-badge {
+  display:inline-block; background:var(--cost); color:#efe7e0;
+  font:600 10px/1 var(--font-body); padding:3px 7px; text-transform:uppercase;
+  letter-spacing:0.06em;
+}
 """
 
 BTN_CSS = """
@@ -212,15 +225,17 @@ BTN_CSS = """
 """
 
 
+def _canonicalize(path: str) -> str:
+    if not path.startswith("/"):
+        path = "/" + path
+    if path == "/":
+        path = "/scan.html"
+    return path
+
+
 def _page_name_for(current):
-    """Derive a human-readable page label for the header from NAV_GROUPS. The detailed groups
-    (Generate, Curate, Understand search, Preference model) hold the cleaner human names; the
-    Explore group lists stage-prefixed entries for quick access, so a destination that appears
-    in both should prefer the detailed-group label. Falls back to a humanized filename for
-    routes not present anywhere (e.g. the hub page itself, where `current` may be "/")."""
-    detailed = [g for g in NAV_GROUPS if g[0] != "Explore"]
-    quick = [g for g in NAV_GROUPS if g[0] == "Explore"]
-    for _group, options in detailed + quick:
+    current = _canonicalize(current)
+    for _group, options in NAV_GROUPS:
         for href, label in options:
             if href == current:
                 return label[:1].upper() + label[1:]
@@ -229,6 +244,7 @@ def _page_name_for(current):
 
 
 def nav_bar_html(current, active_expedition=None, active_leg=None, running=None, focus=None):
+    current = _canonicalize(current)
     page_name = html.escape(_page_name_for(current))
     opts = "".join(
         f'<optgroup label="{html.escape(group)}">' + "".join(
@@ -420,6 +436,47 @@ button.context-label:active { transform:translate(2px,2px); box-shadow:none; }
 }
 """
 
+GLOSSARY = {
+    "faithfulness": (
+        "Similarity to real art",
+        "DINOv2 cosine similarity between the image's embedding and the centroid (average "
+        "position) of the real training images. A score of 1 means the image is at the same "
+        "position as the average real photo; 0 means it is in completely unrelated territory.",
+    ),
+    "novelty": (
+        "How new or different",
+        "Novelty measures how different an image is from everything the search has already "
+        "explored: the real training photos and every image a prior generation produced. A "
+        "score of 1 means nothing seen so far looks like it; 0 means it is a near-duplicate "
+        "of something already found.",
+    ),
+    "map_elites_cell": (
+        "MAP-Elites cell",
+        "This is a MAP-Elites search: it keeps a grid of faithfulness \u00d7 novelty bins "
+        "and tries to fill every bin with a good example, mapping the whole space instead of "
+        "hill-climbing toward one 'best' image. Each generation makes new images two ways: "
+        "Explore jobs draw a fresh random subject/texture combination unrelated to anything "
+        "made before (finding new territory). Exploit jobs nudge an existing strong image's "
+        "parameters slightly, hoping a small step nearby does even better (refining what is "
+        "already working).",
+    ),
+    "umap": (
+        "UMAP projection",
+        "UMAP (Uniform Manifold Approximation and Projection) is a dimensionality-reduction "
+        "algorithm that maps the high-dimensional DINOv2 embedding space (768 numbers per "
+        "image) down to 2D so we can see the overall shape of the image landscape: clusters "
+        "of similar images, gaps in coverage, and how faithfulness and novelty relate to "
+        "position.",
+    ),
+    "redundancy": (
+        "Redundancy cluster",
+        "Redundancy clusters group near-identical images (by DINOv2 embedding distance) so "
+        "you can see how many effectively duplicate versions of the same concept the search "
+        "produced. High redundancy means the search is stuck in a local area; low redundancy "
+        "means it is still exploring new territory.",
+    ),
+}
+
 _infotip_counter = 0
 
 DINO_TIP = (
@@ -430,22 +487,43 @@ DINO_TIP = (
 
 
 def info_btn(tip):
-    """A small tappable (?) icon that shows `tip` in a popover. Click-based, not hover-only, so
-    it works on touch: this whole project is meant to become a general tool for exploring an
-    AI-generated image space, not a one-off for this dataset, so every non-obvious concept
-    (faithfulness, novelty, picking, favoriting...) gets one of these next to it instead of
-    assuming the reader already knows the vocabulary."""
+    """An accessible information button. When `tip` is a key in GLOSSARY, uses the glossary
+    entry's plain label for the aria-label and its formal definition as the popover content
+    (visible icon is "i"). When `tip` is not a glossary key (backward-compatibility path for
+    raw definition text), uses "?" as the visible icon with a generic aria-label."""
     global _infotip_counter
     _infotip_counter += 1
+
+    if tip in GLOSSARY:
+        label, definition = GLOSSARY[tip]
+        aria_label = f"More information about {label}"
+        tip_escaped = definition.replace('"', "&quot;")
+        aria_escaped = aria_label.replace('"', "&quot;")
+        return (
+            f'<button type="button" class="infobtn" '
+            f'data-id="tip{_infotip_counter}" data-tip="{tip_escaped}" '
+            f'aria-label="{aria_escaped}" '
+            f'aria-expanded="false">'
+            f'i'
+            f'</button>'
+        )
+
     tip_escaped = tip.replace('"', "&quot;")
-    return f'<span class="infobtn" data-id="tip{_infotip_counter}" data-tip="{tip_escaped}">?</span>'
+    return (
+        f'<button type="button" class="infobtn" '
+        f'data-id="tip{_infotip_counter}" data-tip="{tip_escaped}" '
+        f'aria-label="More information" '
+        f'aria-expanded="false">'
+        f'i'
+        f'</button>'
+    )
 
 
 INFOTIP_CSS = """
 .infobtn { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
   border-radius:50%; background:rgba(154,154,164,0.18); color:#9a9aa4; font-size:10.5px;
   cursor:pointer; border:1px solid rgba(154,154,164,0.35); flex-shrink:0; user-select:none;
-  font-weight:600; line-height:1; }
+  font-weight:600; line-height:1; padding:0; font-family:inherit; }
 .infobtn:hover, .infobtn.active { background:rgba(124,158,255,0.25); color:#eaeaee; border-color:#7c9eff; }
 .infopop { position:fixed; z-index:2000; max-width:280px; background:#1d1d22; border:1px solid #2a2a30;
   border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.55; color:#dcdce2;
@@ -458,18 +536,35 @@ INFOTIP_CSS = """
 
 INFOTIP_JS = """
 (function(){
+  var currentButton = null;
+
+  function closePopover(pop){
+    if (!pop) return;
+    pop.classList.remove('open');
+    var relatedBtn = document.querySelector('.infobtn[data-id="' + pop.dataset.for + '"]');
+    if (relatedBtn) {
+      relatedBtn.classList.remove('active');
+      relatedBtn.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   document.addEventListener('click', function(e){
     var btn = e.target.closest ? e.target.closest('.infobtn') : null;
     document.querySelectorAll('.infopop.open').forEach(function(p){
-      if (!btn || p.dataset.for !== btn.dataset.id) p.classList.remove('open');
+      if (!btn || p.dataset.for !== btn.dataset.id) {
+        closePopover(p);
+      }
     });
     document.querySelectorAll('.infobtn.active').forEach(function(b){
-      if (b !== btn) b.classList.remove('active');
+      if (b !== btn) {
+        b.classList.remove('active');
+        b.setAttribute('aria-expanded', 'false');
+      }
     });
     if (!btn) return;
     e.stopPropagation();
-    // infobtn spans are nested inside <label> elements wrapping the filter control they
-    // annotate (e.g. <label>Sort<span class="infobtn">...</span> <select>...). Without this,
+    // infobtn buttons are nested inside <label> elements wrapping the filter control they
+    // annotate (e.g. <label>Sort<button class="infobtn">i</button> <select>...). Without this,
     // the label's default action re-fires a synthetic click at that control right after this
     // one, which bubbles to document a second time with no infobtn target and immediately
     // closes the tooltip this same click just opened.
@@ -494,6 +589,21 @@ INFOTIP_JS = """
     var willOpen = !pop.classList.contains('open');
     pop.classList.toggle('open', willOpen);
     btn.classList.toggle('active', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (willOpen) currentButton = btn;
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') {
+      var openPop = document.querySelector('.infopop.open');
+      if (openPop) {
+        closePopover(openPop);
+        if (currentButton) {
+          currentButton.focus();
+          currentButton = null;
+        }
+      }
+    }
   });
 })();
 """
@@ -502,6 +612,7 @@ INFOTIP_JS = """
 MOBILE_BASE_CSS = """
 html, body { max-width:100vw; overflow-x:hidden; }
 * { -webkit-tap-highlight-color: transparent; }
+code, pre { overflow-wrap:anywhere; }
 @media (max-width:700px) {
   body { padding:10px !important; font-size:15px !important; line-height:1.55 !important; }
   h1 { font-size:18px !important; }
@@ -888,9 +999,9 @@ _LIGHTBOX_JS = r"""(function(){
   <div class="lb-actions">
     <button class="lb-back" style="display:none;">&#8592; back</button>
     <button class="lb-favorite">&#9825; favorite</button>
-    <span class="infobtn" data-id="lb-tip-favorite" data-tip="Favoriting just bookmarks this image for your own reference (e.g. for a writeup). Unlike picking, it has no effect on the search: use it for images you like but don't want the next generation to build on.">?</span>
+    <button type="button" class="infobtn" data-id="lb-tip-favorite" data-tip="Favoriting just bookmarks this image for your own reference (e.g. for a writeup). Unlike picking, it has no effect on the search: use it for images you like but don't want the next generation to build on." aria-label="More information about favoriting" aria-expanded="false">i</button>
     <button class="lb-cf-toggle">&#8635; generate counterfactual</button>
-    <span class="infobtn" data-id="lb-tip-cf" data-tip="A counterfactual asks 'what if this image had used different settings' by generating a brand-new image right now, keeping whichever fields you don't change and varying the ones you do. It costs real generation time/money (seconds if the endpoint is warm, minutes if it has to cold-start) and never feeds back into the search on its own: it's a side-by-side comparison tool, not a pick.">?</span>
+    <button type="button" class="infobtn" data-id="lb-tip-cf" data-tip="A counterfactual asks 'what if this image had used different settings' by generating a brand-new image right now, keeping whichever fields you don't change and varying the ones you do. It costs real generation time/money (seconds if the endpoint is warm, minutes if it has to cold-start) and never feeds back into the search on its own: it's a side-by-side comparison tool, not a pick." aria-label="More information about counterfactual generation" aria-expanded="false">i</button>
   </div>
   <div class="lb-cf-panel">
     <label>Prompt</label>
@@ -901,7 +1012,8 @@ _LIGHTBOX_JS = r"""(function(){
       <div><label>Seed</label><input class="lb-cf-seed" type="number" step="1"></div>
       <div><label>Count (n)</label><input class="lb-cf-n" type="number" step="1" min="1" max="6" value="1"></div>
     </div>
-    <button class="lb-cf-submit">Generate</button>
+    <button class="lb-cf-submit billable-action">Generate</button>
+    <span class="cost-badge">Spends money</span>
     <div class="lb-cf-status"></div>
     <div class="lb-cf-result"></div>
     <div class="lb-cf-list"></div>
@@ -1035,7 +1147,7 @@ _LIGHTBOX_JS = r"""(function(){
       ? `${d.tag} | counterfactual of ${d.origin_tag} | prompt=${d.prompt} | ` +
         `strength=${d.strength} cfg=${d.cfg} seed=${d.seed}`
       : `${d.tag} | gen ${d.gen} | ${d.category} | type=${d.prompt_type} | prompt=${d.prompt_name} | ` +
-        `strength=${d.strength} cfg=${d.cfg} | faith=${d.faith} novelty=${d.novelty}`;
+        `strength=${d.strength} cfg=${d.cfg} | faithfulness=${d.faith} novelty=${d.novelty}`;
     const isFav = !!favorites[d.tag];
     const favBtn = el.querySelector('.lb-favorite');
     favBtn.textContent = isFav ? '♥ favorited (click to remove)' : '♡ favorite';
@@ -1048,7 +1160,7 @@ _LIGHTBOX_JS = r"""(function(){
       strip.innerHTML = simTags.map(t => {
         const n = byTag[t];
         if (!n) return '';
-        return `<img loading="lazy" src="${escHtml(n.thumb)}" title="f=${n.faith} n=${n.novelty} ${escHtml(n.prompt_name)}" data-tag="${escHtml(t)}">`;
+        return `<img loading="lazy" src="${escHtml(n.thumb)}" title="faithfulness=${n.faith} novelty=${n.novelty} ${escHtml(n.prompt_name)}" data-tag="${escHtml(t)}">`;
       }).join('');
       strip.querySelectorAll('img').forEach(img => { img.onclick = () => jump(img.dataset.tag); });
       strip.style.display = 'flex';
