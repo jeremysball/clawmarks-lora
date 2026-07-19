@@ -41,16 +41,16 @@ NAV_GROUPS = [
     ("Look at images", [("/scan.html", "Browse all images"),
                         ("/archive.html", "Best images by area"),
                         ("/compare.html", "Choose between two images")]),
-    ("Make new images", [("/cockpit.html", "Generation cockpit"),
+    ("Make new images", [("/cockpit.html", "Build one image trial"),
                          ("/runs.html", "Run or monitor a search"),
-                         ("/seeds.html", "Candidate seeds")]),
-    ("Understand the search", [("/map.html", "Solution map (UMAP)"),
+                         ("/seeds.html", "Edit candidate ideas")]),
+    ("Understand the search", [("/map.html", "Explore image neighborhoods"),
                                ("/coverage.html", "Find gaps in the image space"),
-                               ("/redundancy.html", "Redundancy clusters"),
-                               ("/novelty_decay.html", "Novelty decay watchlist"),
-                               ("/lineage.html", "Lineage tree")]),
-    ("Preference model", [("/preference_status.html", "Preference status"),
-                          ("/preference_rank.html", "Predicted preference"),
+                               ("/redundancy.html", "Find near-duplicate groups"),
+                               ("/novelty_decay.html", "See which prompts are running out"),
+                               ("/lineage.html", "Trace image ancestry")]),
+    ("Preference model", [("/preference_status.html", "Check taste-model readiness"),
+                          ("/preference_rank.html", "See predicted favorites"),
                           ("/compare.html", "Choose between two images")]),
 ]
 NAV_OPTIONS = [option for _group, options in NAV_GROUPS for option in options]
@@ -509,7 +509,14 @@ def info_btn(tip):
         )
 
     tip_escaped = tip.replace('"', "&quot;")
-    return f'<span class="infobtn" data-id="tip{_infotip_counter}" data-tip="{tip_escaped}">?</span>'
+    return (
+        f'<button type="button" class="infobtn" '
+        f'data-id="tip{_infotip_counter}" data-tip="{tip_escaped}" '
+        f'aria-label="More information" '
+        f'aria-expanded="false">'
+        f'i'
+        f'</button>'
+    )
 
 
 INFOTIP_CSS = """
@@ -992,9 +999,9 @@ _LIGHTBOX_JS = r"""(function(){
   <div class="lb-actions">
     <button class="lb-back" style="display:none;">&#8592; back</button>
     <button class="lb-favorite">&#9825; favorite</button>
-    <button type="button" class="infobtn" data-id="lb-tip-favorite" data-tip="Favoriting just bookmarks this image for your own reference (e.g. for a writeup). Unlike picking, it has no effect on the search: use it for images you like but don't want the next generation to build on." aria-label="More information" aria-expanded="false">i</button>
+    <button type="button" class="infobtn" data-id="lb-tip-favorite" data-tip="Favoriting just bookmarks this image for your own reference (e.g. for a writeup). Unlike picking, it has no effect on the search: use it for images you like but don't want the next generation to build on." aria-label="More information about favoriting" aria-expanded="false">i</button>
     <button class="lb-cf-toggle">&#8635; generate counterfactual</button>
-    <button type="button" class="infobtn" data-id="lb-tip-cf" data-tip="A counterfactual asks 'what if this image had used different settings' by generating a brand-new image right now, keeping whichever fields you don't change and varying the ones you do. It costs real generation time/money (seconds if the endpoint is warm, minutes if it has to cold-start) and never feeds back into the search on its own: it's a side-by-side comparison tool, not a pick." aria-label="More information" aria-expanded="false">i</button>
+    <button type="button" class="infobtn" data-id="lb-tip-cf" data-tip="A counterfactual asks 'what if this image had used different settings' by generating a brand-new image right now, keeping whichever fields you don't change and varying the ones you do. It costs real generation time/money (seconds if the endpoint is warm, minutes if it has to cold-start) and never feeds back into the search on its own: it's a side-by-side comparison tool, not a pick." aria-label="More information about counterfactual generation" aria-expanded="false">i</button>
   </div>
   <div class="lb-cf-panel">
     <label>Prompt</label>

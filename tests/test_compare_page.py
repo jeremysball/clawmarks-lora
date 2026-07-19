@@ -20,10 +20,14 @@ def test_render_html_keeps_choices_outside_the_shared_nav():
     those panes are divs with role=button, not <button> elements, because every interactive
     surface in this page is meant to be keyboard-driven. The shared nav header now ships real
     <button> elements (the context picker, the Guide button) for header-level controls, so
-    this assertion scopes the no-real-button rule to the page body instead of the whole HTML."""
+    this assertion scopes the no-real-button rule to the page body instead of the whole HTML.
+    Accessible info buttons (class="infobtn") from info_btn() are exempted."""
+    import re
     html = compare_page.render_html()
     body_after_nav = html.split("</header>", 1)[1]
-    assert "<button" not in body_after_nav
+    non_infobtn = re.findall(r'<button(?:\s[^>]*)?>', body_after_nav)
+    non_infobtn = [b for b in non_infobtn if 'class="infobtn"' not in b]
+    assert not non_infobtn, f"found non-infobtn <button> in compare page body: {non_infobtn}"
 
 
 def test_render_html_has_zoom_icons_and_overlay():

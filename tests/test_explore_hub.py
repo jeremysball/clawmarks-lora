@@ -238,3 +238,22 @@ def test_focus_tool_index_preserves_explicit_context():
     html = explore_hub.render_html(context=context, data=explore_hub.build_explore_data(context, [focus]))
 
     assert 'href="/cockpit.html?expedition=demo&amp;leg=round1&amp;focus_id=' in html
+
+
+# ---------------------------------------------------------------------------
+# Final fixes: Open Foci action layout
+# ---------------------------------------------------------------------------
+
+
+def test_open_foci_actions_use_intentional_class_not_workflow_actions():
+    html = explore_hub.render_html()
+    assert 'class="workflow-actions"' not in html
+    assert 'class="focus-actions"' in html
+
+
+def test_open_foci_actions_have_flex_wrapping_and_gap():
+    html = explore_hub.render_html()
+    assert 'class="focus-actions"' in html
+    assert "display:flex" in html or "display: flex" in html
+    assert "flex-wrap:wrap" in html or "flex-wrap: wrap" in html
+    assert "gap:" in html

@@ -33,7 +33,7 @@ def test_nav_bar_html_without_leading_slash_matches_nav_groups():
 def test_nav_bar_html_cockpit_without_slash_selects_cockpit():
     html = nav_bar_html("cockpit.html")
     assert 'value="/cockpit.html" selected' in html
-    assert 'class="page-name">Generation cockpit</span>' in html
+    assert 'class="page-name">Build one image trial</span>' in html
 
 
 def test_nav_bar_html_root_maps_to_scan_gallery():
@@ -126,6 +126,27 @@ def test_nav_groups_use_plain_task_labels():
     ]
     assert ("/runs.html", "Run or monitor a search") in groups["Make new images"]
     assert ("/coverage.html", "Find gaps in the image space") in groups["Understand the search"]
+
+
+def test_nav_groups_destination_labels_match_spec_exactly():
+    groups = dict(NAV_GROUPS)
+    assert groups["Make new images"] == [
+        ("/cockpit.html", "Build one image trial"),
+        ("/runs.html", "Run or monitor a search"),
+        ("/seeds.html", "Edit candidate ideas"),
+    ]
+    assert groups["Understand the search"] == [
+        ("/map.html", "Explore image neighborhoods"),
+        ("/coverage.html", "Find gaps in the image space"),
+        ("/redundancy.html", "Find near-duplicate groups"),
+        ("/novelty_decay.html", "See which prompts are running out"),
+        ("/lineage.html", "Trace image ancestry"),
+    ]
+    assert groups["Preference model"] == [
+        ("/preference_status.html", "Check taste-model readiness"),
+        ("/preference_rank.html", "See predicted favorites"),
+        ("/compare.html", "Choose between two images"),
+    ]
 
 
 def test_nav_has_no_workflow_stage_group():
@@ -494,7 +515,7 @@ def test_header_names_page_scope_focus_and_guide():
         focus={"focus_id": "focus_11111111111111111111111111111111", "label": "Ink anchor", "revision": 3},
     )
     assert "CLAWMARKS" in markup
-    assert "Solution map" in markup
+    assert "Explore image neighborhoods" in markup
     assert "demo/round1" in markup
     assert "Ink anchor" in markup and "r3" in markup
     assert 'id="contextPicker"' in markup
@@ -573,11 +594,13 @@ def test_info_btn_with_glossary_key_is_accessible_button():
     assert "?" not in markup
 
 
-def test_info_btn_with_raw_text_fallback_still_works():
+def test_info_btn_with_raw_text_fallback_is_accessible_button():
     markup = shared_ui.info_btn("Some fallback raw tip text")
-    assert markup.startswith('<span class="infobtn"')
-    assert 'data-tip="Some fallback raw tip text"' in markup
-    assert "?" in markup
+    assert markup.startswith('<button type="button"')
+    assert '>i</button>' in markup
+    assert 'aria-expanded="false"' in markup
+    assert 'aria-label="More information"' in markup
+    assert "?" not in markup
 
 
 def test_info_btn_glossary_key_has_no_question_mark():
@@ -649,3 +672,16 @@ def test_billable_action_css_references_cost_token():
 
 def test_billable_action_no_redundant_before_stripe():
     assert ".billable-action::before" not in shared_ui.CONTROL_CSS
+
+
+# ---------------------------------------------------------------------------
+# Final fixes: lightbox info button labels
+# ---------------------------------------------------------------------------
+
+
+def test_lightbox_favorite_info_button_has_distinct_label():
+    assert 'aria-label="More information about favoriting"' in _LIGHTBOX_JS
+
+
+def test_lightbox_counterfactual_info_button_has_distinct_label():
+    assert 'aria-label="More information about counterfactual generation"' in _LIGHTBOX_JS
