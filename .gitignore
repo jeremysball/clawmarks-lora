@@ -6,6 +6,9 @@ runpod-ssh/
 # ephemeral working notes, per CLAUDE.md convention: not tracked
 TODO.txt
 
+# plan docs: working scratch, not tracked going forward
+docs/superpowers/plans/
+
 # archive: superseded/unrelated material kept on disk, not in history
 archive/
 
