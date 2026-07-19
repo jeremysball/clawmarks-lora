@@ -1,5 +1,6 @@
 # tests/test_shared_ui.py
 import json
+import re
 
 from clawmarks import shared_ui
 from clawmarks.shared_ui import (
@@ -685,3 +686,12 @@ def test_lightbox_favorite_info_button_has_distinct_label():
 
 def test_lightbox_counterfactual_info_button_has_distinct_label():
     assert 'aria-label="More information about counterfactual generation"' in _LIGHTBOX_JS
+
+
+def test_lightbox_uses_plain_metric_labels_not_forbidden_abbreviations():
+    """The lightbox info line and similar-image strip tooltip must use plain labels
+    (faithfulness=, novelty=) not forbidden abbreviations (faith=, f=, n=)."""
+    assert "faithfulness=${d.faith} novelty=${d.novelty}" in _LIGHTBOX_JS
+    assert 'faithfulness=${n.faith} novelty=${n.novelty}' in _LIGHTBOX_JS
+    assert 'f=${' not in _LIGHTBOX_JS
+    assert re.search(r'(?<!fulness)faith=', _LIGHTBOX_JS) is None

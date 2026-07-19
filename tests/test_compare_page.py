@@ -200,3 +200,12 @@ def test_render_html_has_or_axis_between_panes():
     # self-explanatory without a tooltip.
     or_section = html.split('class="or-axis"', 1)[1].split("</", 1)[0]
     assert "OR" in or_section
+
+
+def test_render_html_uses_plain_metric_labels():
+    """No user-facing text uses faith=, f=, n= as unexplained labels."""
+    html = compare_page.render_html()
+    assert 'faithfulness ${img.faith}' in html
+    assert '${img.faith}' in html  # metric values still available
+    assert 'f=${' not in html
+    assert 'n=${' not in html

@@ -310,7 +310,7 @@ function modalItemHtml(it, i, j) {{
   return `
     <div class="item ${{picks[it.tag] ? 'human' : ''}}" title="${{escHtml(it.tag)}}" onclick="openModalItem(${{i}}, ${{j}})">
       <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}">
-      <div class="meta">${{escHtml(it.prompt_name)}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
+      <div class="meta">${{escHtml(it.prompt_name)}}<br>faithfulness=${{it.faith}} novelty=${{it.novelty}}</div>
     </div>`;
 }}
 
@@ -361,9 +361,9 @@ function render() {{
       <img src="${{escHtml(elite.thumb)}}" loading="lazy" data-tag="${{escHtml(elite.tag)}}" onclick="openElite(${{i}})">
       <div class="meta">
         <b>${{escHtml(elite.prompt_name)}}</b> <span class="badge ${{badgeClass}}">${{source}}</span><br>
-        faith=${{elite.faith}} novelty=${{elite.novelty}}<br>
-        n=${{c.n}} in cell | s=${{elite.strength}} cfg=${{elite.cfg}}
-        <span class="bin">bin faith ${{c.fb + 1}}/${{N_BINS}} (${{binRange(FAITH_BINS, c.fb)}}) ·
+        faithfulness=${{elite.faith}} novelty=${{elite.novelty}}<br>
+        count=${{c.n}} in cell | s=${{elite.strength}} cfg=${{elite.cfg}}
+        <span class="bin">bin faithfulness ${{c.fb + 1}}/${{N_BINS}} (${{binRange(FAITH_BINS, c.fb)}}) ·
         novelty ${{c.nb + 1}}/${{N_BINS}} (${{binRange(NOVELTY_BINS, c.nb)}})</span>
       </div>
       <button class="viewall" onclick="openModal(${{i}})">view all ${{c.n}} in this cell</button>

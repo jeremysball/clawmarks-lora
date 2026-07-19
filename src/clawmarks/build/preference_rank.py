@@ -206,7 +206,7 @@ function render() {{
   document.getElementById('list').innerHTML = visible.map(([it, i]) => `
    <div class="row">
      <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}" onclick="openItem(${{i}})">
-    <div class="meta"><b>Rank #${{i + 1}}</b> | p=${{it.predicted_preference}} | f=${{it.faith}} n=${{it.novelty}}</div>
+    <div class="meta"><b>Rank #${{i + 1}}</b> | p=${{it.predicted_preference}} | faithfulness=${{it.faith}} novelty=${{it.novelty}}</div>
      ${{reviewMode ? `<div class="review"><button class="flag-button ${{flagSelected(it.tag, 'matches')}}" aria-pressed="${{flags[it.tag]?.flag === 'matches'}}" data-review-index="${{i}}" data-flag="matches">matches my taste</button><button class="flag-button ${{flagSelected(it.tag, 'questionable')}}" aria-pressed="${{flags[it.tag]?.flag === 'questionable'}}" data-review-index="${{i}}" data-flag="questionable">questionable</button></div>` : ''}}
    </div>`).join('');
   document.querySelectorAll('[data-review-index]').forEach(button => button.addEventListener('click', () => {{

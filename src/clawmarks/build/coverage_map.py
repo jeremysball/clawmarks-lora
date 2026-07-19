@@ -167,7 +167,7 @@ def top_frontier_cells(data, n=3):
         best_item = max(neighbor_bests, key=lambda item: item["novelty"]) if neighbor_bests else None
         shaped.append({
             "fb": fb, "nb": nb,
-            "range": f"Faith {_fmt_range(c['faith_lo'], c['faith_hi'])}, "
+            "range": f"Faithfulness {_fmt_range(c['faith_lo'], c['faith_hi'])}, "
                      f"novelty {_fmt_range(c['novelty_lo'], c['novelty_hi'])}",
             "adjacent": adjacent,
             "thumb": best_item["thumb"] if best_item else None,
@@ -405,10 +405,10 @@ for (let nb = N_BINS - 1; nb >= 0; nb--) {{
     div.setAttribute('aria-colindex', String(fb + 1));
     div.setAttribute('aria-label',
       (c.frontier ? 'frontier cell, ' : 'cell, ') +
-      `faith [${{c.faith_lo}}, ${{c.faith_hi}}) novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) count ${{c.count}}`);
+      `faithfulness [${{c.faith_lo}}, ${{c.faith_hi}}) novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) count ${{c.count}}`);
     if (color) div.style.background = color;
     div.textContent = c.count || '';
-    div.title = `faith [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) | n=${{c.count}}${{c.frontier ? ' (frontier)' : ''}}`;
+    div.title = `faithfulness [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}}) | count=${{c.count}}${{c.frontier ? ' (frontier)' : ''}}`;
     div.onclick = () => showCell(c);
     grid.appendChild(div);
   }}
@@ -441,7 +441,7 @@ function showCell(c) {{
   }} else {{
     img.style.display = 'none';
   }}
-  info.innerHTML = `<b>faith</b> [${{c.faith_lo}}, ${{c.faith_hi}})<br>`
+  info.innerHTML = `<b>faithfulness</b> [${{c.faith_lo}}, ${{c.faith_hi}})<br>`
     + `<b>novelty</b> [${{c.novelty_lo}}, ${{c.novelty_hi}})<br>`
     + `<b>count</b> ${{c.count}}${{c.frontier ? ' &mdash; frontier cell' : ''}}<br>`
     + (c.best_tag ? `<b>top image</b> ${{escHtml(c.best_tag)}}` : 'no images in this cell yet');
@@ -515,12 +515,12 @@ function openModalItem(j) {{
 
 function openModal(c) {{
   document.getElementById('modalTitle').textContent =
-    `${{c.count}} images | faith [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}})`;
+    `${{c.count}} images | faithfulness [${{c.faith_lo}}, ${{c.faith_hi}}) x novelty [${{c.novelty_lo}}, ${{c.novelty_hi}})`;
   document.getElementById('modalGrid').innerHTML = c.items.map((it, j) => `
     <div class="item">
       <img src="${{escHtml(it.thumb)}}" loading="lazy" data-tag="${{escHtml(it.tag)}}" title="${{escHtml(it.tag)}}" style="cursor:pointer"
            onclick="openModalItem(${{j}})">
-      <div class="meta">${{escHtml(it.prompt_name)}}<br>f=${{it.faith}} n=${{it.novelty}}</div>
+      <div class="meta">${{escHtml(it.prompt_name)}}<br>faithfulness=${{it.faith}} novelty=${{it.novelty}}</div>
     </div>`).join('');
   document.getElementById('modal').classList.add('open');
 }}

@@ -85,7 +85,7 @@ deltas at each step, to show whether exploiting actually improves on its parent 
         # html.escape() covers the whole sink instead of needing separate JS-string and
         # HTML-attribute escaping layers. The click handler reads it back via data-tag below.
         safe_tag = html.escape(tag, quote=True)
-        return (f'<li><div class="node" data-tag="{safe_tag}"><b>{safe_tag}</b> faith={m["centroid_sim"]:.3f} '
+        return (f'<li><div class="node" data-tag="{safe_tag}"><b>{safe_tag}</b> faithfulness={m["centroid_sim"]:.3f} '
                 f'novelty={m["novelty"]:.3f}</div>{"<ul>" + child_html + "</ul>" if children else ""}</li>')
 
     top_level = [t for t in by_tag if t not in {c for cs in children_by_parent.values() for c in cs}]

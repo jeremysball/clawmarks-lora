@@ -166,7 +166,7 @@ const RETRAIN_EVERY = 10;
 
 function caption(img) {{
   // textContent (set by the caller) keeps model-controlled prompt_name from being parsed as HTML.
-  return `${{img.prompt_name}} · faith ${{img.faith}} · novelty ${{img.novelty}}`;
+  return `${{img.prompt_name}} · faithfulness ${{img.faith}} · novelty ${{img.novelty}}`;
 }}
 
 function revealSamplingDetails() {{

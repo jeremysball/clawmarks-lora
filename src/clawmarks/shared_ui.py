@@ -1147,7 +1147,7 @@ _LIGHTBOX_JS = r"""(function(){
       ? `${d.tag} | counterfactual of ${d.origin_tag} | prompt=${d.prompt} | ` +
         `strength=${d.strength} cfg=${d.cfg} seed=${d.seed}`
       : `${d.tag} | gen ${d.gen} | ${d.category} | type=${d.prompt_type} | prompt=${d.prompt_name} | ` +
-        `strength=${d.strength} cfg=${d.cfg} | faith=${d.faith} novelty=${d.novelty}`;
+        `strength=${d.strength} cfg=${d.cfg} | faithfulness=${d.faith} novelty=${d.novelty}`;
     const isFav = !!favorites[d.tag];
     const favBtn = el.querySelector('.lb-favorite');
     favBtn.textContent = isFav ? '♥ favorited (click to remove)' : '♡ favorite';
@@ -1160,7 +1160,7 @@ _LIGHTBOX_JS = r"""(function(){
       strip.innerHTML = simTags.map(t => {
         const n = byTag[t];
         if (!n) return '';
-        return `<img loading="lazy" src="${escHtml(n.thumb)}" title="f=${n.faith} n=${n.novelty} ${escHtml(n.prompt_name)}" data-tag="${escHtml(t)}">`;
+        return `<img loading="lazy" src="${escHtml(n.thumb)}" title="faithfulness=${n.faith} novelty=${n.novelty} ${escHtml(n.prompt_name)}" data-tag="${escHtml(t)}">`;
       }).join('');
       strip.querySelectorAll('img').forEach(img => { img.onclick = () => jump(img.dataset.tag); });
       strip.style.display = 'flex';
