@@ -863,8 +863,10 @@ def _run_cockpit_trial(trial_id, api_key, out_dir, queue_file, expedition, leg):
             raise RuntimeError(f"{len(pending)} job(s) timed out after {GENERATION_TIMEOUT_S}s")
 
         scored = score_cockpit_batch(results, trial, expedition, leg)
+        thumbs_dir = out_dir / "thumbs"
+        os.makedirs(thumbs_dir, exist_ok=True)
         for m in scored:
-            generate_thumbnail(m["file"], out_dir / "thumbs" / f"{m['tag']}.jpg")
+            generate_thumbnail(m["file"], thumbs_dir / f"{m['tag']}.jpg")
 
         with _lock:
             manifest = _load_scored_manifest(out_dir)
