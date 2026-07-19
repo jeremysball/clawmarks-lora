@@ -39,6 +39,17 @@ def test_render_html_defines_novelty_and_dinov2(tmp_path):
     assert "Novelty measures how unlike an image is from the images already explored" in html
 
 
+def test_sparkline_tooltip_labels_image_count_plainly(tmp_path):
+    manifest = [
+        {"tag": "gen0_a", "prompt_name": "p", "novelty": 0.5},
+        {"tag": "gen1_a", "prompt_name": "p", "novelty": 0.4},
+    ]
+    (tmp_path / "scored_manifest.json").write_text(json.dumps(manifest))
+    html = novelty_decay.render_html(novelty_decay.compute_data(str(tmp_path)))
+    assert "images=${points[i].n}" in html
+    assert "(n=${points[i].n})" not in html
+
+
 def test_render_html_never_emits_a_literal_closing_script_tag(tmp_path):
     """A literal "</script>" substring anywhere before the real closing tag truncates the
     browser's HTML parse of the whole <script> block early -- everything after it is dropped

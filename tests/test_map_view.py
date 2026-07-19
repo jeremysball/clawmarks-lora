@@ -68,6 +68,21 @@ def test_render_html_explains_dinov2_and_calibrates_style_match():
     assert "Play the generation history" in html
 
 
+def test_render_html_uses_plain_faithfulness_label():
+    data = {
+        "points": [{"tag": "a", "x": 0.1, "y": 0.2, "gen": 0, "prompt_name": "p",
+                    "prompt_type": "conflict", "faith": 0.5, "novelty": 0.5,
+                    "category": "seedrun1", "thumb": "thumbs/a.jpg",
+                    "nearest_real": "r0", "nearest_real_sim": 0.9}],
+        "real_points": [{"x": 0.0, "y": 0.0}],
+        "max_gen": 0,
+        "real_anchor_counts": [("r0", 1)],
+    }
+    html = map_view.render_html(data)
+    assert "faithfulness=${p.faith}" in html
+    assert "average=${p.faith}" not in html
+
+
 def test_render_html_never_emits_a_literal_closing_script_tag():
     """A literal "</script>" substring anywhere before the real closing tag truncates the
     browser's HTML parse of the whole <script> block early -- everything after it is dropped

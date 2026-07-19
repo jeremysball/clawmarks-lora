@@ -161,7 +161,7 @@ function sparkline(points) {{
   const xs = points.map((p, i) => pad + i * (w - 2 * pad) / Math.max(1, points.length - 1));
   const ys = points.map(p => h - pad - ((p.novelty - lo) / range) * (h - 2 * pad));
   const path = xs.map((x, i) => `${{i === 0 ? 'M' : 'L'}}${{x.toFixed(1)}},${{ys[i].toFixed(1)}}`).join(' ');
-  const dots = xs.map((x, i) => `<circle cx="${{x.toFixed(1)}}" cy="${{ys[i].toFixed(1)}}" r="2" fill="#7c9eff"><title>gen ${{points[i].gen}}: novelty ${{points[i].novelty}} (n=${{points[i].n}})</title></circle>`).join('');
+  const dots = xs.map((x, i) => `<circle cx="${{x.toFixed(1)}}" cy="${{ys[i].toFixed(1)}}" r="2" fill="#7c9eff"><title>gen ${{points[i].gen}}: novelty ${{points[i].novelty}} (images=${{points[i].n}})</title></circle>`).join('');
   return `<svg viewBox="0 0 ${{w}} ${{h}}" preserveAspectRatio="none" style="width:100%;height:100%;">
     <path d="${{path}}" fill="none" stroke="#7c9eff" stroke-width="1.5"/>${{dots}}</svg>`;
 }}

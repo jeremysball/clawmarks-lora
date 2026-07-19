@@ -354,7 +354,7 @@ function showInfo(p) {{
   img.onclick = () => Lightbox.open(p.tag);
   info.innerHTML = `<b>${{escHtml(p.tag)}}</b><br>gen ${{p.gen}} | ${{escHtml(p.category)}}<br>`
     + `type=${{escHtml(p.prompt_type)}} | prompt=${{escHtml(p.prompt_name)}}<br>`
-    + `style match to your real art's average=${{p.faith}} (range {faith_min:.2f}-{faith_max:.2f}, median {faith_median:.2f} this sweep)<br>`
+    + `style match to your real art's average: faithfulness=${{p.faith}} (range {faith_min:.2f}-{faith_max:.2f}, median {faith_median:.2f} this sweep)<br>`
     + `novelty=${{p.novelty}}<br>`
     + `closest single training photo: ${{escHtml(p.nearest_real)}} (sim ${{p.nearest_real_sim}})`
     + (picks[p.tag] ? '<br><b style="color:#f5c542">picked winner</b>' : '');
